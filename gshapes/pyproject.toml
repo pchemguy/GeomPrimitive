@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gshapes"
+dynamic = ["version"]
+description = "A library for geometric shapes."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "Jules", email = "jules@example.com" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "numpy",
+]
+
+[project.urls]
+Homepage = "https://github.com/pchemguy/gshapes"
+
+[tool.hatch.version]
+path = "src/gshapes/__init__.py"
+
+[tool.hatch.environments.default]
+dependencies = [
+    "pytest",
+    "ruff",
+]
+
+[tool.hatch.envs.default.scripts]
+test = "pytest"
+lint = "ruff check ."
+format = "ruff format ."
+all = [
+  "format",
+  "lint",
+  "test",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "C", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
