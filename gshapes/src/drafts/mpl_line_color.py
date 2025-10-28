@@ -1,3 +1,5 @@
+# https://matplotlib.org/stable/users/explain/colors/colormaps.html
+
 from colorspacious import cspace_converter
 
 import matplotlib.pyplot as plt
