@@ -1,3 +1,7 @@
+# https://matplotlib.org/stable/gallery/lines_bars_and_markers/line_demo_dash_control.html#sphx-glr-gallery-lines-bars-and-markers-line-demo-dash-control-py
+# https://matplotlib.org/stable/gallery/lines_bars_and_markers/joinstyle.html#sphx-glr-gallery-lines-bars-and-markers-joinstyle-py
+# https://matplotlib.org/stable/gallery/lines_bars_and_markers/fill_between_demo.html#sphx-glr-gallery-lines-bars-and-markers-fill-between-demo-py
+
 import random
 import matplotlib.pyplot as plt
 import numpy as np

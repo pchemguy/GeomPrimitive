@@ -1,4 +1,6 @@
 # https://matplotlib.org/stable/users/explain/colors/colormaps.html
+# https://matplotlib.org/stable/gallery/lines_bars_and_markers/multicolored_line.html#sphx-glr-gallery-lines-bars-and-markers-multicolored-line-py
+# https://matplotlib.org/stable/gallery/lines_bars_and_markers/fill_between_demo.html#sphx-glr-gallery-lines-bars-and-markers-fill-between-demo-py
 
 from colorspacious import cspace_converter
 
