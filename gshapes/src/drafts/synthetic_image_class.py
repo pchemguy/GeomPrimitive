@@ -2,6 +2,7 @@ import os
 import random
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Tuple, Union
 from multiprocessing import Pool
@@ -9,13 +10,12 @@ from multiprocessing import Pool
 import numpy as np
 import matplotlib
 
-matplotlib.use("Agg")  # Non-interactive backend (important for multiprocessing)
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.interpolate import splprep, splev
 
 
-# Type alias
 PathLike = Union[str, os.PathLike]
 _worker = None  # Global per-process worker instance
 
@@ -23,13 +23,41 @@ _worker = None  # Global per-process worker instance
 # -----------------------------------------------------------------------------
 # Logging setup
 # -----------------------------------------------------------------------------
-def configure_logging(level: int = logging.INFO) -> None:
-  """Configure global logging format and level."""
-  logging.basicConfig(
-      level=level,
-      format="[%(asctime)s] [%(process)d] %(levelname)s: %(message)s",
-      datefmt="%H:%M:%S",
-  )
+def configure_logging(
+    level: int = logging.INFO,
+    log_dir: Union[str, Path] = "logs",
+    run_prefix: str = "run",
+) -> Path:
+  """
+  Configure console + rotating file logging.
+  Returns the path to the log file for this run.
+  """
+  log_dir = Path(log_dir)
+  log_dir.mkdir(parents=True, exist_ok=True)
+  ts = time.strftime("%Y-%m-%d_%H%M%S")
+  log_path = log_dir / f"{run_prefix}_{ts}.log"
+
+  # PID padded to width 5; level padded to 5
+  fmt = "[%(asctime)s] [%(process)5d] [%(levelname)-5s] %(message)s"
+  datefmt = "%H:%M:%S"
+
+  # Root logger setup
+  logger = logging.getLogger()
+  logger.setLevel(level)
+  for h in list(logger.handlers):
+    logger.removeHandler(h)
+
+  console_handler = logging.StreamHandler()
+  console_handler.setFormatter(logging.Formatter(fmt, datefmt))
+
+  file_handler = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=5)
+  file_handler.setFormatter(logging.Formatter(fmt, datefmt))
+
+  logger.addHandler(console_handler)
+  logger.addHandler(file_handler)
+
+  logger.info(f"Logging initialized - {log_path}")
+  return log_path
 
 
 # -----------------------------------------------------------------------------
@@ -119,7 +147,7 @@ class SyntheticImageWorker:
       self.fig.savefig(
           out, dpi=self.dpi, format="jpg", bbox_inches="tight", pad_inches=0
       )
-      self.logger.debug(f"Saved: {out}")
+      self.logger.debug(f"Saved image: {out}")
       return out, None
     except Exception as e:
       self.logger.error(f"Render failed: {e}")
@@ -136,7 +164,7 @@ class SyntheticImageWorker:
 # -----------------------------------------------------------------------------
 def worker_init():
   global _worker
-  configure_logging()
+  # Workers inherit file handlers automatically
   _worker = SyntheticImageWorker()
 
 
@@ -149,7 +177,7 @@ def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[Excepti
 # Main orchestration
 # -----------------------------------------------------------------------------
 def main():
-  configure_logging()
+  log_path = configure_logging()
   logger = logging.getLogger("main")
 
   BATCH_SIZE = 90
@@ -158,6 +186,7 @@ def main():
   num_cores = max(1, int(os.cpu_count() * 0.75))
 
   logger.info(f"Using {num_cores} workers for {BATCH_SIZE} images...")
+  logger.info(f"Logs written to: {log_path}")
 
   job_paths = [OUTPUT_DIR / f"synthetic_{i:06d}.jpg" for i in range(BATCH_SIZE)]
 
