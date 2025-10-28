@@ -15,9 +15,38 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from scipy.interpolate import splprep, splev
 
+from colorama import Fore, Style, init as colorama_init
 
+
+# -----------------------------------------------------------------------------
+# Type aliases and globals
+# -----------------------------------------------------------------------------
 PathLike = Union[str, os.PathLike]
 _worker = None  # Global per-process worker instance
+
+
+# -----------------------------------------------------------------------------
+# Colorized logging formatter
+# -----------------------------------------------------------------------------
+class ColorFormatter(logging.Formatter):
+  """Adds ANSI colors to log level names for console output."""
+
+  COLORS = {
+      "DEBUG": Fore.CYAN,
+      "INFO": Fore.GREEN,
+      "WARNING": Fore.YELLOW,
+      "ERROR": Fore.RED,
+      "CRITICAL": Fore.RED + Style.BRIGHT,
+  }
+
+  def format(self, record: logging.LogRecord) -> str:
+    color = self.COLORS.get(record.levelname, "")
+    reset = Style.RESET_ALL
+    # Keep PID and level aligned
+    record.process_str = f"{record.process:5d}"
+    record.level_str = f"{record.levelname:<5s}"
+    msg = f"[{self.formatTime(record, self.datefmt)}] [{record.process_str}] [{color}{record.level_str}{reset}] {record.getMessage()}"
+    return msg
 
 
 # -----------------------------------------------------------------------------
@@ -29,29 +58,32 @@ def configure_logging(
     run_prefix: str = "run",
 ) -> Path:
   """
-  Configure console + rotating file logging.
+  Configure colorized console + rotating file logging.
   Returns the path to the log file for this run.
   """
+  colorama_init()  # Safe on all platforms
+
   log_dir = Path(log_dir)
   log_dir.mkdir(parents=True, exist_ok=True)
   ts = time.strftime("%Y-%m-%d_%H%M%S")
   log_path = log_dir / f"{run_prefix}_{ts}.log"
 
-  # PID padded to width 5; level padded to 5
-  fmt = "[%(asctime)s] [%(process)5d] [%(levelname)-5s] %(message)s"
+  # Monochrome format (for file handler)
+  mono_fmt = "[%(asctime)s] [%(process)5d] [%(levelname)-5s] %(message)s"
   datefmt = "%H:%M:%S"
 
-  # Root logger setup
   logger = logging.getLogger()
   logger.setLevel(level)
   for h in list(logger.handlers):
     logger.removeHandler(h)
 
+  # --- Console handler with color ---
   console_handler = logging.StreamHandler()
-  console_handler.setFormatter(logging.Formatter(fmt, datefmt))
+  console_handler.setFormatter(ColorFormatter(datefmt=datefmt))
 
+  # --- File handler (no color, aligned) ---
   file_handler = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=5)
-  file_handler.setFormatter(logging.Formatter(fmt, datefmt))
+  file_handler.setFormatter(logging.Formatter(mono_fmt, datefmt))
 
   logger.addHandler(console_handler)
   logger.addHandler(file_handler)
@@ -61,7 +93,7 @@ def configure_logging(
 
 
 # -----------------------------------------------------------------------------
-# Worker class
+# SyntheticImageWorker class
 # -----------------------------------------------------------------------------
 class SyntheticImageWorker:
   """Encapsulates a per-process Matplotlib figure, drawing logic, and saving."""
@@ -164,7 +196,7 @@ class SyntheticImageWorker:
 # -----------------------------------------------------------------------------
 def worker_init():
   global _worker
-  # Workers inherit file handlers automatically
+  # Workers inherit logging handlers
   _worker = SyntheticImageWorker()
 
 
