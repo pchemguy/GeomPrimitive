@@ -159,11 +159,7 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
             last_type = seg_type
         last_length = seg_len
 
-        last_length = seg_len  # Track the last segment length for trailing adjustment
-
-    # Ensure the pattern alternates between on/off - must have an even number of entries
     if len(segments) % 2 != 0:
-        # Append a final "off" segment equal to the last dash length
         segments.append(last_length)
 
     return (0, tuple(segments))
