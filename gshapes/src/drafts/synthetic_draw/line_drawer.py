@@ -100,17 +100,18 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
+    # Case 1: no pattern provided - generate random dash pattern
     if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
         if not hand_drawn:
             pattern = tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5)))
-        else:
-            base_len: float = float(random.randint(1, 5))
-            pattern = tuple(
-                base_len * (1 + max(-6, min(round(random.normalvariate(mu=0.0, sigma=2.0)), 6)) / 6 * 0.05),
-                base_len * (1 + max(-6, min(round(random.normalvariate(mu=0.0, sigma=2.0)), 6)) / 6 * 0.05) * 0.5
-                for _ in range(random.randint(10, 20))
-            )
+            return (0, pattern)
 
+        base_len: float = float(random.randint(1, 5))
+        pattern = tuple(val for _ in range(random.randint(10, 20)) for val in (
+                base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05),
+                base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05) * 0.5,
+            )
+        )        
         return (0, pattern)
 
     if not isinstance(pattern, str):
