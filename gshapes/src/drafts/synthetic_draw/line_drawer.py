@@ -13,7 +13,8 @@ from typing import Any, Dict, Sequence, Union, Tuple, Optional, List
 
 import numpy as np
 import matplotlib as mpl
-# Use a non-interactive backend for multiprocessing workers
+
+# Use a non-interactive backend (safe for multiprocessing workers)
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
