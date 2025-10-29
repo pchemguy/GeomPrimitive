@@ -189,6 +189,7 @@ def _get_color(color: Any | None) -> Union[str, Tuple[float, float, float]]:
 def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
                 orientation: Union[str, int, None], hand_drawn: Optional[bool] = True,
                ) -> Tuple[List[float], List[float]]:
+    """Generate (x, y) coordinates for a line based on orientation."""
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
     if not isinstance(orientation, str):
