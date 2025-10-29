@@ -62,6 +62,10 @@ class RNG:
         with self._lock:
             return self._rng.normalvariate(mu, sigma)
 
+    def random(self) -> float:
+        with self._lock:
+            return self._rng.random()
+
     # -------------------------------------------------------------------------
     # Utilities
     # -------------------------------------------------------------------------
@@ -96,8 +100,8 @@ def set_global_seed(seed: int) -> None:
     """Re-seed the global RNG and NumPy RNG if available."""
     global _global_rng
     _global_rng.seed(seed)
-    try:
+    import importlib
+    np = importlib.util.find_spec("numpy")
+    if np:
         import numpy as np
         np.random.seed(seed)
-    except Exception:
-        pass

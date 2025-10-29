@@ -8,7 +8,6 @@ Supports random or user-specified line styles, colors, and orientations.
 
 import os
 import sys
-import random
 import math
 import contextlib
 from typing import Any, Dict, Sequence, Union, Tuple, Optional, List
@@ -29,9 +28,9 @@ from matplotlib._enums import JoinStyle, CapStyle
 # -----------------------------------------------------------------------------
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from rng import get_rng, set_global_seed
+    from rng import RNG, get_rng
 else:
-    from .rng import get_rng, set_global_seed
+    from .rng import RNG, get_rng
 
 
 # -----------------------------------------------------------------------------
@@ -40,14 +39,8 @@ else:
 # For most cases, use thread-local RNGs (fast, no locks).
 # Multiprocessing workers are already PID-isolated.
 #
-def _rng() -> "RNG":
+def _rng() -> RNG:
     return get_rng(thread_safe=True)
-
-
-def set_rng_seed(seed: int) -> None:
-    """Set deterministic seed for global RNG (for reproducible plots)."""
-    set_global_seed(seed)
-    np.random.seed(seed)
 
 
 # =============================================================================
@@ -77,7 +70,6 @@ def draw_line(ax: Axes,
         alpha: Opacity in [0, 1].
         orientation: "horizontal", "vertical", "diagonal_primary", or "diagonal_auxiliary".
         hand_drawn: If True, use XKCD mode and randomized jitter.
-        seed: Optional RNG seed for deterministic behavior.
     
     Returns:
         TODO: Metadata
@@ -85,9 +77,11 @@ def draw_line(ax: Axes,
     if not isinstance(ax, Axes):
         raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
     
+    rand: RNG = _rng()
+    
     # Determine hand-drawn style
     if hand_drawn is None:
-        hand_drawn = _rng.choice([False, True])
+        hand_drawn = rand.choice([False, True])
     elif not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
@@ -96,7 +90,7 @@ def draw_line(ax: Axes,
 
     # Normalize alpha
     if alpha is None:
-        alpha = _rng.uniform(0.0, 1.0)
+        alpha = rand.uniform(0.0, 1.0)
     elif isinstance(alpha, (int, float)):
         alpha = max(0.0, min(alpha, 1.0))
     else:
@@ -116,12 +110,12 @@ def draw_line(ax: Axes,
             y,
             color=color_tuple,
             alpha=alpha,
-            linewidth=linewidth or _rng.choice(DEFAULT_LINEWIDTHS),
+            linewidth=linewidth or rand.choice(DEFAULT_LINEWIDTHS),
             linestyle=_get_linestyle(pattern, hand_drawn),
-            solid_capstyle=_rng.choice(list(CapStyle)),
-            solid_joinstyle=_rng.choice(list(JoinStyle)),
-            dash_capstyle=_rng.choice(list(CapStyle)),
-            dash_joinstyle=_rng.choice(list(JoinStyle)),
+            solid_capstyle=rand.choice(list(CapStyle)),
+            solid_joinstyle=rand.choice(list(JoinStyle)),
+            dash_capstyle=rand.choice(list(CapStyle)),
+            dash_joinstyle=rand.choice(list(JoinStyle)),
         )
 
 
@@ -131,19 +125,21 @@ def draw_line(ax: Axes,
 def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = True
                   ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
     """Convert textual or tuple pattern into a Matplotlib dash tuple."""
+    rand: RNG = _rng()
+
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
     # Case 1: no pattern provided - generate random dash pattern
     if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
         if not hand_drawn:
-            pattern = tuple(_rng.randint(1, 5) for _ in range(2 * _rng.randint(1, 5)))
+            pattern = tuple(rand.randint(1, 5) for _ in range(2 * rand.randint(1, 5)))
             return (0, pattern)
 
-        base_len: float = float(_rng.randint(1, 5))
-        pattern = tuple(val for _ in range(_rng.randint(10, MAX_PATTERN_LENGTH)) for val in (
-                max(0.5, base_len * (1 + max(-6, min(round(_rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
-                max(0.5, base_len * (1 + max(-6, min(round(_rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 0.5),
+        base_len: float = float(rand.randint(1, 5))
+        pattern = tuple(val for _ in range(rand.randint(10, MAX_PATTERN_LENGTH)) for val in (
+                max(0.5, base_len * (1 + max(-6, min(round(rand.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
+                max(0.5, base_len * (1 + max(-6, min(round(rand.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 0.5),
             )
         )        
         return (0, pattern)
@@ -163,6 +159,8 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
 
 def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
     """Convert a symbolic pattern string into a Matplotlib-compatible linestyle."""
+    rand: RNG = _rng()
+
     if not isinstance(pattern, str):
         raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
 
@@ -176,7 +174,7 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
     pattern = pattern.lstrip()
     if not pattern:
         # Empty - random fallback
-        return (0, tuple(_rng.randint(1, 5) for _ in range(2 * _rng.randint(1, 5))))
+        return (0, tuple(rand.randint(1, 5) for _ in range(2 * rand.randint(1, 5))))
 
     segments: List[int] = []
     last_type: Optional[str] = None
@@ -201,8 +199,11 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
 
 def _get_color(color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
     """Select or generate a line color."""
+    rand: RNG = _rng()
+    CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
+
     if color is None or not str(color).strip():
-        return _rng.choice(list(colors.CSS4_COLORS.keys()))
+        return rand.choice(list(CSS4_COLOR_NAMES))
 
     if isinstance(color, tuple):
         return color
@@ -211,7 +212,7 @@ def _get_color(color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
         raise TypeError(f"Unsupported color type: {type(color).__name__}")
 
     color = color.strip().lower()
-    if color in colors.CSS4_COLORS.keys():
+    if color in CSS4_COLOR_NAMES:
         return color
 
     # Accept plural CSS4 color names (simply extra "s" suffix),
@@ -222,7 +223,7 @@ def _get_color(color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
 
     rgb = mpl.colors.to_rgb(base_color)
     scale_max = max(rgb)
-    scale = _rng.uniform(0.1, 1 / scale_max if scale_max > 0 else 1)
+    scale = rand.uniform(0.1, 1 / scale_max if scale_max > 0 else 1)
     return tuple(np.clip(component * scale, 0, 1) for component in rgb)
 
 
@@ -230,13 +231,15 @@ def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
                 orientation: Union[str, int, None], hand_drawn: Optional[bool] = True,
                ) -> Tuple[List[float], List[float]]:
     """Generate (x, y) coordinates for a line based on orientation."""
+    rand: RNG = _rng()
+
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
     if orientation is None:
         return (
-            [_rng.uniform(xmin, xmax), _rng.uniform(xmin, xmax)],
-            [_rng.uniform(ymin, ymax), _rng.uniform(ymin, ymax)],
+            [rand.uniform(xmin, xmax), rand.uniform(xmin, xmax)],
+            [rand.uniform(ymin, ymax), rand.uniform(ymin, ymax)],
         )
 
     if isinstance(orientation, (int, float)):
@@ -258,29 +261,29 @@ def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
 
     angle_delta = 0
     if hand_drawn:
-        angle_delta = int(round(_rng.normal(0.0, 2.0)))
+        angle_delta = int(round(rand.normal(0.0, 2.0)))
         angle_delta = max(-MAX_ANGLE_JITTER, min(angle_delta, MAX_ANGLE_JITTER))
 
     angle_deg += angle_delta
     if angle_deg > 90:
         angle_deg -= 180
 
-    x1 = _rng.uniform(xmin, 0.75 * xmax)
-    y1 = _rng.uniform(ymin, 0.75 * ymax)
+    x1 = rand.uniform(xmin, 0.75 * xmax)
+    y1 = rand.uniform(ymin, 0.75 * ymax)
 
     if abs(angle_deg) == 90:
         x2 = x1
-        y2 = _rng.uniform(y1 + 1, ymax)
+        y2 = rand.uniform(y1 + 1, ymax)
         return [x1, x2], [y1, y2]
 
     slope: float = math.tan(math.radians(angle_deg))
 
     if angle_deg == 0 or abs(slope) < 1e-6:
-        x2 = _rng.uniform(x1 + 1, xmax)
+        x2 = rand.uniform(x1 + 1, xmax)
         y2 = y1
     else:
         xmax_adjusted: float = min(xmax, x1 + (ymax - y1) / slope)
-        x2 = min(xmax, _rng.uniform(x1 + 1, xmax_adjusted))
+        x2 = min(xmax, rand.uniform(x1 + 1, xmax_adjusted))
         y2 = min(ymax, y1 + slope * (x2 - x1))
 
     x2 = np.clip(x2, xmin, xmax)
