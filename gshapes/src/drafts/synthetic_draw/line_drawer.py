@@ -59,7 +59,8 @@ def draw_line(ax: Axes,
     elif not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
-    color = _get_color(color)
+    # Select color
+    color_tuple = _get_color(color)
 
     if alpha is None:
         alpha = random.uniform(0.0, 1.0)
