@@ -245,6 +245,9 @@ def _get_coords(xmin: float, ymin: float,
     if abs(angle_deg) == 90:
         x2 = x1
         y2 = random.uniform(y1 + 1, ymax)
+    elif angle_deg == 0:
+        x2 = random.uniform(x1 + 1, xmax)
+        y2 = y1
     else:
         slope: float = math.tan(math.radians(angle_deg))
         xmax_adjusted: float = min(xmax, x1 + (ymax - y1) / slope)
