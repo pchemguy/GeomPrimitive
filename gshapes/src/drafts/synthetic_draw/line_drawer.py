@@ -145,20 +145,19 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
         return (0, tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5))))
 
     segments: List[int] = []
-    last_type: str | None = None
+    last_type: Optional[str] = None
     last_length: int = 0
 
     for ch in pattern:
         if ch not in mapping:
             raise ValueError(f'Invalid character "{ch!r}" in pattern "{pattern}"')
         seg_type, seg_len = mapping[ch]
-
-        # If same type as previous, extend the segment
         if seg_type == last_type and segments:
             segments[-1] += seg_len
         else:
             segments.append(seg_len)
             last_type = seg_type
+        last_length = seg_len
 
         last_length = seg_len  # Track the last segment length for trailing adjustment
 
