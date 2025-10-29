@@ -37,7 +37,17 @@ def draw_line(ax: Axes,
     """Draw a single line on a given Matplotlib axis.
 
     Args:
-            ax: Target Matplotlib Axes object.
+        ax: Target Matplotlib Axes object.
+        linewidth: Optional explicit line width.
+        pattern: Pattern string ("--__-.", etc.) or named style.
+        color: Optional CSS4 color name or RGB tuple.
+        alpha: Opacity in [0, 1].
+        orientation: "horizontal", "vertical", "diagonal_primary", or "diagonal_auxiliary".
+        hand_drawn: If True, use XKCD mode and randomized jitter.
+        seed: Optional RNG seed for deterministic behavior.
+    
+    Returns:
+        The created Matplotlib Line2D object.
     """
     if hand_drawn is None:
         hand_drawn = hand_drawn or random.choice([False, True])
