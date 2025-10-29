@@ -192,35 +192,39 @@ def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
     """Generate (x, y) coordinates for a line based on orientation."""
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
-    if not isinstance(orientation, str):
-        raise TypeError(f"Unsupported orientation type: {type(orientation).__name__}")
-    orientation = orientation.strip().lower()
 
-    angle_delta: int = 0
-    if hand_drawn:
-        angle_delta = int(round(random.normalvariate(mu=0.0, sigma=2.0)))
-        angle_delta = max(-5, min(angle_delta, 5))
+    if orientation is None:
+        return [random.uniform(xmin, xmax), random.uniform(xmin, xmax)],
+               [random.uniform(ymin, ymax), random.uniform(ymin, ymax)]
 
-    angle_deg: int
-    if orientation == "horizontal":
-        angle_deg = 0
-    elif orientation == "vertical":
-        angle_deg = 90
-    elif orientation == "diagonal_primary":
-        angle_deg = 45
-    elif orientation == "diagonal_auxiliary":
-        angle_deg = -45
+    if isinstance(orientation, (int, float)):
+         angle_deg = ((orientation + 90) % 180) - 90
+    elif isinstance(orientation, str):
+        orientation = orientation.strip().lower()
+        if orientation == "horizontal":
+            angle_deg = 0
+        elif orientation == "vertical":
+            angle_deg = 90
+        elif orientation == "diagonal_primary":
+            angle_deg = 45
+        elif orientation == "diagonal_auxiliary":
+            angle_deg = -45
+        else:
+            raise ValueError(f"Invalid orientation value: {orientation}")
     else:
-        raise ValueError(f"Invalid orientation value: {orientation}.")
+        raise TypeError(f"Unsupported orientation type: {type(orientation).__name__}")
+
+    angle_delta = 0
+    if hand_drawn:
+        angle_delta = int(round(random.normalvariate(0.0, 2.0)))
+        angle_delta = max(-5, min(angle_delta, 5))
 
     angle_deg += angle_delta
     if angle_deg > 90:
-      angle_deg -= 180
+        angle_deg -= 180
 
-    x1: float = random.uniform(xmin, 0.75 * xmax)
-    y1: float = random.uniform(ymin, 0.75 * ymax)
-    x2: float
-    y2: float
+    x1 = random.uniform(xmin, 0.75 * xmax)
+    y1 = random.uniform(ymin, 0.75 * ymax)
 
     if abs(angle_deg) == 90:
         x2 = x1
