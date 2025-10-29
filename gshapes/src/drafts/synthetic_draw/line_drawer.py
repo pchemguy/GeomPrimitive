@@ -13,6 +13,7 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from matplotlib import colors
 from matplotlib._enums import JoinStyle, CapStyle
 
 
@@ -71,14 +72,27 @@ def draw_line(ax: Axes,
 # =============================================================================
 def _get_linestyle(pattern: Optional[str] = None,
                    hand_drawn: Optional[bool] = True
-                  ) -> str | Tuple[int, ...]:
+                  ) -> str | Tuple[int | float, ...]:
     """Convert textual or tuple pattern into a Matplotlib dash tuple.
 
     Returns:
             A tuple (on_off_sequence) or String for named styles.
     """
+    if not isinstance(hand_drawn, bool):
+        raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
+
     if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
-        return (0, tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5)))
+        if not hand_drawn:
+            pattern = tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5)))
+        else:
+            base_len: float = float(random.randint(1, 5))
+            pattern = tuple(
+                base_len * (1 + max(-6, min(round(random.normalvariate(mu=0.0, sigma=2.0)), 6)) / 6 * 0.05),
+                base_len * (1 + max(-6, min(round(random.normalvariate(mu=0.0, sigma=2.0)), 6)) / 6 * 0.05) * 0.5
+                for _ in range(random.randint(10, 20))
+            )
+
+        return (0, pattern)
 
     if not isinstance(pattern, str):
         raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
@@ -228,7 +242,7 @@ def _get_coords(xmin: float, ymin: float,
     x2: float
     y2: float
 
-    if math.abs(angle_deg) == 90:
+    if abs(angle_deg) == 90:
         x2 = x1
         y2 = random.uniform(y1 + 1, ymax)
     else:
