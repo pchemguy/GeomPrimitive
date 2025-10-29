@@ -1,5 +1,9 @@
 """
 line_drawer.py
+--------------
+
+Generates and draws stylized or 'hand-drawn' lines on a Matplotlib axis.
+Supports random or user-specified line styles, colors, and orientations.
 """
 
 import random
