@@ -144,7 +144,6 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
         # Empty - random fallback
         return (0, tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5))))
 
-    # Sequentially build the pattern by merging consecutive segments of the same type
     segments: List[int] = []
     last_type: str | None = None
     last_length: int = 0
