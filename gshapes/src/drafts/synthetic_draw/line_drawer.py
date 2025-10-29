@@ -120,12 +120,11 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
     # Case 2: named styles
     pattern_lower = pattern.lower().strip()
     named_styles = {"solid", "-", "dotted", ":", "dashed", "--", "dashdot", "-."}
+    if pattern_lower in named_styles:
+        return pattern_lower
 
-    
-    if pattern_lower.strip() in named_styles:
-        return pattern_lower.strip()  # Case 1: recognized named pattern
-    else:
-        return _pattern_to_linestyle(pattern) # Case 2: symbolic pattern string ("--__." etc.)
+    # Case 3: symbolic ("--__-." etc.)
+    return _pattern_to_linestyle(pattern)
 
 
 def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int, ...]]:
