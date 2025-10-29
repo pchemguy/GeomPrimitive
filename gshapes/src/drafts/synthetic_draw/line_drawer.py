@@ -131,8 +131,7 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
     """Convert a symbolic pattern string into a Matplotlib-compatible linestyle."""
     if not isinstance(pattern, str):
         raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
-    
-    # Character mapping: defines whether each symbol is "on" or "off" and its length
+
     mapping: dict[str, Tuple[str, int]] = {
         " ": ("off", 1),
         "_": ("off", 4),
@@ -140,7 +139,6 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
         ".": ("on", 1),
     }
 
-    # Remove leading spaces, as they do not contribute to the offset
     pattern = pattern.lstrip(" ")
     if not pattern:
         raise ValueError("Pattern is empty after trimming leading spaces.")
