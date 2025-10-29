@@ -49,6 +49,11 @@ def draw_line(ax: Axes,
     Returns:
         The created Matplotlib Line2D object.
     """
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+    # Determine hand-drawn style
     if hand_drawn is None:
         hand_drawn = hand_drawn or random.choice([False, True])
     elif not isinstance(hand_drawn, bool):
