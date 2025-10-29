@@ -139,7 +139,7 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
         ".": ("on", 1),
     }
 
-    pattern = pattern.lstrip(" ")
+    pattern = pattern.lstrip()
     if not pattern:
         raise ValueError("Pattern is empty after trimming leading spaces.")
 
