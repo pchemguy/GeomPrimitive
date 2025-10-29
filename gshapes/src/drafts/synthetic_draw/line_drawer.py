@@ -62,6 +62,7 @@ def draw_line(ax: Axes,
     # Select color
     color_tuple = _get_color(color)
 
+    # Normalize alpha
     if alpha is None:
         alpha = random.uniform(0.0, 1.0)
     elif isinstance(alpha, (int, float)):
