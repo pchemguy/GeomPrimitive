@@ -176,22 +176,18 @@ def _get_color(color: Any | None) -> Union[str, Tuple[float, float, float]]:
     if not isinstance(color, str):
         raise TypeError(f"Unsupported color type: {type(color).__name__}")
 
-    scale_max: float = max(_color)
-    scale_max = 1 / scale_max if scale_max > 0 else 1
-    scale = random.uniform(0.1, scale_max)
-    _color = tuple(component * scale for component in _color)
-    return _color
-
-
-def _get_coords(xmin: float, ymin: float,
-                xmax: float, ymax: float,
-                orientation: Union[str, int],
-                hand_drawn: Optional[bool] = True
     base_color = colors.CSS4_COLORS.get(color.strip().lower())[:-1]
     if base_color is None:
         raise ValueError(f"Invalid color value: {color}")
 
     rgb = mpl.colors.to_rgb(base_color)
+    scale_max = max(rgb)
+    scale = random.uniform(0.1, 1 / scale_max if scale_max > 0 else 1)
+    return tuple(component * scale for component in rgb)
+
+
+def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
+                orientation: Union[str, int, None], hand_drawn: Optional[bool] = True,
                ) -> Tuple[List[float], List[float]]:
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
