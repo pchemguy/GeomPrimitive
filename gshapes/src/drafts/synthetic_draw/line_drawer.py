@@ -7,6 +7,7 @@ import math
 import contextlib
 from typing import Any, Dict, Sequence, Union, Tuple, Optional
 
+import numpy as np
 import matplotlib
 # Use a non-interactive backend for multiprocessing workers
 matplotlib.use("Agg")
@@ -19,6 +20,7 @@ def draw_line(ax: Axes,
               linewidth: Optional[float] = None,
               linepattern: Optional[str] = None,
               linecolor: Optional[str] = None,
+              alpha: Optional[float] = None,
               hand_drawn: Optional[bool] = None,
               **kwargs: Any) -> str:
     """Draw a single line on a given Matplotlib axis.
@@ -33,7 +35,17 @@ def draw_line(ax: Axes,
     y_min: int = math.floor(_axis_limits[0])
     y_max: int = math.ceil(_axis_limits[1])
 
-    hand_drawn = hand_drawn or random.choice([False, True])
+    if hand_drawn is None:
+        hand_drawn = hand_drawn or random.choice([False, True])
+    elif not isinstance(hand_drawn, bool):
+        raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
+
+    if alpha is None:
+        alpha = random.uniform(0.0, 1.0)
+    elif isinstance(alpha, (int, float)):
+        alpha = float(np.clip(alpha, 0.0, 1.0))
+    else:
+        raise TypeError(f"Unsupported alpha type: {type(alpha).__name__}")
 
     color = _get_color(kwargs.get("color"))
 
@@ -62,7 +74,7 @@ def _get_linestyle(linepattern: str | None) -> str | Tuple[int, ...]:
         return (0, tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5)))
 
     if not isinstance(linepattern, str):
-        raise TypeError(f"Unsupported pattern type: {type(linepattern).__name__}")
+        raise TypeError(f"Unsupported linepattern type: {type(linepattern).__name__}")
     
     # linepattern is str below this line
     
