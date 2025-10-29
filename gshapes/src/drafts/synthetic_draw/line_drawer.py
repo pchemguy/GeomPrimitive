@@ -1,0 +1,189 @@
+"""
+line_drawer.py
+"""
+
+import random
+import math
+import contextlib
+from typing import Any, Dict, Sequence, Union, Tuple, Optional
+
+import matplotlib
+# Use a non-interactive backend for multiprocessing workers
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib._enums import JoinStyle, CapStyle
+
+
+def draw_line(ax: Axes,
+              linewidth: Optional[float] = None,
+              linepattern: Optional[str] = None,
+              linecolor: Optional[str] = None,
+              hand_drawn: Optional[bool] = None,
+              **kwargs: Any) -> str:
+    """Draw a single line on a given Matplotlib axis.
+
+    Args:
+            ax: Target Matplotlib Axes object.
+    """
+    _axis_limits: Tuple[float, float] = ax.get_xlim()
+    x_min: int = math.floor(_axis_limits[0])
+    x_max: int = math.ceil(_axis_limits[1])
+    _axis_limits: Tuple[float, float] = ax.get_ylim()
+    y_min: int = math.floor(_axis_limits[0])
+    y_max: int = math.ceil(_axis_limits[1])
+
+    hand_drawn = hand_drawn or random.choice([False, True])
+
+    color = _get_color(kwargs.get("color"))
+
+    with plt.xkcd() if hand_drawn else contextlib.nullcontext():
+        line, = ax.plot(
+            x,
+            y,
+            color=color,
+            linewidth=linewidth or random.choice([1.0, 1.5, 2.0, 2.5, 3.0]),
+            linestyle=_get_linestyle(linepattern),
+            solid_capstyle=random.choice(list(CapStyle)),
+            solid_joinstyle=random.choice(list(JoinStyle))
+        )
+
+
+# =============================================================================
+# Private helpers
+# =============================================================================
+def _get_linestyle(linepattern: str | None) -> str | Tuple[int, ...]:
+    """Convert textual or tuple pattern into a Matplotlib dash tuple.
+
+    Returns:
+            A tuple (on_off_sequence) or String for named styles.
+    """
+    if linepattern is None or (isinstance(linepattern, str) and not linepattern.strip()):
+        return (0, tuple(random.randint(1, 5) for _ in range(2 * random.randint(1, 5)))
+
+    if not isinstance(linepattern, str):
+        raise TypeError(f"Unsupported pattern type: {type(linepattern).__name__}")
+    
+    # linepattern is str below this line
+    
+    linepattern_lower = linepattern.lower()
+    named_styles = {"solid", "-", "dotted", ":", "dashed", "--", "dashdot", "-."}
+
+    
+    if linepattern_lower.strip() in named_styles:
+        return linepattern_lower.strip()  # Case 1: recognized named pattern
+    else:
+        return _pattern_to_linestyle(linepattern) # Case 2: symbolic pattern string ("--__." etc.)
+
+
+def _pattern_to_linestyle(linepattern: str) -> Tuple[int, Tuple[int, ...]]:
+    """
+    Convert a symbolic pattern string into a Matplotlib-compatible linestyle.
+
+    Rules:
+        - ' ' : off (gap) of 1 unit
+        - '_' : off (gap) of 4 units
+        - '-' : on  (dash) of 4 units
+        - '.' : on  (dash) of 1 unit
+        - Leading spaces are ignored (no offset)
+        - If the pattern does not end with an off-segment,
+          an additional off-segment equal to the last dash length is appended.
+
+    Random pattern generation:
+        - Pattern length = 2N, where N in [1, 5]
+        - Each on/off length in [1, 5]
+
+    Args:
+        linepattern (str): Pattern string containing ' ', '_', '-', and '.' characters.
+
+    Returns:
+        Tuple[int, Tuple[int, ...]]: A Matplotlib linestyle tuple `(offset, pattern)`.
+
+    Example:
+        >>> pattern_to_linestyle("--__-.  ")
+        (0, (8, 8, 5, 2))
+        >>> pattern_to_linestyle("_--__-.")
+        (0, (8, 8, 5, 5))
+        >>> pattern_to_linestyle("")
+        (0, (3, 5, 2, 4))
+    """
+    if not isinstance(linepattern, str):
+        raise TypeError(f"Unsupported pattern type: {type(linepattern).__name__}")
+    
+    # Character mapping: defines whether each symbol is "on" or "off" and its length
+    mapping: dict[str, Tuple[str, int]] = {
+        " ": ("off", 1),
+        "_": ("off", 4),
+        "-": ("on", 4),
+        ".": ("on", 1),
+    }
+
+    # Remove leading spaces, as they do not contribute to the offset
+    linepattern = linepattern.lstrip(" ")
+    if not linepattern:
+        raise ValueError("Pattern is empty after trimming leading spaces.")
+
+    # Sequentially build the pattern by merging consecutive segments of the same type
+    segments: List[int] = []
+    last_type: str | None = None
+    last_length: int = 0
+
+    for ch in linepattern:
+        if ch not in mapping:
+            raise ValueError(f'Invalid character "{ch!r}" in pattern "{linepattern}"')
+        seg_type, seg_len = mapping[ch]
+
+        # If same type as previous, extend the segment
+        if seg_type == last_type and segments:
+            segments[-1] += seg_len
+        else:
+            segments.append(seg_len)
+            last_type = seg_type
+
+        last_length = seg_len  # Track the last segment length for trailing adjustment
+
+    # Ensure the pattern alternates between on/off - must have an even number of entries
+    if len(segments) % 2 != 0:
+        # Append a final "off" segment equal to the last dash length
+        segments.append(last_length)
+
+    return (0, tuple(segments))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def _get_color(value: Any | None) -> str:
+    """Select a line color."""
+    if value:
+        return str(value)
+    palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd"]
+    return random.choice(palette)
+
+
+def _get_render_style(value: Any | None) -> str:
+    """Determine line style keyword for Matplotlib."""
+    valid_styles = ["solid", "dashed", "dashdot", "dotted"]
+    if value in valid_styles:
+        return value
+    return "solid"
