@@ -94,14 +94,9 @@ def draw_line(ax: Axes,
 # =============================================================================
 # Private helpers
 # =============================================================================
-def _get_linestyle(pattern: Optional[str] = None,
-                   hand_drawn: Optional[bool] = True
-                  ) -> str | Tuple[int | float, ...]:
-    """Convert textual or tuple pattern into a Matplotlib dash tuple.
-
-    Returns:
-            A tuple (on_off_sequence) or String for named styles.
-    """
+def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = True
+                  ) -> str | Tuple[int, Tuple[int | float, ...]]:
+    """Convert textual or tuple pattern into a Matplotlib dash tuple."""
     if not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
