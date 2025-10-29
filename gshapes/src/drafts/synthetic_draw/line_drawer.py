@@ -127,37 +127,8 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
     return _pattern_to_linestyle(pattern)
 
 
-def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int, ...]]:
-    """
-    Convert a symbolic pattern string into a Matplotlib-compatible linestyle.
-
-    Rules:
-        - ' ' : off (gap) of 1 unit
-        - '_' : off (gap) of 4 units
-        - '-' : on  (dash) of 4 units
-        - '.' : on  (dash) of 1 unit
-        - Leading spaces are ignored (no offset)
-        - If the pattern does not end with an off-segment,
-          an additional off-segment equal to the last dash length is appended.
-
-    Random pattern generation:
-        - Pattern length = 2N, where N in [1, 5]
-        - Each on/off length in [1, 5]
-
-    Args:
-        pattern (str): Pattern string containing ' ', '_', '-', and '.' characters.
-
-    Returns:
-        Tuple[int, Tuple[int, ...]]: A Matplotlib linestyle tuple `(offset, pattern)`.
-
-    Example:
-        >>> pattern_to_linestyle("--__-.  ")
-        (0, (8, 8, 5, 2))
-        >>> pattern_to_linestyle("_--__-.")
-        (0, (8, 8, 5, 5))
-        >>> pattern_to_linestyle("")
-        (0, (3, 5, 2, 4))
-    """
+def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
+    """Convert a symbolic pattern string into a Matplotlib-compatible linestyle."""
     if not isinstance(pattern, str):
         raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
     
