@@ -79,7 +79,7 @@ def draw_line(ax: Axes,
     )
 
     with plt.xkcd() if hand_drawn else contextlib.nullcontext():
-        line, = ax.plot(
+        ax.plot(
             x,
             y,
             color=color,
