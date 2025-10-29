@@ -55,7 +55,7 @@ def draw_line(ax: Axes,
 
     # Determine hand-drawn style
     if hand_drawn is None:
-        hand_drawn = hand_drawn or random.choice([False, True])
+        hand_drawn = random.choice([False, True])
     elif not isinstance(hand_drawn, bool):
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
