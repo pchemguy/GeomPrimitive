@@ -32,7 +32,7 @@ def draw_line(ax: Axes,
               alpha: Optional[float] = None,
               orientation: Optional[Union[str, int]] = None,
               hand_drawn: Optional[bool] = None,
-              **kwargs: Any
+              seed: Optional[int] = None
              ) -> str:
     """Draw a single line on a given Matplotlib axis.
 
