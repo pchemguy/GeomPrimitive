@@ -116,10 +116,9 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
 
     if not isinstance(pattern, str):
         raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
-    
-    # pattern is str below this line
-    
-    pattern_lower = pattern.lower()
+
+    # Case 2: named styles
+    pattern_lower = pattern.lower().strip()
     named_styles = {"solid", "-", "dotted", ":", "dashed", "--", "dashdot", "-."}
 
     
