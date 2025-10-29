@@ -22,6 +22,9 @@ from matplotlib import colors
 from matplotlib._enums import JoinStyle, CapStyle
 
 
+# =============================================================================
+# Public API
+# =============================================================================
 def draw_line(ax: Axes,
               linewidth: Optional[float] = None,
               pattern: Optional[str] = None,
