@@ -23,19 +23,31 @@ from matplotlib.axes import Axes
 from matplotlib import colors
 from matplotlib._enums import JoinStyle, CapStyle
 
+
+# -----------------------------------------------------------------------------
+# Import thread-safe RNG utilities
+# -----------------------------------------------------------------------------
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from rng import RNG
+    from rng import get_rng, set_global_seed
 else:
-    from .rng import RNG
+    from .rng import get_rng, set_global_seed
 
-_rng = RNG()
+
+# -----------------------------------------------------------------------------
+# RNG access
+# -----------------------------------------------------------------------------
+# For most cases, use thread-local RNGs (fast, no locks).
+# Multiprocessing workers are already PID-isolated.
+#
+def _rng() -> "RNG":
+    return get_rng(thread_safe=True)
+
 
 def set_rng_seed(seed: int) -> None:
-    global _rng
-    if seed is not None:
-        _rng = RNG(seed)
-        np.random.seed(seed)
+    """Set deterministic seed for global RNG (for reproducible plots)."""
+    set_global_seed(seed)
+    np.random.seed(seed)
 
 
 # =============================================================================

@@ -725,3 +725,254 @@ Still safe — `draw_line()` uses per-thread RNGs.
 | `worker.py`      | seeds RNG per process, logs independently                | process safe          | no locks, no sharing |
 
 ---
+
+## 🧠 1️⃣ What the comment _really means_
+
+The comment in `line_drawer.py` says:
+
+```python
+# For most cases, use thread-local RNGs (fast, no locks).
+# Multiprocessing workers are already PID-isolated.
+```
+
+That’s referring to **how `line_drawer` uses RNGs**, not how the `RNG` class itself works internally.
+
+It means:
+
+> “Each thread will get its _own RNG instance_, so threads won’t need to coordinate access — therefore, we get lock-free performance at the _application level_.”
+
+So:
+
+- The **RNG class** itself _has locks_ (for safety).
+- But **you usually won’t hit those locks**, because each thread calls `get_rng(thread_safe=True)` — which gives it its _own independent RNG instance_ (not shared with other threads).    
+
+---
+
+## 🔬 2️⃣ Thread safety inside the `RNG` class
+
+```python
+def randint(self, *a, **kw):
+    with self._lock:
+        return self._rng.randint(*a, **kw)
+```
+
+Each method has `with self._lock` because it’s protecting **internal state** of a single `random.Random` instance.
+
+If two threads ever shared the _same RNG object_ (same instance), those locks prevent state corruption.  
+So `RNG` itself is **thread-safe-by-design**, even when shared.
+
+That’s a _guarantee of correctness_, not a performance optimization.
+
+---
+
+## ⚙️ 3️⃣ Thread safety at a higher level — via `get_rng(thread_safe=True)`
+
+Now, when you do this:
+
+```python
+def _rng():
+    return get_rng(thread_safe=True)
+```
+
+Inside `rng.py`:
+
+```python
+_thread_local = threading.local()
+
+def get_rng(thread_safe: bool = False) -> RNG:
+    if thread_safe:
+        if not hasattr(_thread_local, "rng"):
+            _thread_local.rng = RNG()
+        return _thread_local.rng
+    return _global_rng
+```
+
+→ Each thread gets its **own `RNG` instance**.  
+Meaning:
+
+- The `RNG._lock` inside each one exists but is **never contended**, because no two threads share that same RNG object.
+- So you get **thread safety without lock contention** — effectively _lock-free_ in practice.    
+
+That’s what the comment meant by _“fast, no locks”_ — not that the methods omit `with self._lock`, but that no two threads are fighting for that lock.
+
+---
+
+## 🧩 4️⃣ Multiprocessing angle
+
+Your second comment line:
+
+```python
+# Multiprocessing workers are already PID-isolated.
+```
+
+This means each worker process has its own address space, and therefore its own `RNG` and `_thread_local` memory.
+
+So between **processes**, there’s no need for interlocking — operating system isolation handles that.  
+Each process seeds its RNG independently via `os.getpid()`.
+
+---
+
+## 🔍 5️⃣ Summary of the layering
+
+| Layer                   | Isolation mechanism           | Lock contention?                     | Comment meaning        |
+| ----------------------- | ----------------------------- | ------------------------------------ | ---------------------- |
+| Inside one RNG instance | `with self._lock`             | ✅ Prevents corruption if shared      | Internal thread safety |
+| Between threads         | `get_rng(thread_safe=True)`   | ❌ None (each thread has its own RNG) | “fast, no locks”       |
+| Between processes       | OS memory + PID-based seeding | ❌ None                               | “PID-isolated”         |
+
+So you can think of it this way:
+
+```
+Safety pyramid:
+
+Process isolation (via OS)
+↑
+Thread isolation (via thread-local RNGs)
+↑
+Lock safety (inside RNG instance)
+```
+
+Each layer ensures independence one level higher.  
+You rarely hit the locks because of the higher-level isolation.
+
+---
+
+## ✅ TL;DR
+
+- The locks **still exist** in `RNG` as a guarantee — a safety net.
+- The “fast, no locks” comment refers to how `line_drawer` uses **independent RNGs per thread**, avoiding shared access and thus never triggering those locks.
+- Multiprocessing already isolates memory, so no inter-process locking is ever needed.    
+
+---
+
+## 🧠 1️⃣ Before: module-level RNG object (shared mutable state)
+
+You previously had:
+
+```python
+_rng = RNG()
+
+def set_rng_seed(seed: int) -> None:
+    global _rng
+    if seed is not None:
+        _rng = RNG(seed)
+        np.random.seed(seed)
+```
+
+and throughout your module you did things like:
+
+```python
+color = _rng.choice(list(colors.CSS4_COLORS.keys()))
+alpha = _rng.uniform(0.0, 1.0)
+```
+
+That means:
+
+- Every part of the program was using the **same single RNG instance**.    
+- You had to protect it manually if threads were introduced.
+- Re-seeding required replacing the object (`_rng = RNG(seed)`), which breaks references.
+
+---
+
+## ⚙️ 2️⃣ Now: `_rng()` function replaces the shared object
+
+You’ve replaced that static `_rng` object with this:
+
+```python
+def _rng() -> "RNG":
+    return get_rng(thread_safe=True)
+```
+
+So now `_rng` is a **function**, not an object.  
+It acts as a _drop-in accessor_ to fetch the **correct RNG instance for the current context** (thread, process, etc.).
+
+This function always returns a valid, isolated RNG:
+
+- In single-threaded runs → returns the global RNG.
+- In multi-threaded runs → returns a thread-local RNG unique to that thread.
+- In multi-processing workers → returns a per-process RNG unique to that process.    
+
+So you can safely do:
+
+```python
+alpha = _rng().uniform(0.0, 1.0)
+color = _rng().choice(list(colors.CSS4_COLORS.keys()))
+```
+
+and it’s guaranteed to be both thread- and process-safe.
+
+---
+
+## 🧩 3️⃣ Why this is the right architectural move
+
+| Design Aspect       | Old `_rng = RNG()`              | New `_rng()` accessor            |
+| ------------------- | ------------------------------- | -------------------------------- |
+| **Thread safety**   | ❌ Unsafe unless locked manually | ✅ Guaranteed (per-thread RNG)    |
+| **Process safety**  | ✅ if seeded correctly           | ✅ automatically via PID/time     |
+| **Re-seeding**      | Replaces global object          | Keeps identity, re-seeds cleanly |
+| **API convenience** | Simple attribute                | Function call is equally short   |
+| **Extensibility**   | Single shared state             | Each thread/process gets its own |
+
+So `_rng()` is now a _safe accessor_, not a global instance.
+
+---
+
+## 🧱 4️⃣ How to migrate cleanly
+
+All existing calls remain valid:
+
+```python
+color = _rng().choice(...)
+pattern = _rng().uniform(...)
+```
+
+If you previously had:
+
+```python
+_rng.choice(...)
+```
+
+→ just add parentheses once:
+
+```python
+_rng().choice(...)
+```
+
+Optionally, define a local alias inside hot loops:
+
+```python
+rnd = _rng()
+for _ in range(n):
+    val = rnd.uniform(...)
+```
+
+This avoids function call overhead and keeps your code visually similar to before.
+
+---
+
+## 🧩 5️⃣ Integration summary
+
+| Layer                   | What `_rng()` returns                 | Isolation        |
+| ----------------------- | ------------------------------------- | ---------------- |
+| Main thread             | Global RNG                            | Shared, but safe |
+| Threaded workers        | Thread-local RNG                      | Independent      |
+| Multiprocessing workers | Process-local RNG (new PID/time seed) | Independent      |
+
+So now, all parts of your system — main process, threads, and pool workers — draw from cleanly separated random streams.
+
+---
+
+## ✅ TL;DR
+
+- Yes — remove the module-level `_rng = RNG()` object entirely.
+- Replace it with:
+  
+```python
+def _rng() -> RNG:
+    return get_rng(thread_safe=True)
+```
+
+- All existing `_rng.choice()`, `_rng.uniform()`, etc. become `_rng().choice()`, `_rng().uniform()`.
+- This single change makes the entire system **thread-safe**, **process-safe**, and **deterministic** when seeded.    
+
+---
