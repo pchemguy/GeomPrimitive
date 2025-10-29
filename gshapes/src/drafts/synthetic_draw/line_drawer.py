@@ -165,12 +165,14 @@ def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[int | float, ...]]:
     return (0, tuple(segments))
 
 
-def _get_color(color: Any | None) -> Union[str, Tuple]:
-    """Select a line color."""
+def _get_color(color: Any | None) -> Union[str, Tuple[float, float, float]]:
+    """Select or generate a line color."""
     if color is None or not str(color).strip():
         return random.choice(list(colors.CSS4_COLORS.keys()))
+
     if isinstance(color, tuple):
         return color
+
     if not isinstance(color, str):
         raise TypeError(f"Unsupported color type: {type(color).__name__}")
 
