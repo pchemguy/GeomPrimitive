@@ -74,8 +74,9 @@ def draw_line(ax: Axes,
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
 
-    x, y = _get_coords(float(x_min), float(y_min),
-                       float(x_max), float(y_max), orientation, hand_drawn)
+    x, y = _get_coords(
+        float(x_min), float(y_min), float(x_max), float(y_max), orientation, hand_drawn
+    )
 
     with plt.xkcd() if hand_drawn else contextlib.nullcontext():
         line, = ax.plot(
