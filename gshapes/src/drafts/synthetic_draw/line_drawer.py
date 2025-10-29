@@ -31,8 +31,7 @@ def draw_line(ax: Axes,
               color: Optional[str] = None,
               alpha: Optional[float] = None,
               orientation: Optional[Union[str, int]] = None,
-              hand_drawn: Optional[bool] = None,
-              seed: Optional[int] = None
+              hand_drawn: Optional[bool] = None
              ) -> str:
     """Draw a single line on a given Matplotlib axis.
 
@@ -47,12 +46,8 @@ def draw_line(ax: Axes,
         seed: Optional RNG seed for deterministic behavior.
     
     Returns:
-        The created Matplotlib Line2D object.
+        TODO: Metadata
     """
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
-
     # Determine hand-drawn style
     if hand_drawn is None:
         hand_drawn = random.choice([False, True])
@@ -66,7 +61,7 @@ def draw_line(ax: Axes,
     if alpha is None:
         alpha = random.uniform(0.0, 1.0)
     elif isinstance(alpha, (int, float)):
-        alpha = float(max(0.0, min(alpha, 1.0)))
+        alpha = max(0.0, min(alpha, 1.0))
     else:
         raise TypeError(f"Unsupported alpha type: {type(alpha).__name__}")
 
@@ -91,6 +86,12 @@ def draw_line(ax: Axes,
         )
 
 
+def seed(seed: Optional[int] = None) -> None:
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+
+
 # =============================================================================
 # Private helpers
 # =============================================================================
@@ -108,8 +109,8 @@ def _get_linestyle(pattern: Optional[str] = None, hand_drawn: Optional[bool] = T
 
         base_len: float = float(random.randint(1, 5))
         pattern = tuple(val for _ in range(random.randint(10, 20)) for val in (
-                base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05),
-                base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05) * 0.5,
+                max(0.5, base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05)),
+                max(0.5, base_len * (1 + max(-6, min(round(random.normalvariate(0.0, 2.0)), 6)) / 6 * 0.05) * 0.5),
             )
         )        
         return (0, pattern)
@@ -176,14 +177,20 @@ def _get_color(color: Any | None) -> Union[str, Tuple[float, float, float]]:
     if not isinstance(color, str):
         raise TypeError(f"Unsupported color type: {type(color).__name__}")
 
-    base_color = colors.CSS4_COLORS.get(color.strip().lower())[:-1]
+    color = color.strip().lower()
+    if color in colors.CSS4_COLORS.keys():
+        return color
+
+    # Accept plural CSS4 color names (simply extra "s" suffix),
+    # e.g. "blues" to use randomly scaled base color (without "s")
+    base_color = colors.CSS4_COLORS.get(color[:-1])
     if base_color is None:
         raise ValueError(f"Invalid color value: {color}")
 
     rgb = mpl.colors.to_rgb(base_color)
     scale_max = max(rgb)
     scale = random.uniform(0.1, 1 / scale_max if scale_max > 0 else 1)
-    return tuple(component * scale for component in rgb)
+    return tuple(np.clip(component * scale, 0, 1) for component in rgb)
 
 
 def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
@@ -194,8 +201,10 @@ def _get_coords(xmin: float, ymin: float, xmax: float, ymax: float,
         raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
     if orientation is None:
-        return [random.uniform(xmin, xmax), random.uniform(xmin, xmax)],
-               [random.uniform(ymin, ymax), random.uniform(ymin, ymax)]
+        return (
+            [random.uniform(xmin, xmax), random.uniform(xmin, xmax)],
+            [random.uniform(ymin, ymax), random.uniform(ymin, ymax)],
+        )
 
     if isinstance(orientation, (int, float)):
          angle_deg = ((orientation + 90) % 180) - 90
