@@ -70,12 +70,9 @@ def draw_line(ax: Axes,
     else:
         raise TypeError(f"Unsupported alpha type: {type(alpha).__name__}")
 
-    _axis_limits: Tuple[float, float] = ax.get_xlim()
-    x_min: int = math.floor(_axis_limits[0])
-    x_max: int = math.ceil(_axis_limits[1])
-    _axis_limits: Tuple[float, float] = ax.get_ylim()
-    y_min: int = math.floor(_axis_limits[0])
-    y_max: int = math.ceil(_axis_limits[1])
+    # Get axis limits
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
 
     x, y = _get_coords(float(x_min), float(y_min),
                        float(x_max), float(y_max), orientation, hand_drawn)
