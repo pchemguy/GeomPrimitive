@@ -183,7 +183,7 @@ class Line(Primitive):
         x, y = self._get_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
 
         # Compose full metadata dict
-        return {
+        meta: Dict[str, Any] = {
             "x": x,
             "y": y,
             "linewidth": linewidth or rng.choice(DEFAULT_LINEWIDTHS),
@@ -197,6 +197,8 @@ class Line(Primitive):
             "dash_capstyle": rng.choice(list(CapStyle)),
             "dash_joinstyle": rng.choice(list(JoinStyle)),
         }
+        self.meta: Dict[str, Any] = meta
+        return meta
 
     # -------------------------------------------------------------------------
     # Drawing

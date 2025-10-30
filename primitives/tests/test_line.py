@@ -1,3 +1,7 @@
+import pytest
+from primitives.base import Primitive
+from primitives.line import Line
+from matplotlib.axes import Axes
 
 # A. Metadata structure
 

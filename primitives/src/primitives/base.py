@@ -115,8 +115,7 @@ class Primitive(ABC):
         Returns:
             self: Updated object for chaining.
         """
-        self.meta.clear()
-        self.meta.update(self.make_geometry(ax, **kwargs))
+        self.make_geometry(ax, **kwargs)
         return self
 
     def to_dict(self) -> Dict[str, Any]:
