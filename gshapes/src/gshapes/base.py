@@ -30,7 +30,7 @@ from matplotlib.axes import Axes
 
 class Primitive(ABC):
     """
-    Base class for drawable geometry primitives (line, circle, arc, etc.).
+    Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
 
     Provides:
       - Shared metadata storage (`self.meta`)
