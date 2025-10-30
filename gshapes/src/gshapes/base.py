@@ -2,9 +2,22 @@
 base.py
 -------
 
-Defines the abstract base class for all geometric primitives.
-Provides common metadata handling, RNG-safe initialization,
-and efficient object reuse through the `reset()` interface.
+Defines the abstract base class for drawable geometric primitives.
+
+Each primitive encapsulates:
+  - Metadata describing its geometry and appearance.
+  - A reproducible RNG context (external).
+  - A resettable lifecycle for high-throughput reuse.
+
+Thread model:
+  - Each worker or thread creates a single Primitive-derived instance.
+  - Instances are reused via `.reset(ax, **kwargs)` without reallocation.
+
+Example:
+    >>> from primitives.line import Line
+    >>> line = Line(ax)
+    >>> line.draw(ax)
+    >>> line.reset(ax, orientation="vertical").draw(ax)
 """
 
 from __future__ import annotations
