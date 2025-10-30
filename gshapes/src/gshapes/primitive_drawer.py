@@ -74,7 +74,7 @@ def make_line_meta(
 
     This function produces a structured dictionary that fully defines the
     geometry and stylistic parameters of a line segment. It does not draw
-    anything � only returns a data description suitable for later rendering.
+    anything - only returns a data description suitable for later rendering.
 
     Args:
         ax (matplotlib.axes.Axes):
