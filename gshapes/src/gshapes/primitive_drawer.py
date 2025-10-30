@@ -53,8 +53,8 @@ MAX_ANGLE_JITTER = 5
 MAX_DASH_JITTER = 0.05
 MAX_PATTERN_LENGTH = 20
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
+# List of all Matplotlib CSS4 color names (X11/CSS4 standard).
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
-"""List of all Matplotlib CSS4 color names (X11/CSS4 standard)."""
 
 
 # =============================================================================
