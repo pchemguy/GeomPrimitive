@@ -40,11 +40,12 @@ class Primitive(ABC):
       - Extensible `.draw(ax)` and `.make_geometry()` methods
 
     Design:
-      Each worker or thread can hold a single instance of a subclass (e.g., Line)
-      and repeatedly call `reset(ax, **kwargs)` to update geometry and re-render.
+      Subclasses (e.g. Line, Circle, Ellipse) implement:
+        - `make_geometry(ax, **kwargs)` -- returns dict of geometry/style data
+        - `draw(ax, **kwargs)` -- renders using current metadata
 
     Attributes:
-        meta (dict[str, Any]): Metadata describing the primitive’s geometry and style.
+        meta (dict[str, Any]): Metadata describing the primitiveï¿½s geometry and style.
 
     Example:
         >>> line = Line(ax)
@@ -55,7 +56,12 @@ class Primitive(ABC):
     __slots__ = ("meta",)
 
     def __init__(self, meta: Optional[Dict[str, Any]] = None):
-        """Initialize with optional metadata."""
+        """
+        Initialize the primitive.
+
+        Args:
+            meta: Optional precomputed metadata dictionary.
+        """
         self.meta: Dict[str, Any] = meta or {}
 
     # -------------------------------------------------------------------------
@@ -63,27 +69,31 @@ class Primitive(ABC):
     # -------------------------------------------------------------------------
     @abstractmethod
     def make_geometry(self, ax: Axes, **kwargs) -> Dict[str, Any]:
-        """Generate the metadata dictionary describing this primitive."""
+        """Generate metadata describing the primitive’s geometry."""
         raise NotImplementedError
 
     @abstractmethod
     def draw(self, ax: Axes, **kwargs) -> Primitive:
-        """Render the primitive onto a Matplotlib axis."""
+        """Render the primitive onto the given Matplotlib axis."""
         raise NotImplementedError
 
     # -------------------------------------------------------------------------
-    # Reuse & conversion utilities
+    # Reuse and conversion utilities
     # -------------------------------------------------------------------------
     def reset(self, ax: Axes, **kwargs) -> Primitive:
         """
-        Recompute metadata in-place for reuse.
+        Recompute metadata in place for object reuse.
+
+        Clears and regenerates `self.meta` using subclass-specific
+        `make_geometry()`, allowing the same object to be reused
+        across many iterations or frames.
 
         Args:
-            ax: Target Matplotlib Axes object.
-            **kwargs: Primitive-specific arguments for regeneration.
+            ax: Target Matplotlib Axes.
+            **kwargs: Parameters forwarded to `make_geometry()`.
 
         Returns:
-            self (Primitive): Updated object for chaining.
+            self: Updated object for chaining.
         """
         self.meta.clear()
         self.meta.update(self.make_geometry(ax, **kwargs))
@@ -91,12 +101,13 @@ class Primitive(ABC):
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Return a deep copy of the current metadata dictionary.
+        Return a deep copy of the metadata dictionary.
 
-        This ensures that mutable sub-objects (e.g., lists) cannot
-        be modified externally without affecting the original.
+        Useful for safe serialization (e.g. JSON export) or
+        inspection without mutating the live state.
         """
         return copy.deepcopy(self.meta)
 
     def __repr__(self) -> str:
+        """Readable summary showing available metadata keys."""
         return f"<{self.__class__.__name__} keys={list(self.meta.keys())}>"
