@@ -24,7 +24,7 @@ PathLike = Union[str, os.PathLike]
 DPI = 100
 
 
-class SyntheticImageWorker:
+class ThreadWorker:
     line: Line = Line()
 
     """Encapsulates the drawing state for one process."""
@@ -36,7 +36,7 @@ class SyntheticImageWorker:
         self._meta: dict = {}
         self.line = Line()  # reusable primitive instance
         self._init_rng()
-        self.logger.debug("SyntheticImageWorker initialized.")
+        self.logger.debug("ThreadWorker initialized.")
 
     # --------------------------------------------------------------------------
     # Initialization / teardown

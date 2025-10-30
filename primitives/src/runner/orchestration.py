@@ -12,18 +12,18 @@ import matplotlib.pyplot as plt
 
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from worker import SyntheticImageWorker
+    from worker import ThreadWorker
 else:
-    from .worker import SyntheticImageWorker
+    from .worker import ThreadWorker
 
 PathLike = Union[str, Path]
-_worker: Optional[SyntheticImageWorker] = None
+_worker: Optional[ThreadWorker] = None
 
 
 def worker_init():
     """Initializer for multiprocessing.Pool."""
     global _worker
-    _worker = SyntheticImageWorker()
+    _worker = ThreadWorker()
 
 
 def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[str], Optional[Exception]]:
