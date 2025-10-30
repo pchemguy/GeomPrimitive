@@ -64,7 +64,9 @@ class Primitive(ABC):
         >>> line.reset(ax, orientation="vertical").draw(ax)
     """
 
-    __slots__ = ("meta", "rng")
+    __slots__ = ("meta")
+
+    rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
     def __init__(self, meta: Optional[Dict[str, Any]] = None, rng: Optional[RNG] = None):
         """
@@ -76,11 +78,11 @@ class Primitive(ABC):
                  If None, a thread-local RNG is used.
         """
         self.meta: Dict[str, Any] = meta or {}
-        self.rng: RNG = rng or get_rng(thread_safe=True)
 
-    def reseed(self, seed: Optional[int] = None) -> None:
+    @classmethod
+    def reseed(cls, seed: Optional[int] = None) -> None:
         """Re-seed the internal RNG (for deterministic replay)."""
-        self.rng.seed(seed)
+        cls.rng.seed(seed)
 
     # -------------------------------------------------------------------------
     # Abstract interface
