@@ -19,7 +19,7 @@ import json
 import time
 import logging
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 
 import matplotlib
 matplotlib.use("Agg")  # safe for multiprocessing workers
@@ -30,10 +30,9 @@ sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from primitives.base import Primitive
 from primitives.line import Line  # uses your class-based primitive
 from primitives.rng import RNG, get_rng
-
+from runner.config import WorkerConfig
 
 PathLike = Union[str, os.PathLike]
-DPI = 100  # fixed global DPI
 
 
 class ThreadWorker:
@@ -45,10 +44,14 @@ class ThreadWorker:
     - has its own image-level metadata dict
     """
 
-    def __init__(self, img_size: Tuple[int, int] = (1920, 1080)) -> None:
+    def __init__(self, img_size: Tuple[int, int] = (1920, 1080),
+                 dpi: int = 100,
+                 config: Optional[WorkerConfig] = None) -> None:
         self.pid = os.getpid()
         self.logger = logging.getLogger(f"worker-{self.pid}")
         self.img_size = img_size
+        self.dpi = dpi
+        self.config = config
         self._seed_rng()
         self._create_canvas()
         self.plot_reset()
@@ -59,17 +62,14 @@ class ThreadWorker:
     # init helpers
     # -------------------------------------------------------------------------
     def _seed_rng(self) -> None:
-        """
-        Seed the thread-level RNG so every worker process gets its own stream.
-        Note: this controls primitive randomness, not Python's global random.
-        """
+        """Seed the thread-level RNG so every worker process gets its own stream."""
         self.seed = self.pid ^ int(time.time() * 1e6)
         Primitive.reseed(self.seed)
-        self.logger.debug(f"Random seed set: {seed}")
+        self.logger.info(f"Worker PID={self.pid} seeded RNG with {self.seed}")
 
     def _create_canvas(self) -> Tuple[plt.Figure, plt.Axes]:
-        width_in = self.img_size[0] / DPI
-        height_in = self.img_size[1] / DPI
+        width_in = self.img_size[0] / self.dpi
+        height_in = self.img_size[1] / self.dpi
         self.fig, self.ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
 
     # -------------------------------------------------------------------------
@@ -85,7 +85,7 @@ class ThreadWorker:
         self.ax.set_ylim(0, self.img_size[1])
         # self.ax.invert_yaxis()
         self.ax.axis("off")
-        self._meta = {"pid": self.pid, "draw_ops": []}
+        self._meta = {"pid": self.pid, "seed": self.seed, "draw_ops": []}
 
     # -------------------------------------------------------------------------
     # draw ops
@@ -113,7 +113,7 @@ class ThreadWorker:
         out = Path(output_path)
         self.fig.savefig(
             out,
-            dpi=DPI,
+            dpi=self.dpi,
             format="jpg",
             bbox_inches="tight",
             pad_inches=0,
@@ -124,5 +124,7 @@ class ThreadWorker:
     # teardown
     # -------------------------------------------------------------------------
     def close(self) -> None:
-        plt.close(self.fig)
-        self.logger.info("Figure closed and resources released.")
+        try:
+            plt.close(self.fig)
+        finally:
+            self.logger.info(f"Worker PID={self.pid} closed figure and released resources.")

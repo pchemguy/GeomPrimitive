@@ -8,6 +8,7 @@ import json
 import time
 import logging
 from pathlib import Path
+from dataclasses import asdict
 from multiprocessing import Pool
 from typing import Optional, Union
 
@@ -19,10 +20,12 @@ if __package__ is None or __package__ == "":
     from logging_utils import configure_logging
     from summary import RunSummary
     from orchestration import worker_init, main_worker
+    from config import WorkerConfig
 else:
     from .logging_utils import configure_logging
     from .summary import RunSummary
     from .orchestration import worker_init, main_worker
+    from .config import WorkerConfig
 
 
 # ---------------------------------------------------------------------------
@@ -48,8 +51,10 @@ def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
     job_paths = [output_dir / f"synthetic_{i:06d}.jpg" for i in range(batch_size)]
     results_meta = {}
 
+    config = WorkerConfig(img_size=(2560, 1440), dpi=150)
+    logger.info(f"WorkerConfig: {asdict(config)}")
     try:
-        with Pool(processes=num_cores, initializer=worker_init) as pool:
+        with Pool(processes=num_cores, initializer=worker_init, initargs=(config,)) as pool:
             for i, (path, meta, err) in enumerate(
                 pool.imap_unordered(main_worker, job_paths, chunksize=10)
             ):

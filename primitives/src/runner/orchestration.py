@@ -11,18 +11,24 @@ from typing import Optional, Tuple, Union
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from worker import ThreadWorker
+    from config import WorkerConfig
 else:
     from .worker import ThreadWorker
+    from .config import WorkerConfig
 
 
 PathLike = Union[str, Path]
 _worker: Optional[ThreadWorker] = None
 
 
-def worker_init() -> None:
+def worker_init(config: WorkerConfig) -> None:
     """Initializer for multiprocessing.Pool workers."""
     global _worker
-    _worker = ThreadWorker()
+    _worker = ThreadWorker(
+        img_size=config.img_size,
+        dpi=config.dpi,
+        config=config,
+    )
     logging.getLogger("worker").debug(f"Worker initialized in PID {os.getpid()}")
 
 
