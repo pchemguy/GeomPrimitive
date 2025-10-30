@@ -64,11 +64,11 @@ class Primitive(ABC):
         >>> line.reset(ax, orientation="vertical").draw(ax)
     """
 
-    __slots__ = ("meta")
+    __slots__ = ("meta",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
-    def __init__(self, meta: Optional[Dict[str, Any]] = None, rng: Optional[RNG] = None):
+    def __init__(self, meta: Optional[Dict[str, Any]] = None):
         """
         Initialize the primitive.
 

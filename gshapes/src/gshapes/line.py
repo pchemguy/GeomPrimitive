@@ -88,6 +88,9 @@ class Line(Primitive):
         geometry and stylistic parameters of a line segment. It does not draw
         anything—only returns a data description suitable for later rendering.
         
+        Randomness is provided by the class-level RNG (Line.rng), which can be
+        reseeded via Line.reseed(seed).
+
         Args:
             ax (matplotlib.axes.Axes):
                 Target Matplotlib Axes object. Used only to extract `xlim` and `ylim`
@@ -145,22 +148,20 @@ class Line(Primitive):
         
         Example:
             >>> fig, ax = plt.subplots()
-            >>> line = Line(ax)
+            >>> line = Line()
             >>> meta = line.make_geometry(ax, orientation="diagonal_primary")
             >>> print(meta["color"], meta["x"], meta["y"])
             navy [0.1, 0.9] [0.1, 0.9]
         
             Deterministic seeding example:
-            >>> from rng import set_global_seed
-            >>> set_global_seed(42)
+            >>> Line.reseed(42)
             >>> meta = line.make_geometry(ax, hand_drawn=True)
             >>> print(meta["linewidth"], meta["linestyle"])
             1.5 (0, (4, 2, 3, 1))
         """
+        rng: RNG = self.__class__.rng
         if not isinstance(ax, Axes):
             raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
-
-        rng: RNG = self.rng
 
         # Determine hand-drawn style
         if hand_drawn is None:
@@ -233,11 +234,11 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     # Helper methods (static-style)
     # -------------------------------------------------------------------------
-    @staticmethod
+    @classmethod
     def _get_linestyle(
-        pattern: Optional[str], hand_drawn: bool
+        cls, pattern: Optional[str], hand_drawn: bool
     ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
-        rng: RNG = self.rng
+        rng: RNG = cls.rng
         if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
             if not hand_drawn:
                 pattern = tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5)))
@@ -262,11 +263,11 @@ class Line(Primitive):
         if pattern_lower in named_styles:
             return pattern_lower
 
-        return Primitive._pattern_to_linestyle(pattern)
+        return cls._pattern_to_linestyle(pattern)
 
-    @staticmethod
-    def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
-        rng: RNG = self.rng
+    @classmethod
+    def _pattern_to_linestyle(cls, pattern: str) -> Tuple[int, Tuple[float, ...]]:
+        rng: RNG = cls.rng
         mapping = {" ": ("off", 1), "_": ("off", 4), "-": ("on", 4), ".": ("on", 1)}
         pattern = pattern.lstrip()
         if not pattern:
@@ -287,9 +288,9 @@ class Line(Primitive):
             segments.append(last_len)
         return (0, tuple(segments))
 
-    @staticmethod
-    def _get_color(color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
-        rng: RNG = self.rng
+    @classmethod
+    def _get_color(cls, color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
+        rng: RNG = cls.rng
         if color is None or not str(color).strip():
             return rng.choice(CSS4_COLOR_NAMES)
         if isinstance(color, tuple):
@@ -305,8 +306,9 @@ class Line(Primitive):
         scale = rng.uniform(0.1, 1 / smax if smax > 0 else 1)
         return tuple(np.clip(c * scale, 0, 1) for c in rgb)
 
-    @staticmethod
+    @classmethod
     def _get_coords(
+        cls,
         xmin: float,
         ymin: float,
         xmax: float,
@@ -314,7 +316,7 @@ class Line(Primitive):
         orientation: Union[str, int, None],
         hand_drawn: bool
     ) -> Tuple[List[float], List[float]]:
-        rng: RNG = self.rng
+        rng: RNG = cls.rng
         if orientation is None:
             return (
                 [rng.uniform(xmin, xmax), rng.uniform(xmin, xmax)],
