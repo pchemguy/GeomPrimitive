@@ -67,7 +67,7 @@ class Primitive(ABC):
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
-    def __init__(self, ax: Axes, **kwargs: Any) -> None:
+    def __init__(self, ax: Optional[Axes] = None, **kwargs: Any) -> None:
         """
         Create a primitive and immediately generate its geometry.
 
@@ -75,11 +75,9 @@ class Primitive(ABC):
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        if not isinstance(ax, Axes):
-            raise TypeError("Primitive constructor requires a Matplotlib Axes object")
-
         self._meta: Dict[str, Any] = {}
-        self.make_geometry(ax, **kwargs)  # always generate metadata
+        if ax:
+            self.make_geometry(ax, **kwargs)  # always generate metadata
 
     # ---------------------------------------------------------------------------
     # Metadata accessors
