@@ -42,6 +42,7 @@ else:
 # -----------------------------------------------------------------------------
 # Each thread/process gets its own RNG instance.
 def _rng() -> RNG:
+    """Return a thread-local RNG instance."""
     return get_rng(thread_safe=True)
 
 
