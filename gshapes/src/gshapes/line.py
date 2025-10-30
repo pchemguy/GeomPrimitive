@@ -91,6 +91,79 @@ class Line(Primitive):
     ) -> Dict[str, Any]:
         """
         Generate metadata describing a stylized or 'hand-drawn' line.
+        
+        This method produces a structured dictionary that fully defines the
+        geometry and stylistic parameters of a line segment. It does not draw
+        anything—only returns a data description suitable for later rendering.
+        
+        Args:
+            ax (matplotlib.axes.Axes):
+                Target Matplotlib Axes object. Used only to extract `xlim` and `ylim`
+                for coordinate generation.
+            linewidth (float, optional):
+                Explicit line width in points. If None, chosen randomly from
+                `DEFAULT_LINEWIDTHS`.
+            pattern (str, optional):
+                - Named style: `"solid"`, `"dotted"`, `"dashed"`, `"dashdot"`,
+                  or equivalent shorthand (`"-"`, `"--"`, `":"`, `"-."`).
+                - Symbolic pattern string: `"--__-."`, `"_.- "`, etc.
+                  where:
+                    - space `" "` -- off length 1
+                    - underscore `"_"` -- off length 4
+                    - dash `"-"` -- on length 4
+                    - dot `"."` -- on length 1
+                  Example: `"--__-."` -- `(8, 8, 5, 2)`
+                - If None, a randomized dash pattern is generated.
+            color (str | tuple[float, float, float], optional):
+                - CSS4/X11 color name (case-insensitive), e.g. `"skyblue"`, `"tomato"`.
+                - Tuple of floats `(r, g, b)` with values in [0, 1].
+                - Plural color names (e.g., `"blues"`) are accepted; they are
+                  interpreted as random brightness variants of the base name.
+                - If None, a random CSS4 color is chosen.
+            alpha (float, optional):
+                Opacity in [0, 1]. Randomized if None.
+            orientation (str | int | None):
+                - Named directions: `"horizontal"`, `"vertical"`,
+                  `"diagonal_primary"` (45°), `"diagonal_auxiliary"` (-45°).
+                - Numeric value: explicit angle in degrees.
+                - None: random endpoints within current axis limits.
+            hand_drawn (bool, optional):
+                If True, applies XKCD-style randomness and Gaussian jitter to dash
+                lengths and orientation. Randomized if None.
+        
+        Returns:
+            dict[str, Any]: Metadata for line rendering, with all parameters resolved.
+        
+            The dictionary fields are as follows:
+        
+            |         Key         |                 Type                 |                        Description                         |
+            | ------------------- | ------------------------------------ | ---------------------------------------------------------- |
+            | `"x"`               | list[float]                          | Two-element list of x coordinates `[x1, x2]`.              |
+            | `"y"`               | list[float]                          | Two-element list of y coordinates `[y1, y2]`.              |
+            | `"linewidth"`       | float                                | Line width in points.                                      |
+            | `"linestyle"`       | str or tuple[int, tuple[float, ...]] | Dash style; Matplotlib-compatible format.                  |
+            | `"color"`           | str or tuple[float, float, float]    | CSS4 color name or RGB tuple.                              |
+            | `"alpha"`           | float                                | Opacity in [0, 1].                                         |
+            | `"orientation"`     | str or int or None                   | Direction descriptor or explicit angle.                    |
+            | `"hand_drawn"`      | bool                                 | Whether XKCD-style jitter is applied.                      |
+            | `"solid_capstyle"`  | matplotlib._enums.CapStyle           | Cap style for solid lines (`butt`, `round`, `projecting`). |
+            | `"solid_joinstyle"` | matplotlib._enums.JoinStyle          | Join style for solid lines (`miter`, `round`, `bevel`).    |
+            | `"dash_capstyle"`   | matplotlib._enums.CapStyle           | Cap style for dashed lines.                                |
+            | `"dash_joinstyle"`  | matplotlib._enums.JoinStyle          | Join style for dashed lines.                               |
+        
+        Example:
+            >>> fig, ax = plt.subplots()
+            >>> line = Line(ax)
+            >>> meta = line.make_geometry(ax, orientation="diagonal_primary")
+            >>> print(meta["color"], meta["x"], meta["y"])
+            navy [0.1, 0.9] [0.1, 0.9]
+        
+            Deterministic seeding example:
+            >>> from rng import set_global_seed
+            >>> set_global_seed(42)
+            >>> meta = line.make_geometry(ax, hand_drawn=True)
+            >>> print(meta["linewidth"], meta["linestyle"])
+            1.5 (0, (4, 2, 3, 1))
         """
         if not isinstance(ax, Axes):
             raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
