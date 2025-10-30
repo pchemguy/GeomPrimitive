@@ -180,8 +180,8 @@ class Line(Primitive):
         )
 
         # Cap and join styles
-        capstyle = capstyle if capstyle in list(CapStyle) else rng.choice(list(CapStyle))
-        joinstyle = joinstyle if joinstyle in list(JoinStyle) else rng.choice(list(JoinStyle))
+        capstyle = CapStyle._member_map_.get(str(capstyle).lower()) or rng.choice(list(CapStyle))
+        joinstyle = JoinStyle._member_map_.get(str(joinstyle).lower()) or rng.choice(list(JoinStyle))
 
         # Coordinates
         x_min, x_max = ax.get_xlim()
