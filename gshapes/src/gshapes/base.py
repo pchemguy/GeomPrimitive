@@ -10,6 +10,7 @@ Each primitive encapsulates:
   - A resettable lifecycle for high-throughput reuse.
 
 Thread model:
+
   - Each worker or thread creates a single Primitive-derived instance.
   - Instances are reused via `.reset(ax, **kwargs)` without reallocation.
 
