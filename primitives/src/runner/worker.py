@@ -1,121 +1,94 @@
 """
-worker.py
+worker.py - Synthetic image generator worker.
+
+Each worker owns its RNG seed, Matplotlib figure, and image-level metadata.
+It uses primitives.Line (and future primitives) for geometry generation.
 """
 
 import os
 import sys
 import json
-import random
 import time
+import logging
 from pathlib import Path
 from typing import Union, Tuple
-import logging
 
-import numpy as np
 import matplotlib
-# Use a non-interactive backend for multiprocessing workers
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # safe for multiprocessing
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
-from scipy.interpolate import splprep, splev
-
 
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from primitives.line import Line
 
-
 PathLike = Union[str, os.PathLike]
-DPI = 100  # fixed global DPI
+DPI = 100
 
 
-# ThreadWorker
 class SyntheticImageWorker:
     line: Line = Line()
-    
+
+    """Encapsulates the drawing state for one process."""
+
     def __init__(self, img_size: Tuple[int, int] = (1920, 1080)):
         self.img_size = img_size
         self.logger = logging.getLogger(f"worker-{os.getpid()}")
         self.fig, self.ax = self._create_canvas()
-        self._meta: str = "{}"  # JSON string for image-level metadata
-        self._seed_rng()
-        self.logger.info("Initialized SyntheticImageWorker")
+        self._meta: dict = {}
+        self.line = Line()  # reusable primitive instance
+        self._init_rng()
+        self.logger.debug("SyntheticImageWorker initialized.")
 
-    def _seed_rng(self):
+    # --------------------------------------------------------------------------
+    # Initialization / teardown
+    # --------------------------------------------------------------------------
+    def _init_rng(self) -> None:
+        """Seed RNG uniquely per process."""
         pid = os.getpid()
         seed = pid ^ int(time.time())
         Line.reseed(seed)
-        self._meta = json.dumps({"pid": pid, "seed": seed, "draw_ops": []})
-        self.logger.debug(f"Random seed set: {seed}")
+        self._meta = {"pid": pid, "seed": seed, "draw_ops": []}
+        self.logger.debug(f"RNG seeded with {seed}")
 
     def _create_canvas(self):
-        width_in = self.img_size[0] / DPI
-        height_in = self.img_size[1] / DPI
-        fig, ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
+        """Create a clean Matplotlib canvas."""
+        w, h = (self.img_size[0] / DPI, self.img_size[1] / DPI)
+        fig, ax = plt.subplots(figsize=(w, h), frameon=False)
+        ax.set_xlim(0, self.img_size[0])
+        ax.set_ylim(0, self.img_size[1])
+        ax.invert_yaxis()
+        ax.axis("off")
         return fig, ax
 
-    def plot_reset(self):
-        # Preserve existing metadata (pid, seed, etc.), but reset draw_ops
-        m = json.loads(self._meta)
-        m["draw_ops"] = []
-        self._meta = json.dumps(m)
+    def plot_reset(self) -> None:
+        """Clear axes and reset draw_ops."""
         self.ax.cla()
         self.ax.set_xlim(0, self.img_size[0])
         self.ax.set_ylim(0, self.img_size[1])
         self.ax.invert_yaxis()
         self.ax.axis("off")
+        self._meta["draw_ops"] = []
 
-    def draw_line_ex(self):
-        self.line.make_geometry(self.ax).draw(self.ax)
+    def close(self) -> None:
+        """Release figure resources."""
+        plt.close(self.fig)
+        self.logger.debug("Canvas closed.")
 
-    # ---- Drawing primitives -------------------------------------------------
-    def draw_spline(self):
-        pts = np.array([
-            [random.randint(0, 400), random.randint(0, 400)],
-            [random.randint(400, 800), random.randint(500, 900)],
-            [random.randint(900, 1800), random.randint(100, 500)],
-        ])
-        m, k = len(pts), min(3, len(pts) - 1)
-        if m > k:
-            tck, _ = splprep([pts[:, 0], pts[:, 1]], s=0, k=k)
-            x_new, y_new = splev(np.linspace(0, 1, 100), tck)
-        else:
-            x_new, y_new = pts[:, 0], pts[:, 1]
-        self.ax.plot(x_new, y_new, "b-")
-        self._append_meta("spline", {"points": pts.tolist()})
+    # --------------------------------------------------------------------------
+    # Drawing operations
+    # --------------------------------------------------------------------------
+    def draw_line(self, **kwargs) -> None:
+        """Generate and draw a single line primitive."""
+        self.line.make_geometry(self.ax, **kwargs).draw(self.ax)
+        self._append_meta("Line", self.line.meta)
 
-    def draw_ellipse(self):
-        cx, cy = random.randint(800, 1200), random.randint(600, 900)
-        w, h = random.randint(100, 500), random.randint(100, 500)
-        ang = random.uniform(0, 90)
-        oval = Ellipse(
-            xy=(cx, cy),
-            width=w,
-            height=h,
-            angle=ang,
-            edgecolor="r",
-            facecolor="none",
-        )
-        self.ax.add_patch(oval)
-        self._append_meta("ellipse", {"center": [cx, cy], "w": w, "h": h, "angle": ang})
+    def _append_meta(self, kind: str, data: dict) -> None:
+        self._meta["draw_ops"].append({kind: data})
 
-    def draw_line(self):
-        x1, x2 = 10, 1800
-        y1, y2 = random.randint(10, 1000), 1000
-        lw = random.uniform(1, 3)
-        self.ax.plot([x1, x2], [y1, y2], "g--", linewidth=lw)
-        self._append_meta("line", {"x": [x1, x2], "y": [y1, y2], "lw": lw})
-
-    # ---- Helpers ------------------------------------------------------------
-    def _append_meta(self, shape_type: str, data: dict):
-        m = json.loads(self._meta)
-        m["draw_ops"].append({shape_type: data})
-        self._meta = json.dumps(m)
-
+    # --------------------------------------------------------------------------
+    # I/O
+    # --------------------------------------------------------------------------
     def save_image(self, output_path: PathLike) -> Tuple[Path, str]:
+        """Save current figure and return JSON metadata string."""
         out = Path(output_path)
         self.fig.savefig(out, dpi=DPI, format="jpg", bbox_inches="tight", pad_inches=0)
-        return out, self._meta
-
-    def close(self):
-        plt.close(self.fig)
-        self.logger.info("Figure closed and resources released.")
+        return out, json.dumps(self._meta, indent=2, ensure_ascii=False)

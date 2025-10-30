@@ -1,14 +1,12 @@
 """
-orchestration.py
+orchestration.py - Worker orchestration logic.
 """
 
 import os
 import sys
-import json
 import logging
-from typing import Union, Optional, Tuple
 from pathlib import Path
-from multiprocessing import Pool
+from typing import Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 
@@ -18,31 +16,23 @@ if __package__ is None or __package__ == "":
 else:
     from .worker import SyntheticImageWorker
 
-
-PathLike = Union[str, os.PathLike]
-_worker = None
+PathLike = Union[str, Path]
+_worker: Optional[SyntheticImageWorker] = None
 
 
 def worker_init():
+    """Initializer for multiprocessing.Pool."""
     global _worker
     _worker = SyntheticImageWorker()
 
 
 def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[str], Optional[Exception]]:
-    """Flow logic per job."""
+    """Execute one drawing job and return (path, meta_json, error)."""
     global _worker
     try:
         _worker.plot_reset()
-        with plt.xkcd():
-            pass
-            # _worker.draw_spline()
-            # _worker.draw_ellipse()
-            # _worker.draw_line()
-        _worker.draw_line_ex()
-        _worker.draw_line_ex()
-        _worker.draw_line_ex()
-        _worker.draw_line_ex()
-        _worker.draw_line_ex()
+        for _ in range(5):
+            _worker.draw_line()
         out, meta = _worker.save_image(output_path)
         return out, meta, None
     except Exception as e:
