@@ -104,7 +104,7 @@ def make_line_meta(
             Opacity in [0, 1]. Randomized if None.
         orientation (str | int | None):
             - Named directions: `"horizontal"`, `"vertical"`,
-              `"diagonal_primary"` (45ï¿½), `"diagonal_auxiliary"` (-45ï¿½).
+              `"diagonal_primary"` (45°), `"diagonal_auxiliary"` (-45°).
             - Numeric value: explicit angle in degrees.
             - None: random endpoints within current axis limits.
         hand_drawn (bool, optional):
