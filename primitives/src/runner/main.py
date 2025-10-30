@@ -9,6 +9,7 @@ import time
 import logging
 from pathlib import Path
 from multiprocessing import Pool
+from typing import Optional, Union
 
 # ---------------------------------------------------------------------------
 # Import handling for both package and script execution
@@ -27,16 +28,19 @@ else:
 # ---------------------------------------------------------------------------
 # Main driver
 # ---------------------------------------------------------------------------
-def main(batch_size: int = 10, output_dir: Path | str = "./out") -> None:
+def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
     """Run parallel synthetic image generation."""
     log_path = configure_logging()
     logger = logging.getLogger("main")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    total_cores = os.cpu_count() or 1
+    num_cores = max(1, int(total_cores * 0.75))
+    if total_cores > 10:
+        num_cores = max(10, num_cores)
 
-    total_cores = os.cpu_count() or 4
-    num_cores = min(max(1, int(total_cores * 0.75)), 10)
     logger.info(f"Using {num_cores} workers for {batch_size} images...")
     logger.info(f"Logs written to: {log_path}")
 
