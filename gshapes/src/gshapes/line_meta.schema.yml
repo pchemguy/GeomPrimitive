@@ -3,7 +3,7 @@ $id: "https://example.com/schemas/line_meta.schema.json"
 title: Line Primitive Metadata
 description: |
   Structured metadata describing the geometry and style of a single 'hand-drawn' line
-  segment. Produced by `make_line_meta(ax, ...)` in primitive_drawer.py.
+  segment. Produced by `Line.make_geometry(ax, ...)`.
 
 type: object
 required:
@@ -47,7 +47,7 @@ properties:
 
   linewidth:
     type: number
-    minimum: 0.1
+    exclusiveMinimum: 0
     maximum: 10.0
     description: |
       Line width in points. Randomly selected from DEFAULT_LINEWIDTHS if unspecified.
@@ -68,6 +68,7 @@ properties:
           - type: array
             items:
               type: number
+            minItems: 2
         minItems: 2
         maxItems: 2
     examples:
@@ -115,7 +116,7 @@ properties:
           - diagonal_primary
           - diagonal_auxiliary
       - type: number
-      - type: "null"
+      - type: null
     examples:
       - "horizontal"
       - 45
@@ -157,6 +158,7 @@ properties:
       - "round"
 
 additionalProperties: false
+
 examples:
   - x: [0.1, 0.9]
     y: [0.2, 0.8]
