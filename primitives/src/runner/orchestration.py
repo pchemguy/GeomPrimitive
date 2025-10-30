@@ -1,5 +1,5 @@
 """
-orchestration.py - Worker orchestration logic.
+orchestration.py - Worker orchestration logic for multiprocessing harness.
 """
 
 import os
@@ -8,22 +8,22 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple, Union
 
-import matplotlib.pyplot as plt
-
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from worker import ThreadWorker
 else:
     from .worker import ThreadWorker
 
+
 PathLike = Union[str, Path]
 _worker: Optional[ThreadWorker] = None
 
 
-def worker_init():
-    """Initializer for multiprocessing.Pool."""
+def worker_init() -> None:
+    """Initializer for multiprocessing.Pool workers."""
     global _worker
     _worker = ThreadWorker()
+    logging.getLogger("worker").debug(f"Worker initialized in PID {os.getpid()}")
 
 
 def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[str], Optional[Exception]]:

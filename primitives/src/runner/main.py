@@ -10,6 +10,9 @@ import logging
 from pathlib import Path
 from multiprocessing import Pool
 
+# ---------------------------------------------------------------------------
+# Import handling for both package and script execution
+# ---------------------------------------------------------------------------
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from logging_utils import configure_logging
@@ -21,7 +24,11 @@ else:
     from .orchestration import worker_init, main_worker
 
 
+# ---------------------------------------------------------------------------
+# Main driver
+# ---------------------------------------------------------------------------
 def main(batch_size: int = 10, output_dir: Path | str = "./out") -> None:
+    """Run parallel synthetic image generation."""
     log_path = configure_logging()
     logger = logging.getLogger("main")
 
@@ -30,9 +37,8 @@ def main(batch_size: int = 10, output_dir: Path | str = "./out") -> None:
 
     total_cores = os.cpu_count() or 4
     num_cores = min(max(1, int(total_cores * 0.75)), 10)
-    if total_cores > 10:
-        num_cores = max(10, num_cores)
     logger.info(f"Using {num_cores} workers for {batch_size} images...")
+    logger.info(f"Logs written to: {log_path}")
 
     summary = RunSummary(total_jobs=batch_size, log_path=log_path)
     job_paths = [output_dir / f"synthetic_{i:06d}.jpg" for i in range(batch_size)]
@@ -40,7 +46,9 @@ def main(batch_size: int = 10, output_dir: Path | str = "./out") -> None:
 
     try:
         with Pool(processes=num_cores, initializer=worker_init) as pool:
-            for i, (path, meta, err) in enumerate(pool.imap_unordered(main_worker, job_paths, chunksize=10)):
+            for i, (path, meta, err) in enumerate(
+                pool.imap_unordered(main_worker, job_paths, chunksize=10)
+            ):
                 summary.record_result(success=(err is None))
                 if err:
                     logger.error(f"Job {i} failed: {err}")
@@ -53,7 +61,8 @@ def main(batch_size: int = 10, output_dir: Path | str = "./out") -> None:
     batch_file = output_dir / f"batch_{ts}.json"
     with open(batch_file, "w", encoding="utf-8") as f:
         json.dump(results_meta, f, indent=2, ensure_ascii=False)
-    logger.info(f"Batch metadata written - {batch_file}")
+
+    logger.info(f"Batch metadata written: {batch_file}")
 
 
 if __name__ == "__main__":
