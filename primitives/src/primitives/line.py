@@ -2,13 +2,13 @@
 line.py
 ------------
 
-Implements the Line class — a stylized or 'hand-drawn' line primitive.
+Implements the Line class - a stylized or 'hand-drawn' line primitive.
 
 Responsibilities:
-  • Generate geometry and style metadata (via make_geometry)
-  • Draw the line using Matplotlib
-  • Support object reuse (reset() updates in-place)
-  • Extendable as a base for circle/ellipse/arc primitives
+  - Generate geometry and style metadata (via make_geometry)
+  - Draw the line using Matplotlib
+  - Support object reuse (reset() updates in-place)
+  - Extendable as a base for circle/ellipse/arc primitives
 """
 
 import os
@@ -86,7 +86,7 @@ class Line(Primitive):
         
         This method produces a structured dictionary that fully defines the
         geometry and stylistic parameters of a line segment. It does not draw
-        anything—only returns a data description suitable for later rendering.
+        anything-only returns a data description suitable for later rendering.
         
         Randomness is provided by the class-level RNG (Line.rng), which can be
         reseeded via Line.reseed(seed).
@@ -119,7 +119,7 @@ class Line(Primitive):
                 Opacity in [0, 1]. Randomized if None.
             orientation (str | int | None):
                 - Named directions: `"horizontal"`, `"vertical"`,
-                  `"diagonal_primary"` (45°), `"diagonal_auxiliary"` (-45°).
+                  `"diagonal_primary"` (45o), `"diagonal_auxiliary"` (-45o).
                 - Numeric value: explicit angle in degrees.
                 - None: random endpoints within current axis limits.
             hand_drawn (bool, optional):
