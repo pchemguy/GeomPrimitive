@@ -27,8 +27,9 @@ import matplotlib.pyplot as plt
 
 # add project root so we can import primitives when run as a script
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
-
+from primitives.base import Primitive
 from primitives.line import Line  # uses your class-based primitive
+from primitives.rng import RNG, get_rng
 
 
 PathLike = Union[str, os.PathLike]
@@ -45,12 +46,13 @@ class ThreadWorker:
     """
 
     def __init__(self, img_size: Tuple[int, int] = (1920, 1080)) -> None:
+        self.pid = os.getpid()
+        self.logger = logging.getLogger(f"worker-{self.pid}")
         self.img_size = img_size
-        self.logger = logging.getLogger(f"worker-{os.getpid()}")
-        self.fig, self.ax = self._create_canvas()
-        self._meta: dict = {}
-        self.line = Line()  # reusable primitive
         self._seed_rng()
+        self._create_canvas()
+        self.plot_reset()
+        self.line = Line()  # reusable primitive
         self.logger.info("Initialized ThreadWorker")
 
     # -------------------------------------------------------------------------
@@ -58,29 +60,17 @@ class ThreadWorker:
     # -------------------------------------------------------------------------
     def _seed_rng(self) -> None:
         """
-        Seed the Line-level RNG so every worker process gets its own stream.
+        Seed the thread-level RNG so every worker process gets its own stream.
         Note: this controls primitive randomness, not Python's global random.
         """
-        pid = os.getpid()
-        seed = pid ^ int(time.time())
-        Line.reseed(seed)
-        # image-level metadata root
-        self._meta = {
-            "pid": pid,
-            "seed": seed,
-            "draw_ops": [],
-        }
+        self.seed = self.pid ^ int(time.time() * 1e6)
+        Primitive.reseed(self.seed)
         self.logger.debug(f"Random seed set: {seed}")
 
     def _create_canvas(self) -> Tuple[plt.Figure, plt.Axes]:
         width_in = self.img_size[0] / DPI
         height_in = self.img_size[1] / DPI
-        fig, ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
-        ax.set_xlim(0, self.img_size[0])
-        ax.set_ylim(0, self.img_size[1])
-        ax.invert_yaxis()
-        ax.axis("off")
-        return fig, ax
+        self.fig, self.ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
 
     # -------------------------------------------------------------------------
     # per-job lifecycle
@@ -93,17 +83,9 @@ class ThreadWorker:
         self.ax.cla()
         self.ax.set_xlim(0, self.img_size[0])
         self.ax.set_ylim(0, self.img_size[1])
-        self.ax.invert_yaxis()
+        # self.ax.invert_yaxis()
         self.ax.axis("off")
-
-        # keep pid and seed, reset draw_ops
-        pid = self._meta.get("pid")
-        seed = self._meta.get("seed")
-        self._meta = {
-            "pid": pid,
-            "seed": seed,
-            "draw_ops": [],
-        }
+        self._meta = {"pid": self.pid, "draw_ops": []}
 
     # -------------------------------------------------------------------------
     # draw ops
@@ -114,7 +96,7 @@ class ThreadWorker:
         Extra kwargs are forwarded to line.make_geometry.
         """
         self.line.make_geometry(self.ax, **kwargs).draw(self.ax)
-        self._append_meta("line", self.line.meta)
+        self._append_meta("Line", self.line.meta)
 
     def _append_meta(self, shape_type: str, data: dict) -> None:
         # store primitive-level metadata in per-image metadata
