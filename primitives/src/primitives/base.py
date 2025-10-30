@@ -56,7 +56,7 @@ class Primitive(ABC):
         - `draw(ax, **kwargs)` -- renders using current metadata
 
     Attributes:
-        meta (dict[str, Any]): Metadata describing the primitiveï¿½s geometry and style.
+        meta (dict[str, Any]): Metadata describing the primitive's geometry and style.
 
     Example:
         >>> line = Line(ax)
@@ -89,7 +89,7 @@ class Primitive(ABC):
     # -------------------------------------------------------------------------
     @abstractmethod
     def make_geometry(self, ax: Axes, **kwargs) -> Dict[str, Any]:
-        """Generate metadata describing the primitive’s geometry."""
+        """Generate metadata describing the primitive's geometry."""
         raise NotImplementedError
 
     @abstractmethod
