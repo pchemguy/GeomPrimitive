@@ -30,10 +30,10 @@ from matplotlib._enums import JoinStyle, CapStyle
 # Import RNG utilities
 if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from rng import RNG, get_rng
+    from rng import RNG
     from base import Primitive
 else:
-    from .rng import RNG, get_rng
+    from .rng import RNG
     from .base import Primitive
 
 
@@ -45,14 +45,6 @@ MAX_DASH_JITTER = 0.05
 MAX_PATTERN_LENGTH = 20
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
-
-
-# =============================================================================
-# RNG accessor
-# =============================================================================
-def _rng() -> RNG:
-    """Return thread-local RNG instance."""
-    return get_rng(thread_safe=True)
 
 
 # =============================================================================
@@ -168,18 +160,18 @@ class Line(Primitive):
         if not isinstance(ax, Axes):
             raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
 
-        rnd = _rng()
+        rng: RNG = self.rng
 
         # Determine hand-drawn style
         if hand_drawn is None:
-            hand_drawn = rnd.choice([False, True])
+            hand_drawn = rng.choice([False, True])
         elif not isinstance(hand_drawn, bool):
             raise TypeError(f"Unsupported hand_drawn type: {type(hand_drawn).__name__}")
 
         # Color and alpha
-        color_tuple = self._get_color(color, rnd)
+        color_tuple = self._get_color(color)
         alpha_value = (
-            rnd.uniform(0.0, 1.0)
+            rng.uniform(0.0, 1.0)
             if alpha is None
             else max(0.0, min(float(alpha), 1.0))
         )
@@ -187,22 +179,22 @@ class Line(Primitive):
         # Coordinates
         x_min, x_max = ax.get_xlim()
         y_min, y_max = ax.get_ylim()
-        x, y = self._get_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn, rnd)
+        x, y = self._get_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
 
         # Compose full metadata dict
         return {
             "x": x,
             "y": y,
-            "linewidth": linewidth or rnd.choice(DEFAULT_LINEWIDTHS),
+            "linewidth": linewidth or rng.choice(DEFAULT_LINEWIDTHS),
             "linestyle": self._get_linestyle(pattern, hand_drawn, rnd),
             "color": color_tuple,
             "alpha": alpha_value,
             "orientation": orientation,
             "hand_drawn": hand_drawn,
-            "solid_capstyle": rnd.choice(list(CapStyle)),
-            "solid_joinstyle": rnd.choice(list(JoinStyle)),
-            "dash_capstyle": rnd.choice(list(CapStyle)),
-            "dash_joinstyle": rnd.choice(list(JoinStyle)),
+            "solid_capstyle": rng.choice(list(CapStyle)),
+            "solid_joinstyle": rng.choice(list(JoinStyle)),
+            "dash_capstyle": rng.choice(list(CapStyle)),
+            "dash_joinstyle": rng.choice(list(JoinStyle)),
         }
 
     # -------------------------------------------------------------------------
@@ -243,20 +235,21 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     @staticmethod
     def _get_linestyle(
-        pattern: Optional[str], hand_drawn: bool, rnd: RNG
+        pattern: Optional[str], hand_drawn: bool
     ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
+        rng: RNG = self.rng
         if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
             if not hand_drawn:
-                pattern = tuple(rnd.randint(1, 5) for _ in range(2 * rnd.randint(1, 5)))
+                pattern = tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5)))
                 return (0, pattern)
 
-            base_len = float(rnd.randint(1, 5))
+            base_len = float(rng.randint(1, 5))
             pattern = tuple(
                 val
-                for _ in range(rnd.randint(10, MAX_PATTERN_LENGTH))
+                for _ in range(rng.randint(10, MAX_PATTERN_LENGTH))
                 for val in (
-                    max(0.5, base_len * (1 + max(-6, min(round(rnd.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
-                    max(0.5, base_len * (1 + max(-6, min(round(rnd.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 0.5),
+                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
+                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 0.5),
                 )
             )
             return (0, pattern)
@@ -272,11 +265,12 @@ class Line(Primitive):
         return Primitive._pattern_to_linestyle(pattern, rnd)
 
     @staticmethod
-    def _pattern_to_linestyle(pattern: str, rnd: RNG) -> Tuple[int, Tuple[float, ...]]:
+    def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
+        rng: RNG = self.rng
         mapping = {" ": ("off", 1), "_": ("off", 4), "-": ("on", 4), ".": ("on", 1)}
         pattern = pattern.lstrip()
         if not pattern:
-            return (0, tuple(rnd.randint(1, 5) for _ in range(2 * rnd.randint(1, 5))))
+            return (0, tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5))))
 
         segments, last_type, last_len = [], None, 0
         for ch in pattern:
@@ -294,9 +288,10 @@ class Line(Primitive):
         return (0, tuple(segments))
 
     @staticmethod
-    def _get_color(color: Optional[Any], rnd: RNG) -> Union[str, Tuple[float, float, float]]:
+    def _get_color(color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
+        rng: RNG = self.rng
         if color is None or not str(color).strip():
-            return rnd.choice(CSS4_COLOR_NAMES)
+            return rng.choice(CSS4_COLOR_NAMES)
         if isinstance(color, tuple):
             return color
         color = color.strip().lower()
@@ -307,7 +302,7 @@ class Line(Primitive):
             raise ValueError(f"Invalid color: {color}")
         rgb = mpl.colors.to_rgb(base)
         smax = max(rgb)
-        scale = rnd.uniform(0.1, 1 / smax if smax > 0 else 1)
+        scale = rng.uniform(0.1, 1 / smax if smax > 0 else 1)
         return tuple(np.clip(c * scale, 0, 1) for c in rgb)
 
     @staticmethod
@@ -317,13 +312,13 @@ class Line(Primitive):
         xmax: float,
         ymax: float,
         orientation: Union[str, int, None],
-        hand_drawn: bool,
-        rnd: RNG,
+        hand_drawn: bool
     ) -> Tuple[List[float], List[float]]:
+        rng: RNG = self.rng
         if orientation is None:
             return (
-                [rnd.uniform(xmin, xmax), rnd.uniform(xmin, xmax)],
-                [rnd.uniform(ymin, ymax), rnd.uniform(ymin, ymax)],
+                [rng.uniform(xmin, xmax), rng.uniform(xmin, xmax)],
+                [rng.uniform(ymin, ymax), rng.uniform(ymin, ymax)],
             )
 
         if isinstance(orientation, (int, float)):
@@ -344,23 +339,23 @@ class Line(Primitive):
             raise TypeError(f"Unsupported orientation type: {type(orientation).__name__}")
 
         if hand_drawn:
-            delta = int(round(rnd.normal(0.0, 2.0)))
+            delta = int(round(rng.normal(0.0, 2.0)))
             delta = max(-MAX_ANGLE_JITTER, min(delta, MAX_ANGLE_JITTER))
             angle += delta
             if angle > 90:
                 angle -= 180
 
-        x1, y1 = rnd.uniform(xmin, 0.75 * xmax), rnd.uniform(ymin, 0.75 * ymax)
+        x1, y1 = rng.uniform(xmin, 0.75 * xmax), rng.uniform(ymin, 0.75 * ymax)
         if abs(angle) == 90:
-            x2, y2 = x1, rnd.uniform(y1 + 1, ymax)
+            x2, y2 = x1, rng.uniform(y1 + 1, ymax)
             return [x1, x2], [y1, y2]
 
         slope = math.tan(math.radians(angle))
         if angle == 0 or abs(slope) < 1e-6:
-            x2, y2 = rnd.uniform(x1 + 1, xmax), y1
+            x2, y2 = rng.uniform(x1 + 1, xmax), y1
         else:
             xmax_adj = min(xmax, x1 + (ymax - y1) / slope)
-            x2 = min(xmax, rnd.uniform(x1 + 1, xmax_adj))
+            x2 = min(xmax, rng.uniform(x1 + 1, xmax_adj))
             y2 = min(ymax, y1 + slope * (x2 - x1))
 
         return [float(np.clip(x1, xmin, xmax)), float(np.clip(x2, xmin, xmax))], [

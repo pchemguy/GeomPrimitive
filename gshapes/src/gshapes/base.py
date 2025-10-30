@@ -22,10 +22,21 @@ Example:
 
 from __future__ import annotations
 
+import os
+import sys
 import copy
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 from matplotlib.axes import Axes
+
+# -----------------------------------------------------------------------------
+# Import thread-safe RNG utilities
+# -----------------------------------------------------------------------------
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from rng import RNG, get_rng
+else:
+    from .rng import RNG, get_rng
 
 
 class Primitive(ABC):
@@ -53,16 +64,23 @@ class Primitive(ABC):
         >>> line.reset(ax, orientation="vertical").draw(ax)
     """
 
-    __slots__ = ("meta",)
+    __slots__ = ("meta", "rng")
 
-    def __init__(self, meta: Optional[Dict[str, Any]] = None):
+    def __init__(self, meta: Optional[Dict[str, Any]] = None, rng: Optional[RNG] = None):
         """
         Initialize the primitive.
 
         Args:
             meta: Optional precomputed metadata dictionary.
+            rng: Optional RNG instance for deterministic behavior.
+                 If None, a thread-local RNG is used.
         """
         self.meta: Dict[str, Any] = meta or {}
+        self.rng: RNG = rng or get_rng(thread_safe=True)
+
+    def reseed(self, seed: Optional[int] = None) -> None:
+        """Re-seed the internal RNG (for deterministic replay)."""
+        self.rng.seed(seed)
 
     # -------------------------------------------------------------------------
     # Abstract interface
