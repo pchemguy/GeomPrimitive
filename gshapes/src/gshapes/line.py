@@ -186,7 +186,7 @@ class Line(Primitive):
             "x": x,
             "y": y,
             "linewidth": linewidth or rng.choice(DEFAULT_LINEWIDTHS),
-            "linestyle": self._get_linestyle(pattern, hand_drawn, rnd),
+            "linestyle": self._get_linestyle(pattern, hand_drawn),
             "color": color_tuple,
             "alpha": alpha_value,
             "orientation": orientation,
@@ -262,7 +262,7 @@ class Line(Primitive):
         if pattern_lower in named_styles:
             return pattern_lower
 
-        return Primitive._pattern_to_linestyle(pattern, rnd)
+        return Primitive._pattern_to_linestyle(pattern)
 
     @staticmethod
     def _pattern_to_linestyle(pattern: str) -> Tuple[int, Tuple[float, ...]]:
