@@ -90,9 +90,6 @@ class Line(Primitive):
         hand_drawn: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        Generate metadata describing this stylized line.
-
-        See primitive_drawer.make_line_meta() for equivalent functional spec.
         """
         if not isinstance(ax, Axes):
             raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
