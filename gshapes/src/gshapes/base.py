@@ -14,7 +14,6 @@ Thread model:
   - Instances are reused via `.reset(ax, **kwargs)` without reallocation.
 
 Example:
-
     >>> from primitives.line import Line
     >>> line = Line(ax)
     >>> line.draw(ax)
