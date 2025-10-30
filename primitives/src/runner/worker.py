@@ -42,7 +42,6 @@ class ThreadWorker:
     Each process:
     - has its own figure and axes
     - has its own image-level metadata dict
-    - reuses one Line() instance for speed
     """
 
     def __init__(self, img_size: Tuple[int, int] = (1920, 1080)) -> None:
@@ -114,12 +113,7 @@ class ThreadWorker:
         Draw a single line using the reusable Line primitive.
         Extra kwargs are forwarded to line.make_geometry.
         """
-        # 1) generate geometry (this also overwrites line.meta)
-        line_obj = self.line.make_geometry(self.ax, **kwargs)
-        # 2) draw onto our axes
-        line_obj.draw(self.ax)
-        # 3) record into image-level metadata
-        # we can store a copy so later changes to line.meta do not affect it
+        self.line.make_geometry(self.ax, **kwargs).draw(self.ax)
         self._append_meta("line", self.line.meta)
 
     def _append_meta(self, shape_type: str, data: dict) -> None:

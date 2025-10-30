@@ -79,6 +79,8 @@ class Line(Primitive):
         color: Optional[str] = None,
         alpha: Optional[float] = None,
         orientation: Union[str, int, None] = None,
+        capstyle: Optional[str] = None,
+        joinstyle: Optional[str] = None,
         hand_drawn: Optional[bool] = None,
     ) -> "Line":
         """
@@ -177,6 +179,10 @@ class Line(Primitive):
             else max(0.0, min(float(alpha), 1.0))
         )
 
+        # Cap and join styles
+        capstyle = capstyle if capstyle in list(CapStyle) else rng.choice(list(CapStyle))
+        joinstyle = joinstyle if joinstyle in list(JoinStyle) else rng.choice(list(JoinStyle))
+
         # Coordinates
         x_min, x_max = ax.get_xlim()
         y_min, y_max = ax.get_ylim()
@@ -192,10 +198,10 @@ class Line(Primitive):
             "alpha": alpha_value,
             "orientation": orientation,
             "hand_drawn": hand_drawn,
-            "solid_capstyle": rng.choice(list(CapStyle)),
-            "solid_joinstyle": rng.choice(list(JoinStyle)),
-            "dash_capstyle": rng.choice(list(CapStyle)),
-            "dash_joinstyle": rng.choice(list(JoinStyle)),
+            "solid_capstyle": capstyle,
+            "solid_joinstyle": joinstyle,
+            "dash_capstyle": capstyle,
+            "dash_joinstyle": joinstyle,
         }
         return self
 
