@@ -21,10 +21,13 @@ def main():
     log_path = configure_logging()
     logger = logging.getLogger("main")
 
-    BATCH_SIZE = 90
+    BATCH_SIZE = 10000
     OUTPUT_DIR = Path("./synth_images_final")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    total_cores = os.cpu_count()
     num_cores = max(1, int(os.cpu_count() * 0.75))
+    if total_cores > 10:
+        num_cores = max(10, num_cores)
 
     summary = RunSummary(total_jobs=BATCH_SIZE, log_path=log_path)
     logger.info(f"Using {num_cores} workers for {BATCH_SIZE} images...")
