@@ -98,6 +98,11 @@ class Primitive(ABC):
         """Re-seed the internal RNG (for deterministic replay)."""
         cls.rng.seed(seed)
 
+    @property
+    def jsonpp(self) -> str:
+      """Return pretty-printed JSON (good for debugging / logs)."""
+      return json.dumps(self._meta, sort_keys=True, indent=4)
+
     # -------------------------------------------------------------------------
     # Abstract interface
     # -------------------------------------------------------------------------
@@ -111,6 +116,26 @@ class Primitive(ABC):
         """Render the primitive onto the given Matplotlib axis."""
         raise NotImplementedError
 
+    # ---------------------------------------------------------------------------
+    # Representation
+    # ---------------------------------------------------------------------------
     def __repr__(self) -> str:
         """Readable summary showing available metadata keys."""
         return f"<{self.__class__.__name__} keys={list(self.meta.keys())}>"
+
+    def __str__(self) -> str:
+        """
+        Return a detailed, human-readable string representation.
+      
+        Example output:
+            Line(id=0x1f2c4fa2):
+            {
+              "alpha": 0.75,
+              "color": "steelblue",
+              "orientation": "horizontal",
+              ...
+            }
+        """
+        cls_name: str = self.__class__.__name__
+        obj_id: str = hex(id(self))
+        return f"{cls_name}(id={obj_id}):\n{self.jsonpp}"
