@@ -1,29 +1,55 @@
+"""
+-------
+conftest.py
+-------
+Shared pytest fixtures for primitive tests.
+"""
+
 import pytest
 import matplotlib
-matplotlib.use("Agg")  # ensure headless mode
+matplotlib.use("Agg")  # ensure headless backend for CI and multiprocessing
 import matplotlib.pyplot as plt
 
-from primitives.base import Primitive
 from primitives.line import Line
 
 
+# -----------------------------------------------------------------------------
+# Core Matplotlib fixtures
+# -----------------------------------------------------------------------------
 @pytest.fixture(scope="function")
 def fig_ax():
-  """Return a Matplotlib Figure and Axes for isolated tests."""
+  """
+  Create and yield an isolated Matplotlib Figure/Axes pair.
+
+  The figure is automatically closed after the test to avoid memory leaks.
+  """
   fig, ax = plt.subplots(figsize=(4, 3))
   yield fig, ax
   plt.close(fig)
 
 
-@pytest.fixture(scope="function")
-def line_instance():
-  """Return a fresh Line instance with default RNG."""
-  return Line()
-
-
+# -----------------------------------------------------------------------------
+# Deterministic RNG setup
+# -----------------------------------------------------------------------------
 @pytest.fixture(autouse=True)
 def reset_rng():
-  """Ensure deterministic RNG before each test."""
+  """
+  Automatically reseed the RNG before and after each test
+  for deterministic, repeatable results.
+  """
   Line.reseed(42)
   yield
   Line.reseed(42)
+
+
+# -----------------------------------------------------------------------------
+# Primitive fixtures
+# -----------------------------------------------------------------------------
+@pytest.fixture(scope="function")
+def line_instance(fig_ax):
+  """
+  Return a freshly initialized Line instance
+  attached to a dedicated test Axes.
+  """
+  _, ax = fig_ax
+  return Line(ax)

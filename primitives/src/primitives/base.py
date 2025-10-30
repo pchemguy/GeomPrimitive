@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import sys
 import copy
+import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 from matplotlib.axes import Axes
@@ -107,7 +108,7 @@ class Primitive(ABC):
     # Abstract interface
     # -------------------------------------------------------------------------
     @abstractmethod
-    def make_geometry(self, ax: Axes, **kwargs) -> Dict[str, Any] -> Primitive:
+    def make_geometry(self, ax: Axes, **kwargs) -> Primitive:
         """Generate metadata describing the primitive's geometry."""
         raise NotImplementedError
 
