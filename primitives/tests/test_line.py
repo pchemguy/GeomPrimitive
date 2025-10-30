@@ -16,6 +16,14 @@ def test_make_geometry_structure(fig_ax, line_instance):
   assert set(meta.keys()) == required
   assert all(isinstance(meta[k], (float, int, str, list, tuple, bool)) or hasattr(meta[k], "__iter__") for k in meta)
 
+def test_make_geometry_populates_meta(fig_ax):
+    _, ax = fig_ax
+    from primitives.line import Line
+    line = Line()
+    meta = line.make_geometry(ax)
+    assert line.meta is meta  # same object
+    assert "x" in line.meta
+
 # B. Orientation handling
 
 @pytest.mark.parametrize("orientation", [

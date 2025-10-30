@@ -44,41 +44,55 @@ class Primitive(ABC):
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
 
     Provides:
-      - Shared metadata storage (`self.meta`)
       - Deterministic RNG compatibility
-      - Efficient object reuse via `reset()`
-      - Dict-based interface (`to_dict()`)
       - Extensible `.draw(ax)` and `.make_geometry()` methods
 
     Design:
       Subclasses (e.g. Line, Circle, Ellipse) implement:
-        - `make_geometry(ax, **kwargs)` -- returns dict of geometry/style data
+        - `make_geometry(ax, **kwargs)` -- self
         - `draw(ax, **kwargs)` -- renders using current metadata
 
     Attributes:
-        meta (dict[str, Any]): Metadata describing the primitive's geometry and style.
+      - _meta (dict[str, Any]): Metadata describing the primitive's geometry and style.
+      - meta: deep-copy getter for safe inspection.
+      - json: JSON-encoded serialization of `.meta`.
 
     Example:
         >>> line = Line(ax)
         >>> line.draw(ax)
-        >>> line.reset(ax, orientation="vertical").draw(ax)
     """
 
-    __slots__ = ("meta",)
+    __slots__ = ("_meta",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
-    def __init__(self, meta: Optional[Dict[str, Any]] = None):
+    def __init__(self, ax: Axes, **kwargs: Any) -> None:
         """
-        Initialize the primitive.
+        Create a primitive and immediately generate its geometry.
 
         Args:
-            meta: Optional precomputed metadata dictionary.
-            rng: Optional RNG instance for deterministic behavior.
-                 If None, a thread-local RNG is used.
+            ax (matplotlib.axes.Axes): Target Matplotlib axis.
+            **kwargs: Optional arguments for `make_geometry`.
         """
-        self.meta: Dict[str, Any] = meta or {}
+        if not isinstance(ax, Axes):
+            raise TypeError("Primitive constructor requires a Matplotlib Axes object")
 
+        self._meta: Dict[str, Any] = {}
+        self.make_geometry(ax, **kwargs)  # always generate metadata
+
+    # ---------------------------------------------------------------------------
+    # Metadata accessors
+    # ---------------------------------------------------------------------------
+    @property
+    def meta(self) -> Dict[str, Any]:
+        """Deep copy of the primitive’s current metadata (safe to mutate)."""
+        return copy.deepcopy(self._meta)
+
+    @property
+    def json(self) -> str:
+        """JSON-encoded metadata string (sorted, compact)."""
+        return json.dumps(self._meta, sort_keys=True, separators=(",", ":"))    
+    
     @classmethod
     def reseed(cls, seed: Optional[int] = None) -> None:
         """Re-seed the internal RNG (for deterministic replay)."""
@@ -88,7 +102,7 @@ class Primitive(ABC):
     # Abstract interface
     # -------------------------------------------------------------------------
     @abstractmethod
-    def make_geometry(self, ax: Axes, **kwargs) -> Dict[str, Any]:
+    def make_geometry(self, ax: Axes, **kwargs) -> Dict[str, Any] -> Primitive:
         """Generate metadata describing the primitive's geometry."""
         raise NotImplementedError
 
@@ -96,36 +110,6 @@ class Primitive(ABC):
     def draw(self, ax: Axes, **kwargs) -> Primitive:
         """Render the primitive onto the given Matplotlib axis."""
         raise NotImplementedError
-
-    # -------------------------------------------------------------------------
-    # Reuse and conversion utilities
-    # -------------------------------------------------------------------------
-    def reset(self, ax: Axes, **kwargs) -> Primitive:
-        """
-        Recompute metadata in place for object reuse.
-
-        Clears and regenerates `self.meta` using subclass-specific
-        `make_geometry()`, allowing the same object to be reused
-        across many iterations or frames.
-
-        Args:
-            ax: Target Matplotlib Axes.
-            **kwargs: Parameters forwarded to `make_geometry()`.
-
-        Returns:
-            self: Updated object for chaining.
-        """
-        self.make_geometry(ax, **kwargs)
-        return self
-
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Return a deep copy of the metadata dictionary.
-
-        Useful for safe serialization (e.g. JSON export) or
-        inspection without mutating the live state.
-        """
-        return copy.deepcopy(self.meta)
 
     def __repr__(self) -> str:
         """Readable summary showing available metadata keys."""

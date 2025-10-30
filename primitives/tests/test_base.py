@@ -8,7 +8,7 @@ def test_reset_regenerates_metadata(fig_ax, line_instance):
   _, ax = fig_ax
   m1 = line_instance.make_geometry(ax)
   line_instance.meta = m1.copy()
-  m2 = line_instance.reset(ax).meta
+  m2 = line_instance.make_geometry(ax).meta
   assert isinstance(m2, dict)
   assert m2 != m1  # randomness introduces difference
 

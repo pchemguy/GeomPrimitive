@@ -66,7 +66,7 @@ class Line(Primitive):
         See `make_geometry` docstring for full field documentation.
     """
 
-    __slots__ = ("meta",)
+    __slots__ = ()
 
     # -------------------------------------------------------------------------
     # Geometry and style synthesis
@@ -80,7 +80,7 @@ class Line(Primitive):
         alpha: Optional[float] = None,
         orientation: Union[str, int, None] = None,
         hand_drawn: Optional[bool] = None,
-    ) -> Dict[str, Any]:
+    ) -> "Line":
         """
         Generate metadata describing a stylized or 'hand-drawn' line.
         
@@ -148,14 +148,14 @@ class Line(Primitive):
         
         Example:
             >>> fig, ax = plt.subplots()
-            >>> line = Line()
-            >>> meta = line.make_geometry(ax, orientation="diagonal_primary")
+            >>> line = Line(ax, orientation="diagonal_primary")
+            >>> meta = line.meta
             >>> print(meta["color"], meta["x"], meta["y"])
             navy [0.1, 0.9] [0.1, 0.9]
         
             Deterministic seeding example:
             >>> Line.reseed(42)
-            >>> meta = line.make_geometry(ax, hand_drawn=True)
+            >>> meta = line.make_geometry(ax, hand_drawn=True).meta
             >>> print(meta["linewidth"], meta["linestyle"])
             1.5 (0, (4, 2, 3, 1))
         """
@@ -183,7 +183,7 @@ class Line(Primitive):
         x, y = self._get_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
 
         # Compose full metadata dict
-        meta: Dict[str, Any] = {
+        self._meta: Dict[str, Any] = {
             "x": x,
             "y": y,
             "linewidth": linewidth or rng.choice(DEFAULT_LINEWIDTHS),
@@ -197,13 +197,12 @@ class Line(Primitive):
             "dash_capstyle": rng.choice(list(CapStyle)),
             "dash_joinstyle": rng.choice(list(JoinStyle)),
         }
-        self.meta: Dict[str, Any] = meta
-        return meta
+        return self
 
     # -------------------------------------------------------------------------
     # Drawing
     # -------------------------------------------------------------------------
-    def draw(self, ax: Axes, **kwargs) -> Primitive:
+    def draw(self, ax: Axes, **kwargs):
         """
         Render this line onto the given Matplotlib axis.
 
@@ -231,7 +230,6 @@ class Line(Primitive):
                 dash_capstyle=meta["dash_capstyle"],
                 dash_joinstyle=meta["dash_joinstyle"],
             )
-        return self
 
     # -------------------------------------------------------------------------
     # Helper methods (static-style)
