@@ -25,7 +25,6 @@ import matplotlib as mpl
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
-from matplotlib import colors
 from matplotlib._enums import JoinStyle, CapStyle
 
 # Import RNG utilities
@@ -42,10 +41,7 @@ else:
 # Constants
 # =============================================================================
 MAX_ANGLE_JITTER = 5
-MAX_DASH_JITTER = 0.05
-MAX_PATTERN_LENGTH = 30
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
-CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
 
 
 # =============================================================================
@@ -206,75 +202,8 @@ class Line(Primitive):
             )
 
     # -------------------------------------------------------------------------
-    # Helper methods (static-style)
+    # Helper methods
     # -------------------------------------------------------------------------
-    @classmethod
-    def _get_linestyle(cls, pattern: Optional[str], hand_drawn: bool
-                      ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
-        rng: RNG = cls.rng
-        if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
-            if not hand_drawn:
-                pattern = tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5)))
-                return (0, pattern)
-
-            base_len = float(rng.randint(1, 5))
-            pattern = tuple(
-                max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER))
-                for _ in range(rng.randint(6, MAX_PATTERN_LENGTH))
-            )
-            return (0, pattern)
-
-        if not isinstance(pattern, str):
-            raise TypeError(f"Unsupported pattern type: {type(pattern).__name__}")
-
-        pattern_lower = pattern.lower().strip()
-        named_styles = {"solid", "-", "dotted", ":", "dashed", "--", "dashdot", "-."}
-        if pattern_lower in named_styles:
-            return pattern_lower
-
-        return cls._pattern_to_linestyle(pattern)
-
-    @classmethod
-    def _pattern_to_linestyle(cls, pattern: str) -> Tuple[int, Tuple[float, ...]]:
-        rng: RNG = cls.rng
-        mapping = {" ": ("off", 1), "_": ("off", 4), "-": ("on", 4), ".": ("on", 1)}
-        pattern = pattern.lstrip()
-        if not pattern:
-            return (0, tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5))))
-
-        segments, last_type, last_len = [], None, 0
-        for ch in pattern:
-            if ch not in mapping:
-                raise ValueError(f'Invalid character "{ch}" in pattern "{pattern}"')
-            seg_type, seg_len = mapping[ch]
-            if seg_type == last_type and segments:
-                segments[-1] += seg_len
-            else:
-                segments.append(seg_len)
-                last_type = seg_type
-            last_len = seg_len
-        if len(segments) % 2 != 0:
-            segments.append(last_len)
-        return (0, tuple(segments))
-
-    @classmethod
-    def _get_color(cls, color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
-        rng: RNG = cls.rng
-        if color is None or not str(color).strip():
-            return rng.choice(CSS4_COLOR_NAMES)
-        if isinstance(color, tuple):
-            return color
-        color = color.strip().lower()
-        if color in CSS4_COLOR_NAMES:
-            return color
-        base = colors.CSS4_COLORS.get(color[:-1])
-        if base is None:
-            raise ValueError(f"Invalid color: {color}")
-        rgb = mpl.colors.to_rgb(base)
-        smax = max(rgb)
-        scale = rng.uniform(0.1, 1 / smax if smax > 0 else 1)
-        return tuple(np.clip(c * scale, 0, 1) for c in rgb)
-
     @classmethod
     def _get_segment_coords(
         cls,
