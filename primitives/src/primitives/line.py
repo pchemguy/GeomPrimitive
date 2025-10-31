@@ -151,11 +151,9 @@ class Line(Primitive):
 
         # Color and alpha
         color_tuple = self._get_color(color)
-        alpha_value = (
-            rng.uniform(0.0, 1.0)
-            if alpha is None
-            else max(0.0, min(float(alpha), 1.0))
-        )
+        if alpha is None or not isinstance(alpha, (int, float)):
+            alpha = 1.5 - rng.paretovariate(1.0) * 0.5
+        alpha_value = max(0.0, min(float(alpha), 1.0))
 
         # Cap and join styles
         capstyle = CapStyle._member_map_.get(str(capstyle).lower()) or rng.choice(list(CapStyle))

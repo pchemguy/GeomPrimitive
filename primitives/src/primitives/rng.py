@@ -13,7 +13,7 @@ import os
 import time
 import random
 import threading
-from typing import Optional
+from typing import Optional, Any
 
 
 # =============================================================================
@@ -46,21 +46,33 @@ class RNG:
     # -------------------------------------------------------------------------
     # Basic distributions (thread-safe wrappers)
     # -------------------------------------------------------------------------
-    def randint(self, *a, **kw):
+    def randint(self, *a, **kw) -> int:
         with self._lock:
             return self._rng.randint(*a, **kw)
 
-    def uniform(self, *a, **kw):
+    def uniform(self, *a, **kw) -> float:
         with self._lock:
             return self._rng.uniform(*a, **kw)
 
-    def choice(self, *a, **kw):
+    def choice(self, *a, **kw) -> Any:
         with self._lock:
             return self._rng.choice(*a, **kw)
 
     def normal(self, mu: float, sigma: float) -> float:
         with self._lock:
             return self._rng.normalvariate(mu, sigma)
+
+    def paretovariate(self, alpha: Optional[float] = 1) -> float:
+        with self._lock:
+            return self._rng.paretovariate(alpha)
+
+    def getstate(self):
+        with self._lock:
+            return self._rng.getstate()
+
+    def setstate(self):
+        with self._lock:
+            return self._rng.setstate()
 
     def random(self) -> float:
         with self._lock:
