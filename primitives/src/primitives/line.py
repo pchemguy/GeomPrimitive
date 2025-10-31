@@ -73,7 +73,7 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     def make_geometry(
         self,
-        ax: Axes,
+        ax: Optional[Axes] = None,
         linewidth: Optional[float] = None,
         pattern: Optional[str] = None,
         color: Optional[str] = None,
@@ -162,8 +162,13 @@ class Line(Primitive):
             1.5 (0, (4, 2, 3, 1))
         """
         rng: RNG = self.__class__.rng
-        if not isinstance(ax, Axes):
+        if isinstance(ax, Axes):
+            self._ax = ax
+
+        if not isinstance(self._ax, Axes):
             raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
+
+        ax = self._ax
 
         # Determine hand-drawn style
         if hand_drawn is None:
@@ -186,7 +191,7 @@ class Line(Primitive):
         # Coordinates
         x_min, x_max = ax.get_xlim()
         y_min, y_max = ax.get_ylim()
-        x, y = self._get_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
+        x, y = self._get_segment_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
 
         # Compose full metadata dict
         self._meta: Dict[str, Any] = {
@@ -208,7 +213,7 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     # Drawing
     # -------------------------------------------------------------------------
-    def draw(self, ax: Axes, **kwargs):
+    def draw():
         """
         Render this line onto the given Matplotlib axis.
 
@@ -219,8 +224,10 @@ class Line(Primitive):
         Returns:
             self: For chaining.
         """
-        if kwargs:
-            self.meta.update(kwargs)
+        if not isinstance(self._ax, Axes):
+            raise TypeError(f"ax is not set.")
+
+        ax = self._ax
 
         meta = self.meta
         with plt.xkcd() if meta.get("hand_drawn") else contextlib.nullcontext():
@@ -308,7 +315,7 @@ class Line(Primitive):
         return tuple(np.clip(c * scale, 0, 1) for c in rgb)
 
     @classmethod
-    def _get_coords(
+    def _get_segment_coords(
         cls,
         xmin: float,
         ymin: float,

@@ -63,7 +63,7 @@ class Primitive(ABC):
         >>> line.draw(ax)
     """
 
-    __slots__ = ("_meta",)
+    __slots__ = ("_meta", "_ax")
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
@@ -76,8 +76,9 @@ class Primitive(ABC):
             **kwargs: Optional arguments for `make_geometry`.
         """
         self._meta: Dict[str, Any] = {}
-        if ax:
-            self.make_geometry(ax, **kwargs)  # always generate metadata
+        if isinstance(ax, Axes):
+            self._ax = ax
+            self.make_geometry(**kwargs)  # always generate metadata
 
     # ---------------------------------------------------------------------------
     # Metadata accessors
@@ -106,7 +107,7 @@ class Primitive(ABC):
     # Abstract interface
     # -------------------------------------------------------------------------
     @abstractmethod
-    def make_geometry(self, ax: Axes, **kwargs) -> Primitive:
+    def make_geometry(self, ax: Optional[Axes] = None, **kwargs) -> Primitive:
         """Generate metadata describing the primitive's geometry."""
         raise NotImplementedError
 
