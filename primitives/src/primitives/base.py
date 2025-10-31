@@ -3,21 +3,6 @@ base.py
 -------
 
 Defines the abstract base class for drawable geometric primitives.
-
-Each primitive encapsulates:
-  - Metadata describing its geometry and appearance.
-  - A reproducible RNG context (external).
-  - A resettable lifecycle for high-throughput reuse.
-
-Thread model:
-  - Each worker or thread creates a single Primitive-derived instance.
-  - Instances are reused via `.reset(ax, **kwargs)` without reallocation.
-
-Example:
-    >>> from primitives.line import Line
-    >>> line = Line(ax)
-    >>> line.draw(ax)
-    >>> line.reset(ax, orientation="vertical").draw(ax)
 """
 
 from __future__ import annotations
@@ -26,6 +11,7 @@ import os
 import sys
 import copy
 import json
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
 import numpy as np
@@ -37,7 +23,8 @@ from matplotlib import colors
 # Constants
 # =============================================================================
 MAX_PATTERN_LENGTH = 30
-MAX_DASH_JITTER = 0.05
+MAX_DASH_JITTER = 0.1
+LOGGER_NAME = "worker"
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
 
 # -----------------------------------------------------------------------------
@@ -89,7 +76,7 @@ class Primitive(ABC):
         if isinstance(ax, Axes):
             self._ax = ax
             self.make_geometry(**kwargs)  # always generate metadata
-        self.logger = logging.getLogger("worker")
+        self.logger = logging.getLogger(LOGGER_NAME)
 
 
     # ---------------------------------------------------------------------------
@@ -145,10 +132,10 @@ class Primitive(ABC):
         rng: RNG = cls.rng
         if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
             if not hand_drawn:
-                pattern = tuple(rng.randint(1, 5) for _ in range(2 * rng.randint(1, 5)))
+                pattern = tuple(rng.randint(1, 3) for _ in range(2 * rng.randint(1, 5)))
                 return (0, pattern)
 
-            base_len = float(rng.randint(1, 5))
+            base_len = float(rng.randint(1, 3))
             pattern = tuple(
                 max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER))
                 for _ in range(rng.randint(6, MAX_PATTERN_LENGTH))

@@ -187,6 +187,7 @@ class Line(Primitive):
         ax = self._ax
 
         meta = self.meta
+        #self.logger.debug(f"Class {self.__class__}.draw() - meta: {meta}")
         with plt.xkcd() if meta.get("hand_drawn") else contextlib.nullcontext():
             ax.plot(
                 meta["x"],

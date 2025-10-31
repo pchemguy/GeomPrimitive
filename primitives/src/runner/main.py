@@ -9,6 +9,7 @@ import time
 import logging
 from pathlib import Path
 from dataclasses import asdict
+import multiprocessing as mp
 from multiprocessing import Pool
 from typing import Optional, Union
 
@@ -31,14 +32,25 @@ else:
 # ---------------------------------------------------------------------------
 # Main driver
 # ---------------------------------------------------------------------------
-def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
+def main(batch_size: int = 100, output_dir: Union[Path, str] = "./out") -> None:
     """Run parallel synthetic image generation."""
     config = WorkerConfig()
+    main_process = mp.current_process() 
 
-    log_path = configure_logging(level=config.logger_level)
+    log_path = configure_logging(
+        level=config.logger_level,
+        name="root",
+        run_prefix=f"main_{main_process.pid}"
+    )
     logger = logging.getLogger("main")
+
+    logger.info(f"Running MainProcess: {main_process}")
+    logger.info(f"Process name: {main_process.name}")
+    logger.info(f"Process PID: {main_process.pid}")
+    logger.info(f"Process PID: {os.getpid()}")
+
+    logger.info("Starting parallel generation")
     logger.info(f"WorkerConfig: {asdict(config)}")
-    logger.debug(f"Logged at logging.DEBUG level.")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -50,21 +62,33 @@ def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
 
     logger.info(f"Using {num_cores} workers for {batch_size} images...")
     logger.info(f"Logs written to: {log_path}")
-
     summary = RunSummary(total_jobs=batch_size, log_path=log_path)
+
     job_paths = [output_dir / f"synthetic_{i:06d}.jpg" for i in range(batch_size)]
     results_meta = {}
-
+    
+    max_failures: int = 5
+    fail_count: int = 0
     try:
         with Pool(processes=num_cores, initializer=worker_init, initargs=(config,)) as pool:
-            for i, (path, meta, err) in enumerate(
-                pool.imap_unordered(main_worker, job_paths, chunksize=10)
-            ):
+            for i, result in enumerate(pool.imap_unordered(main_worker, job_paths, chunksize=10)):
+                if not result:
+                    err = mp.ProcessError
+                else:
+                    path, meta, err = result
                 summary.record_result(success=(err is None))
                 if err:
-                    logger.error(f"Job {i} failed: {err}")
-                elif path and meta:
+                    fail_count += 1
+                    if fail_count >= max_failures:
+                        logger.critical(f"Fatal error in job {i}: {err}")
+                        logger.critical(f"Too many worker failures ({fail_count}). Aborting.")
+                        pool.terminate()
+                        raise err
+                else:
                     results_meta[str(path)] = json.loads(meta)
+    except Exception as e:
+        logger.critical(f"Run aborted due to fatal error: {e}")
+        raise SystemExit(1)
     finally:
         summary.finalize()
 

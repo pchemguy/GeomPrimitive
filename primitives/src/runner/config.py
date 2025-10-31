@@ -15,7 +15,7 @@ from typing import Tuple
 class WorkerConfig:
     """Immutable configuration passed to each ThreadWorker process."""
     logger_level: int = logging.DEBUG
-    img_size: Tuple[int, int] = (1920, 1080)
+    img_size: Tuple[int, int] = (1024, 1024) #(1920, 1080)
     dpi: int = 100
     output_dir: Path = Path("./out")
 

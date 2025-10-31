@@ -44,7 +44,7 @@ def configure_logging(level: Optional[int] = logging.INFO,
                       name: Optional[str] = "root",
                       run_prefix: Optional[str] = "run") -> Path:
     """Configure colorized console + rotating file logging."""
-    colorama_init()
+    colorama_init(strip=False, convert=True)
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%d_%H%M%S")

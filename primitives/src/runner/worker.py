@@ -34,7 +34,7 @@ from primitives.rng import RNG, get_rng
 from runner.config import WorkerConfig
 
 PathLike = Union[str, os.PathLike]
-WORKER_LOGGER_NAME = "worker"
+LOGGER_NAME = "worker"
 
 
 class ThreadWorker:
@@ -50,6 +50,7 @@ class ThreadWorker:
                  config: Optional[WorkerConfig] = None,
                  **kwargs) -> None:
         self.pid = os.getpid()
+        self.logger = logging.getLogger(LOGGER_NAME)
         self.img_size = img_size
         self.dpi = dpi
         self.config = config
@@ -57,7 +58,7 @@ class ThreadWorker:
         self._create_canvas()
         self.plot_reset()
         self.line = Line()  # reusable primitive
-        logging.getLogger(WORKER_LOGGER_NAME).info(f"Initialized ThreadWorker PID-{self.pid}")
+        logging.getLogger(LOGGER_NAME).info(f"Initialized ThreadWorker PID-{self.pid}")
 
     # -------------------------------------------------------------------------
     # init helpers
@@ -72,9 +73,6 @@ class ThreadWorker:
         width_in = self.img_size[0] / self.dpi
         height_in = self.img_size[1] / self.dpi
         self.fig, self.ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
-
-    def _setlogger(self) -> None:
-        self.logger = logging.getLogger(WORKER_LOGGER_NAME)
 
     # -------------------------------------------------------------------------
     # per-job lifecycle
@@ -92,7 +90,7 @@ class ThreadWorker:
         self._meta = {
             "pid": self.pid,
             "seed": self.seed,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
             "config": asdict(self.config) if self.config else None,
             "draw_ops": [],
         }
@@ -124,7 +122,7 @@ class ThreadWorker:
             out,
             dpi=self.dpi,
             format="jpg",
-            bbox_inches="tight",
+            bbox_inches=None,
             pad_inches=0,
         )
         return out, json.dumps(self._meta, indent=2, ensure_ascii=False, default=str)
