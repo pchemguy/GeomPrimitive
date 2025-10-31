@@ -24,6 +24,7 @@ from matplotlib import colors
 # =============================================================================
 MAX_PATTERN_LENGTH = 30
 MAX_DASH_JITTER = 0.1
+MAX_ANGLE_JITTER = 5
 LOGGER_NAME = "worker"
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
 
@@ -192,6 +193,36 @@ class Primitive(ABC):
         smax = max(rgb)
         scale = rng.uniform(0.1, 1 / smax if smax > 0 else 1)
         return tuple(np.clip(c * scale, 0, 1) for c in rgb)
+
+    @classmethod
+    def _get_angle(cls, orientation: Union[str, int, None], hand_drawn: bool) -> Union[float, None]:
+        rng: RNG = cls.rng
+        if orientation is None:
+            return None
+
+        if isinstance(orientation, (int, float)):
+            angle = ((orientation + 90) % 180) - 90
+        elif isinstance(orientation, str):
+            o = orientation.strip().lower()
+            if o == "horizontal":
+                angle = 0
+            elif o == "vertical":
+                angle = 90
+            elif o == "diagonal_primary":
+                angle = 45
+            elif o == "diagonal_auxiliary":
+                angle = -45
+            else:
+                raise ValueError(f"Invalid orientation: {orientation}")
+        else:
+            raise TypeError(f"Unsupported orientation type: {type(orientation).__name__}")
+
+        if hand_drawn:
+            angle += max(-MAX_ANGLE_JITTER, min(rng.normal(0.0, 2.0), MAX_ANGLE_JITTER))
+            if angle > 90:
+                angle -= 180
+
+        return angle
 
     # ---------------------------------------------------------------------------
     # Representation

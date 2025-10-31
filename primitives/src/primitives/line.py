@@ -40,7 +40,6 @@ else:
 # =============================================================================
 # Constants
 # =============================================================================
-MAX_ANGLE_JITTER = 5
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
 
 
@@ -152,10 +151,13 @@ class Line(Primitive):
         capstyle = CapStyle._member_map_.get(str(capstyle).lower()) or rng.choice(list(CapStyle))
         joinstyle = JoinStyle._member_map_.get(str(joinstyle).lower()) or rng.choice(list(JoinStyle))
 
+        # Orientation
+        angle = self._get_angle(orientation, hand_drawn)
+
         # Coordinates
         x_min, x_max = ax.get_xlim()
         y_min, y_max = ax.get_ylim()
-        x, y = self._get_segment_coords(x_min, y_min, x_max, y_max, orientation, hand_drawn)
+        x, y = self._get_segment_coords(x_min, y_min, x_max, y_max, angle, hand_drawn)
 
         # Compose full metadata dict
         self._meta: Dict[str, Any] = {
@@ -212,39 +214,15 @@ class Line(Primitive):
         ymin: float,
         xmax: float,
         ymax: float,
-        orientation: Union[str, int, None],
+        angle: Union[float, int, None],
         hand_drawn: bool
     ) -> Tuple[List[float], List[float]]:
         rng: RNG = cls.rng
-        if orientation is None:
+        if angle is None:
             return (
                 [rng.uniform(xmin, xmax), rng.uniform(xmin, xmax)],
                 [rng.uniform(ymin, ymax), rng.uniform(ymin, ymax)],
             )
-
-        if isinstance(orientation, (int, float)):
-            angle = ((orientation + 90) % 180) - 90
-        elif isinstance(orientation, str):
-            o = orientation.strip().lower()
-            if o == "horizontal":
-                angle = 0
-            elif o == "vertical":
-                angle = 90
-            elif o == "diagonal_primary":
-                angle = 45
-            elif o == "diagonal_auxiliary":
-                angle = -45
-            else:
-                raise ValueError(f"Invalid orientation: {orientation}")
-        else:
-            raise TypeError(f"Unsupported orientation type: {type(orientation).__name__}")
-
-        if hand_drawn:
-            delta = int(round(rng.normal(0.0, 2.0)))
-            delta = max(-MAX_ANGLE_JITTER, min(delta, MAX_ANGLE_JITTER))
-            angle += delta
-            if angle > 90:
-                angle -= 180
 
         x1, y1 = rng.uniform(xmin, 0.75 * xmax), rng.uniform(ymin, 0.75 * ymax)
         if abs(angle) == 90:
