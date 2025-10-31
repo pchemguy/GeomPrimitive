@@ -1,5 +1,8 @@
 """
-config.py - Configuration dataclasses and constants for synthetic image generation.
+config.py - Configuration dataclass synthetic image generation.
+
+Multiprocessing machinery serializes it, passes to each thread
+worker context, and deserializes for use by ThreadWorker.
 """
 
 from dataclasses import dataclass
