@@ -93,7 +93,7 @@ class Primitive(ABC):
     @property
     def json(self) -> str:
         """JSON-encoded metadata string (sorted, compact)."""
-        return json.dumps(self._meta, sort_keys=True, separators=(",", ":"))    
+        return json.dumps(self._meta, sort_keys=True, separators=(",", ":"), default=str)    
     
     @classmethod
     def reseed(cls, seed: Optional[int] = None) -> None:
@@ -103,14 +103,22 @@ class Primitive(ABC):
     @property
     def jsonpp(self) -> str:
       """Return pretty-printed JSON (good for debugging / logs)."""
-      return json.dumps(self._meta, sort_keys=True, indent=4)
+      return json.dumps(self._meta, sort_keys=True, indent=4, default=str)
 
     # -------------------------------------------------------------------------
     # Abstract interface
     # -------------------------------------------------------------------------
     @abstractmethod
     def make_geometry(self, ax: Optional[Axes] = None, **kwargs) -> Primitive:
-        """Generate metadata describing the primitive's geometry."""
+        """Generate metadata describing the primitive's geometry.
+        Subclasses must override this method.
+    
+        Responsibilities:
+          - Compute and assign all necessary geometric + stylistic metadata.
+          - Populate `self._meta` with a dictionary compatible with Matplotlib
+            rendering calls (e.g., for `ax.plot`, `ax.add_patch`, etc.).
+          - Return `self` for chaining.
+        """                
         raise NotImplementedError
 
     @abstractmethod

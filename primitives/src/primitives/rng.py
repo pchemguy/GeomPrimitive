@@ -58,6 +58,11 @@ class RNG:
         with self._lock:
             return self._rng.choice(*a, **kw)
 
+    def shuffle(self, seq):
+        with self._lock:
+            self._rng.shuffle(seq)
+            return seq
+
     def normal(self, mu: float, sigma: float) -> float:
         with self._lock:
             return self._rng.normalvariate(mu, sigma)
@@ -70,9 +75,9 @@ class RNG:
         with self._lock:
             return self._rng.getstate()
 
-    def setstate(self):
+    def setstate(self, state):
         with self._lock:
-            return self._rng.setstate()
+            return self._rng.setstate(state)
 
     def random(self) -> float:
         with self._lock:
@@ -112,8 +117,9 @@ def set_global_seed(seed: int) -> None:
     """Re-seed the global RNG and NumPy RNG if available."""
     global _global_rng
     _global_rng.seed(seed)
-    import importlib
-    np = importlib.util.find_spec("numpy")
-    if np:
+
+    try:
         import numpy as np
         np.random.seed(seed)
+    except ImportError:
+        pass    

@@ -18,6 +18,7 @@ import sys
 import json
 import time
 import logging
+from dataclasses import asdict
 from pathlib import Path
 from typing import Union, Tuple, Optional
 
@@ -86,8 +87,13 @@ class ThreadWorker:
         self.ax.set_ylim(0, self.img_size[1])
         # self.ax.invert_yaxis()
         self.ax.axis("off")
-        self._meta = {"pid": self.pid, "seed": self.seed, "draw_ops": []}
-
+        self._meta = {
+            "pid": self.pid,
+            "seed": self.seed,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "config": asdict(self.config) if self.config else None,
+            "draw_ops": [],
+        }
     # -------------------------------------------------------------------------
     # draw ops
     # -------------------------------------------------------------------------
@@ -119,7 +125,7 @@ class ThreadWorker:
             bbox_inches="tight",
             pad_inches=0,
         )
-        return out, json.dumps(self._meta, indent=2, ensure_ascii=False)
+        return out, json.dumps(self._meta, indent=2, ensure_ascii=False, default=str)
 
     # -------------------------------------------------------------------------
     # teardown
