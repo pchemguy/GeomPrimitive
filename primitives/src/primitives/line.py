@@ -42,7 +42,7 @@ else:
 # =============================================================================
 MAX_ANGLE_JITTER = 5
 MAX_DASH_JITTER = 0.05
-MAX_PATTERN_LENGTH = 20
+MAX_PATTERN_LENGTH = 30
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
 
@@ -241,9 +241,8 @@ class Line(Primitive):
     # Helper methods (static-style)
     # -------------------------------------------------------------------------
     @classmethod
-    def _get_linestyle(
-        cls, pattern: Optional[str], hand_drawn: bool
-    ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
+    def _get_linestyle(cls, pattern: Optional[str], hand_drawn: bool
+                      ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
         rng: RNG = cls.rng
         if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
             if not hand_drawn:
@@ -252,12 +251,8 @@ class Line(Primitive):
 
             base_len = float(rng.randint(1, 5))
             pattern = tuple(
-                val
-                for _ in range(rng.randint(10, MAX_PATTERN_LENGTH))
-                for val in (
-                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
-                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 0.5),
-                )
+                max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER))
+                for _ in range(rng.randint(6, MAX_PATTERN_LENGTH))
             )
             return (0, pattern)
 
