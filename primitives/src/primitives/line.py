@@ -90,9 +90,6 @@ class Line(Primitive):
         geometry and stylistic parameters of a line segment. It does not draw
         anything-only returns a data description suitable for later rendering.
         
-        Randomness is provided by the class-level RNG (Line.rng), which can be
-        reseeded via Line.reseed(seed).
-
         Args:
             ax (matplotlib.axes.Axes):
                 Target Matplotlib Axes object. Used only to extract `xlim` and `ylim`
@@ -126,40 +123,16 @@ class Line(Primitive):
                 - None: random endpoints within current axis limits.
             hand_drawn (bool, optional):
                 If True, applies XKCD-style randomness and Gaussian jitter to dash
-                lengths and orientation. Randomized if None.
+                lengths and orientation.
         
         Returns:
             dict[str, Any]: Metadata for line rendering, with all parameters resolved.
         
-            The dictionary fields are as follows:
-        
-            |       Key       |                 Type                 |                        Description                         |
-            | --------------- | ------------------------------------ | ---------------------------------------------------------- |
-            | x               | list[float]                          | Two-element list of x coordinates `[x1, x2]`.              |
-            | y               | list[float]                          | Two-element list of y coordinates `[y1, y2]`.              |
-            | linewidth       | float                                | Line width in points.                                      |
-            | linestyle       | str or tuple[int, tuple[float, ...]] | Dash style; Matplotlib-compatible format.                  |
-            | color           | str or tuple[float, float, float]    | CSS4 color name or RGB tuple.                              |
-            | alpha           | float                                | Opacity in [0, 1].                                         |
-            | orientation     | str or int or None                   | Direction descriptor or explicit angle.                    |
-            | hand_drawn      | bool                                 | Whether XKCD-style jitter is applied.                      |
-            | solid_capstyle  | matplotlib._enums.CapStyle           | Cap style for solid lines (`butt`, `round`, `projecting`). |
-            | solid_joinstyle | matplotlib._enums.JoinStyle          | Join style for solid lines (`miter`, `round`, `bevel`).    |
-            | dash_capstyle   | matplotlib._enums.CapStyle           | Cap style for dashed lines.                                |
-            | dash_joinstyle  | matplotlib._enums.JoinStyle          | Join style for dashed lines.                               |
-        
-        Example:
-            >>> fig, ax = plt.subplots()
-            >>> line = Line(ax, orientation="diagonal_primary")
-            >>> meta = line.meta
-            >>> print(meta["color"], meta["x"], meta["y"])
-            navy [0.1, 0.9] [0.1, 0.9]
-        
-            Deterministic seeding example:
-            >>> Line.reseed(42)
-            >>> meta = line.make_geometry(ax, hand_drawn=True).meta
-            >>> print(meta["linewidth"], meta["linestyle"])
-            1.5 (0, (4, 2, 3, 1))
+            The dictionary fields are as ax.plot() arguments:
+                x, y, linewidth, linestyle, color, alpha, orientation,
+                solid_capstyle, solid_joinstyle, dash_capstyle, dash_joinstyle.
+            Additionally, hand_drawn field is defined, which controls application
+            of XKCD style.
         """
         rng: RNG = self.__class__.rng
         if isinstance(ax, Axes):
@@ -213,16 +186,9 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     # Drawing
     # -------------------------------------------------------------------------
-    def draw():
+    def draw() -> None:
         """
         Render this line onto the given Matplotlib axis.
-
-        Args:
-            ax: Target Matplotlib Axes.
-            **kwargs: Optional overrides for metadata before rendering.
-
-        Returns:
-            self: For chaining.
         """
         if not isinstance(self._ax, Axes):
             raise TypeError(f"ax is not set.")
