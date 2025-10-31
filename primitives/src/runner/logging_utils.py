@@ -2,12 +2,16 @@
 logging_utils.py
 """
 
+import os
 import time
 import logging
+from typing import Optional, Union
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from colorama import Fore, Style, init as colorama_init
+
+PathLike = Union[str, os.PathLike]
 
 
 class ColorFormatter(logging.Formatter):
@@ -33,20 +37,21 @@ class ColorFormatter(logging.Formatter):
         )
 
 
-def configure_logging(level: int = logging.INFO,
-                      log_dir: str | Path = "logs",
-                      run_prefix: str = "run") -> Path:
+def configure_logging(level: Optional[int] = logging.INFO,
+                      log_dir: Optional[PathLike] = "logs",
+                      name: Optional[str] = "root",
+                      run_prefix: Optional[str] = "run") -> Path:
     """Configure colorized console + rotating file logging."""
     colorama_init()
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%d_%H%M%S")
-    log_path = log_dir / f"{run_prefix}_{ts}.log"
+    log_path = log_dir / f"{run_prefix}_PID{os.getpid()}_{ts}.log"
   
     mono_fmt = "[%(asctime)s] [%(process)5d] [%(levelname)-5s] %(message)s"
     datefmt = "%H:%M:%S"
   
-    logger = logging.getLogger()
+    logger = logging.getLogger(name)
     logger.setLevel(level)
     for h in list(logger.handlers):
         logger.removeHandler(h)
@@ -60,5 +65,5 @@ def configure_logging(level: int = logging.INFO,
     logger.addHandler(ch)
     logger.addHandler(fh)
 
-    logger.info(f"Logging initialized - {log_path}")
+    logger.info(f"Logging initialized - PID {os.getpid()}; file {log_path}")
     return log_path

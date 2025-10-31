@@ -33,8 +33,12 @@ else:
 # ---------------------------------------------------------------------------
 def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
     """Run parallel synthetic image generation."""
-    log_path = configure_logging()
+    config = WorkerConfig()
+
+    log_path = configure_logging(level=config.logger_level)
     logger = logging.getLogger("main")
+    logger.info(f"WorkerConfig: {asdict(config)}")
+    logger.debug(f"Logged at logging.DEBUG level.")
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -51,8 +55,6 @@ def main(batch_size: int = 10, output_dir: Union[Path, str] = "./out") -> None:
     job_paths = [output_dir / f"synthetic_{i:06d}.jpg" for i in range(batch_size)]
     results_meta = {}
 
-    config = WorkerConfig(img_size=(2560, 1440), dpi=150)
-    logger.info(f"WorkerConfig: {asdict(config)}")
     try:
         with Pool(processes=num_cores, initializer=worker_init, initargs=(config,)) as pool:
             for i, (path, meta, err) in enumerate(

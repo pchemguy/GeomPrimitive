@@ -46,9 +46,10 @@ class ThreadWorker:
 
     def __init__(self, img_size: Tuple[int, int] = (1920, 1080),
                  dpi: int = 100,
-                 config: Optional[WorkerConfig] = None) -> None:
+                 config: Optional[WorkerConfig] = None,
+                 **kwargs) -> None:
         self.pid = os.getpid()
-        self.logger = logging.getLogger(f"worker-{self.pid}")
+        self.logger = logging.getLogger("worker")
         self.img_size = img_size
         self.dpi = dpi
         self.config = config
@@ -56,7 +57,7 @@ class ThreadWorker:
         self._create_canvas()
         self.plot_reset()
         self.line = Line()  # reusable primitive
-        self.logger.info("Initialized ThreadWorker")
+        self.logger.info(f"Initialized ThreadWorker PID-{self.pid}")
 
     # -------------------------------------------------------------------------
     # init helpers
@@ -95,7 +96,7 @@ class ThreadWorker:
         Draw a single line using the reusable Line primitive.
         Extra kwargs are forwarded to line.make_geometry.
         """
-        self.line.make_geometry(self.ax, **kwargs).draw(self.ax)
+        self.line.make_geometry(self.ax, **kwargs).draw()
         self._append_meta("Line", self.line.meta)
 
     def _append_meta(self, shape_type: str, data: dict) -> None:

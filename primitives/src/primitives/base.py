@@ -63,7 +63,7 @@ class Primitive(ABC):
         >>> line.draw(ax)
     """
 
-    __slots__ = ("_meta", "_ax")
+    __slots__ = ("_meta", "_ax", "logger",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
@@ -79,6 +79,8 @@ class Primitive(ABC):
         if isinstance(ax, Axes):
             self._ax = ax
             self.make_geometry(**kwargs)  # always generate metadata
+        #self.logger = logging.getLogger("worker")
+
 
     # ---------------------------------------------------------------------------
     # Metadata accessors
@@ -112,7 +114,7 @@ class Primitive(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def draw(self, ax: Axes, **kwargs) -> Primitive:
+    def draw(self) -> Primitive:
         """Render the primitive onto the given Matplotlib axis."""
         raise NotImplementedError
 

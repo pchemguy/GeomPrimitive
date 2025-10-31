@@ -5,6 +5,7 @@ Multiprocessing machinery serializes it, passes to each thread
 worker context, and deserializes for use by ThreadWorker.
 """
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Tuple
@@ -13,6 +14,7 @@ from typing import Tuple
 @dataclass(frozen=True)
 class WorkerConfig:
     """Immutable configuration passed to each ThreadWorker process."""
+    logger_level: int = logging.DEBUG
     img_size: Tuple[int, int] = (1920, 1080)
     dpi: int = 100
     output_dir: Path = Path("./out")

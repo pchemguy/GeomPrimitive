@@ -14,6 +14,7 @@ Responsibilities:
 import os
 import sys
 import math
+import logging
 import contextlib
 from typing import Any, Dict, Union, Tuple, Optional, List
 
@@ -60,10 +61,6 @@ class Line(Primitive):
     Responsibilities:
       - Generate geometry and style metadata (`make_geometry`)
       - Draw line onto Matplotlib axes (`draw`)
-      - Allow efficient reuse via `reset()`
-
-    Metadata fields:
-        See `make_geometry` docstring for full field documentation.
     """
 
     __slots__ = ()
@@ -184,7 +181,7 @@ class Line(Primitive):
     # -------------------------------------------------------------------------
     # Drawing
     # -------------------------------------------------------------------------
-    def draw() -> None:
+    def draw(self) -> None:
         """
         Render this line onto the given Matplotlib axis.
         """
