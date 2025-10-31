@@ -21,23 +21,22 @@ else:
 
 
 PathLike = Union[str, Path]
+WORKER_LOGGER_NAME = "worker"
 _worker: Optional[ThreadWorker] = None
 
 
-def worker_init(config: WorkerConfig) -> None:
+def worker_init(config: WorkerConfig):
     """Initializer for multiprocessing.Pool workers."""
-    log_path = configure_logging(level=config.logger_level, name="worker")
-    logger = logging.getLogger("worker")
-    logger.info(f"Worker initialized in PID {os.getpid()}")
-    logger.debug(f"WorkerConfig: {asdict(config)}")
-
-    global _worker
-    _worker = ThreadWorker(
-        img_size=config.img_size,
-        dpi=config.dpi,
-        logger=logging.getLogger("worker"),
-        config=config,
-    )
+    try:
+        log_path = configure_logging(level=config.logger_level, name=WORKER_LOGGER_NAME)
+        logger = logging.getLogger(WORKER_LOGGER_NAME)
+        logger.info(f"Worker initialized PID {os.getpid()}")
+        global _worker
+        _worker = ThreadWorker(img_size=config.img_size, dpi=config.dpi, config=config)
+    except Exception as e:
+        import traceback
+        print(f"[worker_init] FATAL: {e}\n{traceback.format_exc()}", flush=True)
+        raise  # bubble up to main process
 
 
 def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[str], Optional[Exception]]:
@@ -50,5 +49,5 @@ def main_worker(output_path: PathLike) -> Tuple[Optional[Path], Optional[str], O
         out, meta = _worker.save_image(output_path)
         return out, meta, None
     except Exception as e:
-        logging.getLogger("worker").error(f"Failed to process {output_path}: {e}")
+        logging.getLogger(WORKER_LOGGER_NAME).error(f"Failed to process {output_path}: {e}")
         return None, None, e

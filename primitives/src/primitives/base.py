@@ -89,7 +89,7 @@ class Primitive(ABC):
         if isinstance(ax, Axes):
             self._ax = ax
             self.make_geometry(**kwargs)  # always generate metadata
-        #self.logger = logging.getLogger("worker")
+        self.logger = logging.getLogger("worker")
 
 
     # ---------------------------------------------------------------------------

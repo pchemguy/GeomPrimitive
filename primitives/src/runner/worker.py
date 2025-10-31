@@ -34,6 +34,7 @@ from primitives.rng import RNG, get_rng
 from runner.config import WorkerConfig
 
 PathLike = Union[str, os.PathLike]
+WORKER_LOGGER_NAME = "worker"
 
 
 class ThreadWorker:
@@ -44,13 +45,11 @@ class ThreadWorker:
     - has its own figure and axes
     - has its own image-level metadata dict
     """
-
     def __init__(self, img_size: Tuple[int, int] = (1920, 1080),
                  dpi: int = 100,
                  config: Optional[WorkerConfig] = None,
                  **kwargs) -> None:
         self.pid = os.getpid()
-        self.logger = logging.getLogger("worker")
         self.img_size = img_size
         self.dpi = dpi
         self.config = config
@@ -58,7 +57,7 @@ class ThreadWorker:
         self._create_canvas()
         self.plot_reset()
         self.line = Line()  # reusable primitive
-        self.logger.info(f"Initialized ThreadWorker PID-{self.pid}")
+        logging.getLogger(WORKER_LOGGER_NAME).info(f"Initialized ThreadWorker PID-{self.pid}")
 
     # -------------------------------------------------------------------------
     # init helpers
@@ -73,6 +72,9 @@ class ThreadWorker:
         width_in = self.img_size[0] / self.dpi
         height_in = self.img_size[1] / self.dpi
         self.fig, self.ax = plt.subplots(figsize=(width_in, height_in), frameon=False)
+
+    def _setlogger(self) -> None:
+        self.logger = logging.getLogger(WORKER_LOGGER_NAME)
 
     # -------------------------------------------------------------------------
     # per-job lifecycle
