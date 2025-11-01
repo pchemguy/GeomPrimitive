@@ -22,8 +22,8 @@ from matplotlib import colors
 # =============================================================================
 # Constants
 # =============================================================================
-MAX_PATTERN_LENGTH = 30
-MAX_DASH_JITTER = 0.1
+MAX_PATTERN_LENGTH = 15
+MAX_DASH_JITTER = 0.2
 MAX_ANGLE_JITTER = 5
 LOGGER_NAME = "worker" if logging.getLogger("worker").handlers else "root"
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
@@ -138,8 +138,12 @@ class Primitive(ABC):
 
             base_len = float(rng.randint(1, 3))
             pattern = tuple(
-                max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER))
-                for _ in range(rng.randint(6, MAX_PATTERN_LENGTH))
+                val
+                for _ in range(rng.randint(10, MAX_PATTERN_LENGTH))
+                for val in (
+                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER)),
+                    max(0.5, base_len * (1 + max(-6, min(round(rng.normal(0.0, 2.0)), 6)) / 6 * MAX_DASH_JITTER) * 2),
+                )
             )
             return (0, pattern)
 
