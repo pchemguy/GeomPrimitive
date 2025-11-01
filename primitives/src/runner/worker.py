@@ -85,6 +85,7 @@ class ProcessWorker:
         self.ax.cla()
         self.ax.set_xlim(0, self.img_size[0])
         self.ax.set_ylim(0, self.img_size[1])
+        self.ax.set_aspect("equal")
         # self.ax.invert_yaxis()
         self.ax.axis("off")
         self._meta = {

@@ -49,6 +49,9 @@ class Patch(Primitive):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.patches = {}
+        self.logger = logging.getLogger(LOGGER_NAME)
+        if not self.logger.handlers:
+            logging.basicConfig(level=logging.INFO)
 
     # -------------------------------------------------------------------------
     # Abstract API stubs
@@ -71,7 +74,7 @@ class Patch(Primitive):
                   capstyle: Optional[str] = None,
                   joinstyle: Optional[str] = None,
                   **style_options
-                 ) -> "Patch":
+                 ) -> PathPatch:
         rng: RNG = self.__class__.rng
         if not isinstance(self._ax, Axes):
             raise TypeError(f"ax is not set")
@@ -79,55 +82,62 @@ class Patch(Primitive):
         ax: Axes = self._ax
 
         # Color and alpha
-        color_name_tuple: Union[str, Tuple] = self._get_color(color)
         fill: bool = style_options.get("fill", False)
         if not fill:
             style_options["fill"] = False
-            if "facecolor" in style_options:
-                 style_options.pop("facecolor")
-            if "fc" in style_options:
-                 style_options.pop("fc")
-            style_options["color"] = self._get_color(color)
+            edge_color = color or style_options.get("edgecolor") or style_options.get("ec")
+            for attr in ("facecolor", "fc", "edgecolor", "ec"):
+                if attr in style_options:
+                     style_options.pop(attr)
+            style_options["color"] = self._get_color(edge_color)
         else:
-            style_options["facecolor"] = self._get_color(color)
+            style_options["facecolor"] = self._get_color(color or style_options.get("facecolor"))
             if not ("edgecolor" in style_options or "ec" in style_options):
                 style_options["edgecolor"] = self._get_color(color)
 
         if alpha is None or not isinstance(alpha, (int, float)):
             alpha = 1.5 - rng.paretovariate(1.0) * 0.5
-        style_options["alpha"] = max(0.0, min(float(alpha), 1.0))
+        style_options["alpha"] = max(0.1, min(float(alpha), 1.0))
 
         # Cap and join styles
         style_options["capstyle"] = CapStyle._member_map_.get(str(capstyle).lower()) or rng.choice(list(CapStyle))
         style_options["joinstyle"] = JoinStyle._member_map_.get(str(joinstyle).lower()) or rng.choice(list(JoinStyle))
 
-        style_options["linewidth"] = linewidth or rng.choice(DEFAULT_LINEWIDTHS)
+        style_options["linewidth"] = linewidth or style_options.get("lw") or rng.choice(DEFAULT_LINEWIDTHS)
+        if style_options.get("lw"):
+            style_options.pop("lw")
         style_options["linestyle"] = self._get_linestyle(pattern, hand_drawn=True)
 
+        self.logger.debug(f"add_patch() - style_options:\n{style_options}")
+        
         patch: PathPatch = PathPatch(path, **style_options)
         self.patches[str(patch)] = patch
 
-        return self
+        return patch
 
-    def draw_pathes(self) -> None:
+    def draw_patches(self) -> None:
         if not isinstance(self._ax, Axes):
             raise TypeError(f"ax is not set")
-        for patch in self.patches:
+        for patch in self.patches.values():
             self._ax.add_patch(patch)
 
     @classmethod
     def cubic_spline_ex(cls, start: PointXY, end: PointXY, n_segments: int = 5,
-                        amp: float = 0.04, tightness: float = 0.3) -> mplPath:
+                        amp: float = 0.15, tightness: float = 0.3) -> mplPath:
         rng: RNG = cls.rng
         x0, y0 = start
-        x1, y1 = end
-        dx, dy = x1 - x0, y1 - y0
+        xn, yn = end
+        dx, dy = xn - x0, yn - y0
+        stepx, stepy = dx / n_segments, dy / n_segments
     
-        ts = sorted(rng.random() for _ in range(n_segments - 1))
-        ts = [0.0] + ts + [1.0]
-        points = [(x0 + dx * t, y0 + dy * t) for t in ts]
+        JITTER_FACTOR = 0.4
+        points = [(x0, y0)]
+        for i in range(1, n_segments):
+            jitter = rng.uniform(-1, 1) * JITTER_FACTOR
+            points.append((x0 + (i + jitter) * stepx, y0 + (i + jitter) * stepy))
+        points.append((xn, yn))
     
-        verts: List[Tuple[float, float]] = []
+        verts: List[PointXY] = []
         codes: List[int] = []
         for i in range(len(points) - 1):
             segment_path: mplPath = cls._cubic_spline_segment(
@@ -150,8 +160,8 @@ class Patch(Primitive):
     # Helper methods
     # -------------------------------------------------------------------------
     @classmethod
-    def _cubic_spline_segment(cls, start: PointXY, end: PointXY, amp: float = 0.04,
-                              tightness: float = 0.3) -> mplPath:
+    def _cubic_spline_segment(cls, start: PointXY, end: PointXY,
+                              amp: float = 0.15, tightness: float = 0.3) -> mplPath:
         rng: RNG = cls.rng
         logger = logging.getLogger(LOGGER_NAME)
         logger.debug(f"Running cubic_spline_segment.")
@@ -160,7 +170,6 @@ class Patch(Primitive):
         x1, y1 = end
         dx = x1 - x0
         dy = y1 - y0
-        length = math.hypot(dx, dy)
 
         logger.debug(
             f"Segment parameters:\n"
@@ -172,26 +181,16 @@ class Patch(Primitive):
             f"     y1: {y1}\n"
             f"     dx: {dx}\n"
             f"     dy: {dy}\n"
-            f" length: {length}\n"
         )
-
-        if length < 1e-6:
-            raise ValueError(f"Points are too close.")
-    
-        tx = dx / length
-        ty = dy / length
-        nx = -ty
-        ny = tx
-    
-        o1 = rng.uniform(-1, 1) * amp * length
-        o2 = rng.uniform(-1, 1) * amp * length
-        a1 = tightness * length
-        a2 = tightness * length
+        
+        dev1 = max(-1, min(rng.normal(0, 1) / 3, 1)) * amp
+        dev2 = max(-1, min(rng.normal(0, 1) / 3, 1)) * amp
     
         p0 = (x0, y0)
-        p1 = (x0 + tx * a1 + nx * o1, y0 + ty * a1 + ny * o1)
-        p2 = (x1 - tx * a2 + nx * o2, y1 - ty * a2 + ny * o2)
+        p1 = (x0 + dx * tightness - dy * dev1, y0 + dy * tightness + dx * dev1)
+        p2 = (x1 - dx * tightness - dy * dev2, y1 - dy * tightness + dx * dev2)
         p3 = (x1, y1)
+
     
         verts = [p0, p1, p2, p3]
         codes = [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
@@ -200,8 +199,6 @@ class Patch(Primitive):
 # =============================================================================
 # INITIAL CODE
 # =============================================================================
-
-
 
 
 def main() -> None:
@@ -218,10 +215,10 @@ def main() -> None:
     fig, ax = plt.subplots(figsize=(7, 2.5))
     dummy: Patch = Patch(ax)
     path = Patch.cubic_spline_ex(
-        (0, 0), (5, 0), n_segments=7, amp=0.15, tightness=0.35
+        (0, 0), (5, 0), n_segments=7, amp=0.15, tightness=0.3
     )
-    dummy.add_patch(path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round")
-    
+    dummy.add_patch(path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round", alpha=1)
+    dummy.draw_patches()
     
     #patch = mpl_patches.PathPatch(
     #    path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round"
