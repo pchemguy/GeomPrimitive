@@ -3,6 +3,18 @@ mpl_patch.py
 -------
 
 https://chatgpt.com/c/6905add2-1ff8-8328-ba21-6c370614dcc4
+https://chatgpt.com/c/69025b9d-b044-8333-8159-aac740d7bf70
+----------------------------------------------------------
+
+Geometry Specification:
+    Segment = {
+        x1: Union[float, int, None],
+        y1: Union[float, int, None],
+        x2: Union[float, int, None],
+        y2: Union[float, int, None],
+        orientation: Union[int, str, None]
+    }
+
 """
 from __future__ import annotations
 
@@ -31,7 +43,7 @@ from primitives.rng import RNG
 from runner.logging_utils import configure_logging
 from runner.config import WorkerConfig
 
-PointXY = Tuple[float, float]
+PointXY = Tuple[Union[int, float], Union[int, float]]
 
 # =============================================================================
 # Constants
@@ -54,13 +66,25 @@ class Patch(Primitive):
             logging.basicConfig(level=logging.INFO)
 
     # -------------------------------------------------------------------------
-    # Abstract API stubs
+    # APIs
     # -------------------------------------------------------------------------
-    def make_geometry(self, ax: Optional[Axes] = None, **kwargs) -> Primitive:
-        return self
+    def make_geometry(self,
+                      ax: Optional[Axes] = None,
+                      linewidth: Optional[float] = None,
+                      pattern: Optional[str] = None,
+                      color: Optional[str] = None,
+                      alpha: Optional[float] = None,
+                      capstyle: Optional[str] = None,
+                      joinstyle: Optional[str] = None,
+                      geometry: Dict = None,
+                     ) -> "Patch":
+        pass
 
-    def draw(self) -> Primitive:
-        return
+    def draw(self) -> None:
+        if not isinstance(self._ax, Axes):
+            raise TypeError(f"ax is not set")
+        for patch in self.patches.values():
+            self._ax.add_patch(patch)
     
     # -------------------------------------------------------------------------
     # Key functionality
@@ -77,7 +101,7 @@ class Patch(Primitive):
                  ) -> PathPatch:
         rng: RNG = self.__class__.rng
         if not isinstance(self._ax, Axes):
-            raise TypeError(f"ax is not set")
+            raise ValueError(f"ax is not set")
 
         ax: Axes = self._ax
 
@@ -114,12 +138,6 @@ class Patch(Primitive):
         self.patches[str(patch)] = patch
 
         return patch
-
-    def draw_patches(self) -> None:
-        if not isinstance(self._ax, Axes):
-            raise TypeError(f"ax is not set")
-        for patch in self.patches.values():
-            self._ax.add_patch(patch)
 
     @classmethod
     def cubic_spline_ex(cls, start: PointXY, end: PointXY, n_segments: int = 5,
@@ -196,6 +214,54 @@ class Patch(Primitive):
         codes = [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
         return mplPath(verts, codes)
 
+    @classmethod
+    def _get_segment_coords(cls,
+                    xboxmin: float,
+                    yboxmin: float,
+                    xboxmax: float,
+                    yboxmax: float,
+                    geometry: Optional[Dict] = {},
+                   ) -> Tuple[List[float], List[float]]:
+        rng: RNG = cls.rng
+        if not isinstance(geometry, dict):
+            raise TypeError(f"Unsupported geometry type: {type(geometry).__name__}")
+
+        if not geometry or geometry.get("orientation") is None:
+            return {
+                "p1": (
+                    geometry.get("x1") or rng.uniform(xboxmin, xboxmax),
+                    geometry.get("y1") or rng.uniform(yboxmin, yboxmax),
+                ),
+                "p2": (
+                    geometry.get("x2") or rng.uniform(xboxmin, xboxmax),
+                    geometry.get("y2") or rng.uniform(yboxmin, yboxmax),
+                ),
+            }
+
+        # Orientation
+        angle = self._get_angle(geometry("orientation"), hand_drawn=True)
+
+        x1 = geometry.get("x1") or rng.uniform(xboxmin, 0.75 * xboxmax),
+        y1 = geometry.get("y1") or rng.uniform(yboxmin, 0.75 * yboxmax),
+        
+        if abs(90 - abs(angle)) < 0.1:
+            x2, y2 = x1, rng.uniform(y1 * 0.8, yboxmax)
+            return {"p1": (x1, y1), "p2": (x2, y2)}
+
+        slope = math.tan(math.radians(angle))
+        if angle == 0 or abs(slope) < 1e-6:
+            x2, y2 = rng.uniform(x1 * 0.8, xboxmax), y1
+        else:
+            xmax_adj = min(xboxmax, x1 + (yboxmax - y1) / slope)
+            x2 = min(xboxmax, rng.uniform(x1 + 1, xmax_adj))
+            y2 = min(yboxmax, y1 + slope * (x2 - x1))
+
+        return {
+            "p1": (x1, y1),
+            "p2": (np.clip(x2, xboxmin, xboxmax), np.clip(y2, yboxmin, yboxmax)),
+        }
+
+
 # =============================================================================
 # INITIAL CODE
 # =============================================================================
@@ -218,7 +284,7 @@ def main() -> None:
         (0, 0), (5, 0), n_segments=7, amp=0.15, tightness=0.3
     )
     dummy.add_patch(path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round", alpha=1)
-    dummy.draw_patches()
+    dummy.draw()
     
     #patch = mpl_patches.PathPatch(
     #    path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round"

@@ -120,7 +120,7 @@ class Primitive(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def draw(self) -> Primitive:
+    def draw(self) -> None:
         """Render the primitive onto the given Matplotlib axis."""
         raise NotImplementedError
 
