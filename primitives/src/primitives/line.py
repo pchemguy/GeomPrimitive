@@ -225,7 +225,7 @@ class Line(Primitive):
             )
 
         x1, y1 = rng.uniform(xmin, 0.75 * xmax), rng.uniform(ymin, 0.75 * ymax)
-        if abs(angle) == 90:
+        if abs(90 - abs(angle)) < 0.1:
             x2, y2 = x1, rng.uniform(y1 + 1, ymax)
             return [x1, x2], [y1, y2]
 
