@@ -2,7 +2,7 @@
 config.py - Configuration dataclass synthetic image generation.
 
 Multiprocessing machinery serializes it, passes to each thread
-worker context, and deserializes for use by ThreadWorker.
+worker context, and deserializes for use by ProcessWorker.
 """
 
 import logging
@@ -13,7 +13,7 @@ from typing import Tuple
 
 @dataclass(frozen=True)
 class WorkerConfig:
-    """Immutable configuration passed to each ThreadWorker process."""
+    """Immutable configuration passed to each ProcessWorker process."""
     logger_level: int = logging.DEBUG
     img_size: Tuple[int, int] = (1024, 1024) #(1920, 1080)
     dpi: int = 100

@@ -37,7 +37,7 @@ PathLike = Union[str, os.PathLike]
 LOGGER_NAME = "worker" if logging.getLogger("worker").handlers else "root"
 
 
-class ThreadWorker:
+class ProcessWorker:
     """
     Per-process synthetic image worker.
 
@@ -58,7 +58,7 @@ class ThreadWorker:
         self._create_canvas()
         self.plot_reset()
         self.line = Line()  # reusable primitive
-        logging.getLogger(LOGGER_NAME).info(f"Initialized ThreadWorker PID-{self.pid}")
+        logging.getLogger(LOGGER_NAME).info(f"Initialized ProcessWorker PID-{self.pid}")
 
     # -------------------------------------------------------------------------
     # init helpers
@@ -80,7 +80,7 @@ class ThreadWorker:
     def plot_reset(self) -> None:
         """
         Reset axes to a blank image while keeping pid/seed.
-        Called once per job by orchestration.main_worker.
+        Called once per job by orchestration.main_worker_imap_task.
         """
         self.ax.cla()
         self.ax.set_xlim(0, self.img_size[0])

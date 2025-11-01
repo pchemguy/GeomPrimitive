@@ -20,12 +20,12 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from logging_utils import configure_logging
     from summary import RunSummary
-    from orchestration import worker_init, main_worker
+    from orchestration import worker_mp_pool_init, main_worker_imap_task
     from config import WorkerConfig
 else:
     from .logging_utils import configure_logging
     from .summary import RunSummary
-    from .orchestration import worker_init, main_worker
+    from .orchestration import worker_mp_pool_init, main_worker_imap_task
     from .config import WorkerConfig
 
 
@@ -70,8 +70,8 @@ def main(batch_size: int = 100, output_dir: Union[Path, str] = "./out") -> None:
     max_failures: int = 5
     fail_count: int = 0
     try:
-        with Pool(processes=num_cores, initializer=worker_init, initargs=(config,)) as pool:
-            for i, result in enumerate(pool.imap_unordered(main_worker, job_paths, chunksize=10)):
+        with Pool(processes=num_cores, initializer=worker_mp_pool_init, initargs=(config,)) as pool:
+            for i, result in enumerate(pool.imap_unordered(main_worker_imap_task, job_paths, chunksize=10)):
                 if not result:
                     err = mp.ProcessError
                 else:
