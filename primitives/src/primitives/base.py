@@ -25,7 +25,7 @@ from matplotlib import colors
 MAX_PATTERN_LENGTH = 30
 MAX_DASH_JITTER = 0.1
 MAX_ANGLE_JITTER = 5
-LOGGER_NAME = "worker"
+LOGGER_NAME = "worker" if logging.getLogger("worker").handlers else "root"
 CSS4_COLOR_NAMES = list(colors.CSS4_COLORS.keys())
 
 # -----------------------------------------------------------------------------

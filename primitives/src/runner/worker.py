@@ -34,7 +34,7 @@ from primitives.rng import RNG, get_rng
 from runner.config import WorkerConfig
 
 PathLike = Union[str, os.PathLike]
-LOGGER_NAME = "worker"
+LOGGER_NAME = "worker" if logging.getLogger("worker").handlers else "root"
 
 
 class ThreadWorker:
