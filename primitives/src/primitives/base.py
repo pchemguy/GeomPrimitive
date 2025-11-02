@@ -44,7 +44,7 @@ class Primitive(ABC):
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
     """
 
-    __slots__ = ("_meta", "_ax", "patches", "logger",)
+    __slots__ = ("_meta", "_ax", "patches",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
@@ -54,10 +54,6 @@ class Primitive(ABC):
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        if not hasattr(self, "logger"):
-            self.logger = logging.getLogger(LOGGER_NAME)
-        if not self.logger.handlers:
-            logging.basicConfig(level=logging.INFO)
         self.ax = ax
         self.reset()
 

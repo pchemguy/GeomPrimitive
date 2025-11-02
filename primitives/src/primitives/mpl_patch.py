@@ -209,7 +209,7 @@ class Patch(Primitive):
         pattern = style_options.get("pattern")
         style_options["linestyle"] = self._get_linestyle(pattern, hand_drawn=True)
 
-        self.logger.debug(f"make_style() - style_options:\n{style_options}")
+        logger.debug(f"make_style() - style_options:\n{style_options}")
 
         return style_options
 
@@ -315,11 +315,11 @@ def main() -> None:
             run_prefix=f"{__name__}_{os.getpid()}"
         )
     logger = logging.getLogger(LOGGER_NAME)
+    logger.propagate = False
     logger.info(f"Logging initialized.")
 
     fig, ax = plt.subplots(figsize=(7, 2.5))
     dummy: Patch = Patch(ax)
-    #dummy.logger = logger
     shape_path = Patch.line_path(
         (-10, 0), (50, 0), spline_count=7, amp=0.15, tightness=0.3
     )
