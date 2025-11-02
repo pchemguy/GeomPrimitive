@@ -44,7 +44,7 @@ class Primitive(ABC):
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
     """
 
-    __slots__ = ("_meta", "_ax", "xlim", "ylim", "patches", "logger",)
+    __slots__ = ("_meta", "_ax", "patches", "logger",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
@@ -55,19 +55,25 @@ class Primitive(ABC):
             **kwargs: Optional arguments for `make_geometry`.
         """
         self.logger = logging.getLogger(LOGGER_NAME)
+        self.__class__.logger = logging.getLogger(LOGGER_NAME)
         if not self.logger.handlers:
             logging.basicConfig(level=logging.INFO)
         self.ax = ax
         self.reset()
 
-    def reset(self) -> None:
+    def reset(self, ax: Optional[Axes] = None) -> None:
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.debug(f"Running Primitive instance reset().")
         self.last_patch = None
         self.patches: dict[int, PathPatch] = {}
         self._meta: Dict[str, Any] = {}
+        if ax: self.ax = ax
         if isinstance(self.ax, Axes):
+            xlim = self.ax.get_xlim()
+            ylim = self.ax.get_ylim()
             self.ax.cla()
-            self.ax.set_xlim(*self.xlim)
-            self.ax.set_ylim(*self.ylim)
+            self.ax.set_xlim(*xlim)
+            self.ax.set_ylim(*ylim)
             self.ax.set_aspect("equal")
             # self.ax.invert_yaxis()
             self.ax.axis("off")
@@ -84,11 +90,8 @@ class Primitive(ABC):
     @ax.setter
     def ax(self, ax: Axes) -> None:
         if not isinstance(ax, Axes):
-            raise TypeError(f"ax must be a Matplotlib Axes, not {type(ax).__name__}")
-    
+            raise TypeError(f"ax must be a Matplotlib Axes, not {type(ax).__name__}")    
         self._ax = ax
-        self.xlim = ax.get_xlim()
-        self.ylim = ax.get_ylim()
 
     @property
     def meta(self) -> Dict[str, Any]:

@@ -70,12 +70,15 @@ class Patch(Primitive):
                       **style_options
                      ) -> "Patch":
         rng: RNG = self.__class__.rng
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.info(f"Running make_geometry().")
 
         if not ax is None:
             self.ax = ax
         if not isinstance(self.ax, Axes):
             raise TypeError(f"self.ax is not set.")
 
+        logger.debug(f"self.ax.get_xlim(): {self.ax.get_xlim()}; self.ax.get_ylim(): {self.ax.get_ylim()}.")
         ax: Axes = self.ax
 
         if not isinstance(shape_path, mplPath):
@@ -143,14 +146,16 @@ class Patch(Primitive):
     # -------------------------------------------------------------------------
     # MPL Path generators
     # -------------------------------------------------------------------------
-    @classmethod
-    def make_path(cls, shape_kind: str, xlim: CoordRange, ylim: CoordRange,
-                  **geometry_options) -> mplPath:
+    def make_path(self, shape_kind: str, **geometry_options) -> mplPath:
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.debug(f"Running make_path.")
+        xlim: CoordRange = self.ax.get_xlim()
+        ylim: CoordRange = self.ax.get_ylim()
         if shape_kind == "segment":
-            geometry: dict[str, PointXY] = cls._get_line_coords(
+            geometry: dict[str, PointXY] = self.__class__._get_line_coords(
                 xlim, ylim, **geometry_options
             )
-            return cls.line_path(**geometry, **geometry_options)
+            return self.__class__.line_path(**geometry, **geometry_options)
         else:
             raise ValueError(f"Unsupported shape_kind: {shape_kind}")
 
@@ -238,6 +243,9 @@ class Patch(Primitive):
                          orientation: Union[str, int, None] = None,
                          **kwargs) -> dict[str, PointXY]:
         rng: RNG = cls.rng
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.debug(f"Running _get_line_coords.")
+
         if orientation is None:
             return {
                 "start": (
@@ -295,24 +303,21 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(7, 2.5))
     dummy: Patch = Patch(ax)
+    #dummy.logger = logger
     shape_path = Patch.line_path(
-        (0, 0), (5, 0), spline_count=7, amp=0.15, tightness=0.3
+        (-10, 0), (50, 0), spline_count=7, amp=0.15, tightness=0.3
     )
 
     dummy.make_geometry(shape_path=shape_path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round", alpha=1)
     
-    #patch = mpl_patches.PathPatch(
-    #    path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round"
-    #)
-    #ax.add_patch(patch)
     ax.axis("off")
     ax.set_aspect("equal")
-    ax.set_xlim(-0.2, 5.2)
-    ax.set_ylim(-0.6, 0.6)
+    ax.set_xlim(-10, 50)
+    ax.set_ylim(-10, 10)
 
-    shape_path = dummy.make_path(shape_kind="segment", xlim=dummy.xlim, ylim=dummy.ylim)
+    shape_path = dummy.make_path(shape_kind="segment")
     dummy.make_geometry(ax=ax, shape_path=shape_path, color="red", lw=3.0, capstyle="round", alpha=1)
-  
+    
     dummy.draw()
     plt.show()
 
