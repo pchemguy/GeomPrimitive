@@ -41,48 +41,51 @@ else:
 class Primitive(ABC):
     """
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
-
-    Provides:
-      - Deterministic RNG compatibility
-      - Extensible `.draw(ax)` and `.make_geometry()` methods
-
-    Design:
-      Subclasses (e.g. Line, Circle, Ellipse) implement:
-        - `make_geometry(ax, **kwargs)` -- self
-        - `draw(ax, **kwargs)` -- renders using current metadata
-
-    Attributes:
-      - _meta (dict[str, Any]): Metadata describing the primitive's geometry and style.
-      - meta: deep-copy getter for safe inspection.
-      - json: JSON-encoded serialization of `.meta`.
-
-    Example:
-        >>> line = Line(ax)
-        >>> line.draw(ax)
     """
 
-    __slots__ = ("_meta", "_ax", "logger",)
+    __slots__ = ("_meta", "_ax", "xlim", "ylim", "logger",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
     def __init__(self, ax: Optional[Axes] = None, **kwargs: Any) -> None:
         """
-        Create a primitive and immediately generate its geometry.
-
         Args:
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        self._meta: Dict[str, Any] = {}
-        if isinstance(ax, Axes):
-            self._ax = ax
-            self.make_geometry(**kwargs)  # always generate metadata
+        self.ax = ax
+        self.reset()
         self.logger = logging.getLogger(LOGGER_NAME)
-
+        if not self.logger.handlers:
+            logging.basicConfig(level=logging.INFO)
 
     # ---------------------------------------------------------------------------
     # Metadata accessors
     # ---------------------------------------------------------------------------
+    def reset(self) -> None:
+        self.last_patch = None
+        self.patches = {}
+        self._meta: Dict[str, Any] = {}
+        if isinstance(self.ax, Axes):
+            self.ax.cla()
+            self.ax.set_xlim(*self.xlim)
+            self.ax.set_ylim(*self.ylim)
+            self.ax.set_aspect("equal")
+            # self.ax.invert_yaxis()
+            self.ax.axis("off")
+
+    @property
+    def ax(self) -> Axes: return self._ax
+    
+    @ax.setter
+    def ax(self, ax: Axes) -> None:
+        if not isinstance(ax, Axes):
+            raise TypeError(f"ax must be a Matplotlib Axes, not {type(ax).__name__}")
+    
+        self._ax = ax
+        self.xlim = ax.get_xlim()
+        self.ylim = ax.get_ylim()
+
     @property
     def meta(self) -> Dict[str, Any]:
         """Deep copy of the primitive’s current metadata (safe to mutate)."""
@@ -110,12 +113,6 @@ class Primitive(ABC):
     def make_geometry(self, ax: Optional[Axes] = None, **kwargs) -> Primitive:
         """Generate metadata describing the primitive's geometry.
         Subclasses must override this method.
-    
-        Responsibilities:
-          - Compute and assign all necessary geometric + stylistic metadata.
-          - Populate `self._meta` with a dictionary compatible with Matplotlib
-            rendering calls (e.g., for `ax.plot`, `ax.add_patch`, etc.).
-          - Return `self` for chaining.
         """                
         raise NotImplementedError
 
@@ -127,6 +124,12 @@ class Primitive(ABC):
     # -------------------------------------------------------------------------
     # Helper methods
     # -------------------------------------------------------------------------
+    def _set_ax(self, ax: Axes):
+        if not isinstance(ax, Axes):
+            raise TypeError(f"Unsupported ax type: {type(ax).__name__}")
+
+        self._ax = ax
+    
     @classmethod
     def _get_linestyle(cls, pattern: Optional[str], hand_drawn: bool
                       ) -> Union[str, Tuple[int, Tuple[float, ...]]]:

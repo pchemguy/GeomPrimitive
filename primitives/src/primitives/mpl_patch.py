@@ -5,16 +5,6 @@ mpl_patch.py
 https://chatgpt.com/c/6905add2-1ff8-8328-ba21-6c370614dcc4
 https://chatgpt.com/c/69025b9d-b044-8333-8159-aac740d7bf70
 ----------------------------------------------------------
-
-Geometry Specification:
-    Segment = {
-        x1: Union[float, int, None],
-        y1: Union[float, int, None],
-        x2: Union[float, int, None],
-        y2: Union[float, int, None],
-        orientation: Union[int, str, None]
-    }
-
 """
 from __future__ import annotations
 
@@ -23,7 +13,8 @@ import sys
 import math
 import logging
 from enum import Enum
-from typing import Any, Dict, Union, Tuple, Optional, List
+from types import NoneType
+from typing import Any, Union, Optional, List
 
 import numpy as np
 import matplotlib as mpl
@@ -43,7 +34,9 @@ from primitives.rng import RNG
 from runner.logging_utils import configure_logging
 from runner.config import WorkerConfig
 
-PointXY = Tuple[Union[int, float], Union[int, float]]
+numeric = Union[int, float]
+PointXY = tuple[numeric, numeric]
+CoordRange = tuple[numeric, numeric]
 
 # =============================================================================
 # Constants
@@ -56,66 +49,56 @@ DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
 # Patch implementation
 # =============================================================================
 class Patch(Primitive):
-    __slots__ = ("patches")
+    __slots__ = ("patches", "last_patch")
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.patches = {}
-        self.logger = logging.getLogger(LOGGER_NAME)
-        if not self.logger.handlers:
-            logging.basicConfig(level=logging.INFO)
+        self.reset()
 
     # -------------------------------------------------------------------------
     # APIs
     # -------------------------------------------------------------------------
     def make_geometry(self,
                       ax: Optional[Axes] = None,
+                      shape_path: mplPath = None,
                       linewidth: Optional[float] = None,
                       pattern: Optional[str] = None,
                       color: Optional[str] = None,
                       alpha: Optional[float] = None,
                       capstyle: Optional[str] = None,
                       joinstyle: Optional[str] = None,
-                      geometry: Dict = None,
+                      **style_options
                      ) -> "Patch":
-        pass
-
-    def draw(self) -> None:
-        if not isinstance(self._ax, Axes):
-            raise TypeError(f"ax is not set")
-        for patch in self.patches.values():
-            self._ax.add_patch(patch)
-    
-    # -------------------------------------------------------------------------
-    # Key functionality
-    # -------------------------------------------------------------------------
-    def add_patch(self,
-                  path: mplPath,
-                  linewidth: Optional[float] = None,
-                  pattern: Optional[str] = None,
-                  color: Optional[str] = None,
-                  alpha: Optional[float] = None,
-                  capstyle: Optional[str] = None,
-                  joinstyle: Optional[str] = None,
-                  **style_options
-                 ) -> PathPatch:
         rng: RNG = self.__class__.rng
-        if not isinstance(self._ax, Axes):
-            raise ValueError(f"ax is not set")
 
-        ax: Axes = self._ax
+        if not ax is None:
+            self.ax = ax
+        if not isinstance(self.ax, Axes):
+            raise TypeError(f"self.ax is not set.")
+
+        ax: Axes = self.ax
+
+        if not isinstance(shape_path, mplPath):
+            raise TypeError(f"Unsupported shape_path type: {type(shape_path).__name__}")
+        if shape_path.vertices is None:
+            raise ValueError(f"shape_path.vertices is empty or not set.")
+        if shape_path.codes is None:
+            raise ValueError(f"shape_path.codes is empty or not set.")
 
         # Color and alpha
         fill: bool = style_options.get("fill", False)
         if not fill:
             style_options["fill"] = False
-            edge_color = color or style_options.get("edgecolor") or style_options.get("ec")
+            edge_color = (
+                color or style_options.get("edgecolor") or style_options.get("ec")
+            )
             for attr in ("facecolor", "fc", "edgecolor", "ec"):
-                if attr in style_options:
-                     style_options.pop(attr)
+                if attr in style_options: style_options.pop(attr)
             style_options["color"] = self._get_color(edge_color)
         else:
-            style_options["facecolor"] = self._get_color(color or style_options.get("facecolor"))
+            style_options["facecolor"] = (
+                self._get_color(color or style_options.get("facecolor"))
+            )
             if not ("edgecolor" in style_options or "ec" in style_options):
                 style_options["edgecolor"] = self._get_color(color)
 
@@ -123,34 +106,60 @@ class Patch(Primitive):
             alpha = 1.5 - rng.paretovariate(1.0) * 0.5
         style_options["alpha"] = max(0.1, min(float(alpha), 1.0))
 
-        # Cap and join styles
-        style_options["capstyle"] = CapStyle._member_map_.get(str(capstyle).lower()) or rng.choice(list(CapStyle))
-        style_options["joinstyle"] = JoinStyle._member_map_.get(str(joinstyle).lower()) or rng.choice(list(JoinStyle))
+        style_options["capstyle"] = (
+            CapStyle._member_map_.get(str(capstyle).lower())
+            or rng.choice(list(CapStyle))
+        )
+        style_options["joinstyle"] = (
+            JoinStyle._member_map_.get(str(joinstyle).lower())
+            or rng.choice(list(JoinStyle))
+        )
 
-        style_options["linewidth"] = linewidth or style_options.get("lw") or rng.choice(DEFAULT_LINEWIDTHS)
-        if style_options.get("lw"):
-            style_options.pop("lw")
+        style_options["linewidth"] = (
+            linewidth or style_options.get("lw") or rng.choice(DEFAULT_LINEWIDTHS)
+        )
+        if style_options.get("lw"): style_options.pop("lw")
+
         style_options["linestyle"] = self._get_linestyle(pattern, hand_drawn=True)
 
-        self.logger.debug(f"add_patch() - style_options:\n{style_options}")
-        
-        patch: PathPatch = PathPatch(path, **style_options)
+        self.logger.debug(f"make_geometry() - style_options:\n{style_options}")
+
+        patch: PathPatch = PathPatch(shape_path, **style_options)
+        self.last_patch = patch
         self.patches[str(patch)] = patch
 
-        return patch
+        return self
 
+    def make_path(self, shape_kind: str, **geometry_options) -> mplPath:
+        if not isinstance(self.ax, Axes): raise ValueError(f"ax is not set")
+
+        if shape_kind == "segment":
+            geometry: dict[str, PointXY] = self._get_line_coords(
+                self.xlim, self.ylim, **geometry_options
+            )
+            return self.line_path(**geometry, **geometry_options)
+
+    def draw(self) -> None:
+        if not isinstance(self._ax, Axes):
+            raise TypeError(f"ax is not set")
+        for patch in self.patches.values():
+            self.ax.add_patch(patch)
+    
+    # -------------------------------------------------------------------------
+    # MPL Path generators
+    # -------------------------------------------------------------------------
     @classmethod
-    def cubic_spline_ex(cls, start: PointXY, end: PointXY, n_segments: int = 5,
-                        amp: float = 0.15, tightness: float = 0.3) -> mplPath:
+    def line_path(cls, start: PointXY, end: PointXY, spline_count: int = 5,
+                  amp: float = 0.15, tightness: float = 0.3, **kwargs) -> mplPath:
         rng: RNG = cls.rng
         x0, y0 = start
         xn, yn = end
         dx, dy = xn - x0, yn - y0
-        stepx, stepy = dx / n_segments, dy / n_segments
+        stepx, stepy = dx / spline_count, dy / spline_count
     
         JITTER_FACTOR = 0.4
         points = [(x0, y0)]
-        for i in range(1, n_segments):
+        for i in range(1, spline_count):
             jitter = rng.uniform(-1, 1) * JITTER_FACTOR
             points.append((x0 + (i + jitter) * stepx, y0 + (i + jitter) * stepy))
         points.append((xn, yn))
@@ -158,7 +167,7 @@ class Patch(Primitive):
         verts: List[PointXY] = []
         codes: List[int] = []
         for i in range(len(points) - 1):
-            segment_path: mplPath = cls._cubic_spline_segment(
+            segment_path: mplPath = cls._random_spline_cubic(
                 points[i], points[i + 1], amp, tightness
             )
             v, c = segment_path.vertices, segment_path.codes
@@ -178,8 +187,8 @@ class Patch(Primitive):
     # Helper methods
     # -------------------------------------------------------------------------
     @classmethod
-    def _cubic_spline_segment(cls, start: PointXY, end: PointXY,
-                              amp: float = 0.15, tightness: float = 0.3) -> mplPath:
+    def _random_spline_cubic(cls, start: PointXY, end: PointXY,
+                             amp: float = 0.15, tightness: float = 0.3) -> mplPath:
         rng: RNG = cls.rng
         logger = logging.getLogger(LOGGER_NAME)
         logger.debug(f"Running cubic_spline_segment.")
@@ -215,50 +224,53 @@ class Patch(Primitive):
         return mplPath(verts, codes)
 
     @classmethod
-    def _get_segment_coords(cls,
-                    xboxmin: float,
-                    yboxmin: float,
-                    xboxmax: float,
-                    yboxmax: float,
-                    geometry: Optional[Dict] = {},
-                   ) -> Tuple[List[float], List[float]]:
+    def _get_line_coords(cls,
+                         xlim: CoordRange,
+                         ylim: CoordRange,
+                         start: Optional[PointXY] = (None, None),
+                         end: Optional[PointXY] = (None, None),
+                         orientation: Union[str, int, None] = None,
+                         **kwargs) -> dict[str, PointXY]:
         rng: RNG = cls.rng
-        if not isinstance(geometry, dict):
+        if not isinstance(geometry, (dict, NoneType)):
             raise TypeError(f"Unsupported geometry type: {type(geometry).__name__}")
 
-        if not geometry or geometry.get("orientation") is None:
+        if orientation is None:
             return {
-                "p1": (
-                    geometry.get("x1") or rng.uniform(xboxmin, xboxmax),
-                    geometry.get("y1") or rng.uniform(yboxmin, yboxmax),
+                "start": (
+                    start[0] or rng.uniform(*xlim),
+                    start[1] or rng.uniform(*ylim),
                 ),
-                "p2": (
-                    geometry.get("x2") or rng.uniform(xboxmin, xboxmax),
-                    geometry.get("y2") or rng.uniform(yboxmin, yboxmax),
+                "end": (
+                    end[0] or rng.uniform(*xlim),
+                    end[1] or rng.uniform(*ylim),
                 ),
             }
 
         # Orientation
-        angle = self._get_angle(geometry("orientation"), hand_drawn=True)
+        angle = self._get_angle(orientation, hand_drawn=True)
 
-        x1 = geometry.get("x1") or rng.uniform(xboxmin, 0.75 * xboxmax),
-        y1 = geometry.get("y1") or rng.uniform(yboxmin, 0.75 * yboxmax),
+        xmin, xmax = xlim
+        ymin, ymax = ylim
+
+        x1 = start[0] or rng.uniform(xmin, 0.75 * xmax),
+        y1 = start[1] or rng.uniform(ymin, 0.75 * ymax),
         
         if abs(90 - abs(angle)) < 0.1:
-            x2, y2 = x1, rng.uniform(y1 * 0.8, yboxmax)
-            return {"p1": (x1, y1), "p2": (x2, y2)}
+            x2, y2 = x1, rng.uniform(y1 * 0.8, ymax)
+            return {"start": (x1, y1), "end": (x2, y2)}
 
         slope = math.tan(math.radians(angle))
         if angle == 0 or abs(slope) < 1e-6:
-            x2, y2 = rng.uniform(x1 * 0.8, xboxmax), y1
+            x2, y2 = rng.uniform(x1 * 0.8, xmax), y1
         else:
-            xmax_adj = min(xboxmax, x1 + (yboxmax - y1) / slope)
-            x2 = min(xboxmax, rng.uniform(x1 + 1, xmax_adj))
-            y2 = min(yboxmax, y1 + slope * (x2 - x1))
+            xmax_adj = min(xmax, x1 + (ymax - y1) / slope)
+            x2 = min(xmax, rng.uniform(x1 + 1, xmax_adj))
+            y2 = min(ymax, y1 + slope * (x2 - x1))
 
         return {
-            "p1": (x1, y1),
-            "p2": (np.clip(x2, xboxmin, xboxmax), np.clip(y2, yboxmin, yboxmax)),
+            "start": (x1, y1),
+            "end": (np.clip(x2, *xlim), np.clip(y2, *ylim)),
         }
 
 
@@ -280,10 +292,11 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(7, 2.5))
     dummy: Patch = Patch(ax)
-    path = Patch.cubic_spline_ex(
-        (0, 0), (5, 0), n_segments=7, amp=0.15, tightness=0.3
+    shape_path = Patch.line_path(
+        (0, 0), (5, 0), spline_count=7, amp=0.15, tightness=0.3
     )
-    dummy.add_patch(path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round", alpha=1)
+
+    dummy.make_geometry(shape_path=shape_path, facecolor="none", lw=3.0, edgecolor="royalblue", capstyle="round", alpha=1)
     dummy.draw()
     
     #patch = mpl_patches.PathPatch(
