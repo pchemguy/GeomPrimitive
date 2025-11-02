@@ -58,18 +58,8 @@ class Patch(Primitive):
     # -------------------------------------------------------------------------
     # APIs
     # -------------------------------------------------------------------------
-    def make_geometry(self,
-                      ax: Optional[Axes] = None,
-                      shape_path: mplPath = None,
-                      linewidth: Optional[float] = None,
-                      pattern: Optional[str] = None,
-                      color: Optional[str] = None,
-                      alpha: Optional[float] = None,
-                      capstyle: Optional[str] = None,
-                      joinstyle: Optional[str] = None,
-                      **style_options
-                     ) -> "Patch":
-        rng: RNG = self.__class__.rng
+    def make_geometry(self, ax: Optional[Axes] = None, shape_path: mplPath = None,
+                      **style_options) -> "Patch":
         logger = logging.getLogger(LOGGER_NAME)
         logger.info(f"Running make_geometry().")
 
@@ -88,45 +78,7 @@ class Patch(Primitive):
         if shape_path.codes is None:
             raise ValueError(f"shape_path.codes is empty or not set.")
 
-        # Color and alpha
-        fill: bool = style_options.get("fill", False)
-        if not fill:
-            style_options["fill"] = False
-            edge_color = (
-                color or style_options.get("edgecolor") or style_options.get("ec")
-            )
-            for attr in ("facecolor", "fc", "edgecolor", "ec"):
-                if attr in style_options: style_options.pop(attr)
-            style_options["color"] = self._get_color(edge_color)
-        else:
-            style_options["facecolor"] = (
-                self._get_color(color or style_options.get("facecolor"))
-            )
-            if not ("edgecolor" in style_options or "ec" in style_options):
-                style_options["edgecolor"] = self._get_color(color)
-
-        if alpha is None or not isinstance(alpha, (int, float)):
-            alpha = 1.5 - rng.paretovariate(1.0) * 0.5
-        style_options["alpha"] = max(0.1, min(float(alpha), 1.0))
-
-        style_options["capstyle"] = (
-            CapStyle._member_map_.get(str(capstyle).lower())
-            or rng.choice(list(CapStyle))
-        )
-        style_options["joinstyle"] = (
-            JoinStyle._member_map_.get(str(joinstyle).lower())
-            or rng.choice(list(JoinStyle))
-        )
-
-        style_options["linewidth"] = (
-            linewidth or style_options.get("lw") or rng.choice(DEFAULT_LINEWIDTHS)
-        )
-        if style_options.get("lw"): style_options.pop("lw")
-
-        style_options["linestyle"] = self._get_linestyle(pattern, hand_drawn=True)
-
-        self.logger.debug(f"make_geometry() - style_options:\n{style_options}")
-
+        style_options = self.make_style(**style_options)
         patch: PathPatch = PathPatch(shape_path, **style_options)
         self.last_patch = patch
         self.patches[id(patch)] = patch
@@ -197,6 +149,70 @@ class Patch(Primitive):
     # -------------------------------------------------------------------------
     # Helper methods
     # -------------------------------------------------------------------------
+    def make_style(self, **style_options) -> dict:
+        """
+        Prepare style options. Any not specifically handled options are
+        passed as is to PathPatch. Specially handled options include:
+          -  linewidth/lw -> linewidth
+          -  pattern -> linestyle
+          -  color/facecolor/edgecolor/fc/ec
+          -  alpha
+          -  capstyle
+          -  joinstyle
+        """
+        rng: RNG = self.__class__.rng
+        logger = logging.getLogger(LOGGER_NAME)
+        logger.info(f"Running make_style().")
+
+        # Color and alpha
+        color = style_options.get("color")
+        fill: bool = style_options.get("fill", False)
+        if not fill:
+            style_options["fill"] = False
+            edge_color = (
+                color or style_options.get("edgecolor") or style_options.get("ec")
+            )
+            for attr in ("facecolor", "fc", "edgecolor", "ec"):
+                if attr in style_options: style_options.pop(attr)
+            style_options["color"] = self._get_color(edge_color)
+        else:
+            style_options["facecolor"] = (
+                self._get_color(color or style_options.get("facecolor"))
+            )
+            if not ("edgecolor" in style_options or "ec" in style_options):
+                style_options["edgecolor"] = self._get_color(color)
+
+        alpha = style_options.get("alpha")
+        if alpha is None or not isinstance(alpha, (int, float)):
+            alpha = 1.5 - rng.paretovariate(1.0) * 0.5
+        style_options["alpha"] = max(0.1, min(float(alpha), 1.0))
+
+        capstyle = style_options.get("capstyle")
+        style_options["capstyle"] = (
+            CapStyle._member_map_.get(str(capstyle).lower())
+            if capstyle else rng.choice(list(CapStyle))
+        )
+
+        joinstyle = style_options.get("joinstyle")
+        style_options["joinstyle"] = (
+            JoinStyle._member_map_.get(str(joinstyle).lower())
+            if joinstyle else rng.choice(list(JoinStyle))
+        )
+
+        style_options["linewidth"] = (
+            style_options.get("linewidth") or 
+            style_options.get("lw") or 
+            rng.choice(DEFAULT_LINEWIDTHS)
+        )
+        if style_options.get("lw"): style_options.pop("lw")
+
+        pattern = style_options.get("pattern")
+        style_options["linestyle"] = self._get_linestyle(pattern, hand_drawn=True)
+
+        self.logger.debug(f"make_style() - style_options:\n{style_options}")
+
+        return style_options
+
     @classmethod
     def _random_spline_cubic(cls, start: PointXY, end: PointXY,
                              amp: float = 0.15, tightness: float = 0.3) -> mplPath:

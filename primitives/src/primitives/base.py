@@ -54,8 +54,8 @@ class Primitive(ABC):
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        self.logger = logging.getLogger(LOGGER_NAME)
-        self.__class__.logger = logging.getLogger(LOGGER_NAME)
+        if not hasattr(self, "logger"):
+            self.logger = logging.getLogger(LOGGER_NAME)
         if not self.logger.handlers:
             logging.basicConfig(level=logging.INFO)
         self.ax = ax
