@@ -13,11 +13,12 @@ import copy
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Union
 import numpy as np
 import matplotlib as mpl
 from matplotlib.axes import Axes
 from matplotlib import colors
+from matplotlib.patches import PathPatch
 
 # =============================================================================
 # Constants
@@ -43,7 +44,7 @@ class Primitive(ABC):
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
     """
 
-    __slots__ = ("_meta", "_ax", "xlim", "ylim", "logger",)
+    __slots__ = ("_meta", "_ax", "xlim", "ylim", "patches", "logger",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
@@ -53,18 +54,15 @@ class Primitive(ABC):
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        self.ax = ax
-        self.reset()
         self.logger = logging.getLogger(LOGGER_NAME)
         if not self.logger.handlers:
             logging.basicConfig(level=logging.INFO)
+        self.ax = ax
+        self.reset()
 
-    # ---------------------------------------------------------------------------
-    # Metadata accessors
-    # ---------------------------------------------------------------------------
     def reset(self) -> None:
         self.last_patch = None
-        self.patches = {}
+        self.patches: dict[int, PathPatch] = {}
         self._meta: Dict[str, Any] = {}
         if isinstance(self.ax, Axes):
             self.ax.cla()
@@ -74,6 +72,12 @@ class Primitive(ABC):
             # self.ax.invert_yaxis()
             self.ax.axis("off")
 
+    # ---------------------------------------------------------------------------
+    # Metadata accessors
+    # ---------------------------------------------------------------------------
+    def iter_patches(self):
+        yield from self.patches.values()    
+    
     @property
     def ax(self) -> Axes: return self._ax
     
@@ -132,7 +136,7 @@ class Primitive(ABC):
     
     @classmethod
     def _get_linestyle(cls, pattern: Optional[str], hand_drawn: bool
-                      ) -> Union[str, Tuple[int, Tuple[float, ...]]]:
+                      ) -> Union[str, tuple[int, tuple[float, ...]]]:
         rng: RNG = cls.rng
         if pattern is None or (isinstance(pattern, str) and not pattern.strip()):
             if not hand_drawn:
@@ -161,7 +165,7 @@ class Primitive(ABC):
         return cls._pattern_to_linestyle(pattern)
 
     @classmethod
-    def _pattern_to_linestyle(cls, pattern: str) -> Tuple[int, Tuple[float, ...]]:
+    def _pattern_to_linestyle(cls, pattern: str) -> tuple[int, tuple[float, ...]]:
         rng: RNG = cls.rng
         mapping = {" ": ("off", 1), "_": ("off", 4), "-": ("on", 4), ".": ("on", 1)}
         pattern = pattern.lstrip()
@@ -184,7 +188,7 @@ class Primitive(ABC):
         return (0, tuple(segments))
 
     @classmethod
-    def _get_color(cls, color: Optional[Any]) -> Union[str, Tuple[float, float, float]]:
+    def _get_color(cls, color: Optional[Any]) -> Union[str, tuple[float, float, float]]:
         rng: RNG = cls.rng
         if color is None or not str(color).strip():
             return rng.choice(CSS4_COLOR_NAMES)
