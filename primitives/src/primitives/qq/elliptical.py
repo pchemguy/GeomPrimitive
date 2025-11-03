@@ -40,7 +40,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     """
     # 1. Create a unit circular arc using piecewise cubic Bezier curves.
     #
-    if start_deg is None:
+    if start_deg is None or end_deg is None:
         start_deg = random.uniform(0, 270)
         end_deg = random.uniform(end_deg + 5, 360)
     delta_deg: float = end_deg - start_deg
@@ -98,11 +98,11 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
         verts_array += np.random.uniform(-1, 1, size=verts_array.shape) * jitter_amp
 
     # -------------------------
-    # 5. Scale.
+    # 5. Scale params.
     # -------------------------
     xmin, xmax = hrange
     ymin, ymax = vrange
-    dx, dy = ymax - ymin, xmax - xmin
+    dx, dy = xmax - xmin, ymax - ymin
     print(f"dx: {dx}\ndy: {dy}")
     bbox_side = min(dx, dy) * (1 - random.uniform(0, 0.8))
     bbox_diag = bbox_side * math.sqrt(2)
@@ -114,12 +114,12 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
 
     x_scale = 0.5 * bbox_side
     y_scale = 0.5 * bbox_side * aspect_ratio
-    verts_array *= [x_scale, y_scale]
+    # verts_array *= [x_scale, y_scale]
     print(f"===== SCALE =====")
     print(f"[x_scale, y_scale]: {[x_scale, y_scale]}.")
 
     # -------------------------
-    # 6. Rotate.
+    # 6. Rotate params.
     # -------------------------
     if not isinstance(angle_deg, (int, float)):
         angle_deg = random.uniform(-90, 90)
@@ -127,33 +127,33 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
         angle_deg += jitter_angle_deg * random.uniform(-1, 1)
     angle = np.radians(angle_deg)
     rotation_matrix = np.array([
-        [+np.cos(angle), np.sin(angle)],
-        [-np.sin(angle), np.cos(angle)]
+        [np.cos(angle), -np.sin(angle)],
+        [np.sin(angle),  np.cos(angle)]
     ])
-    verts_array @= rotation_matrix
+    # verts_array @= rotation_matrix
     print(f"===== ROTATE =====")
     print(f"angle_deg: {angle_deg}.")
     
     # -------------------------
-    # 6. Translate
+    # 6. Translate params.
     # -------------------------
     x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
     x_translate = x0 + max(0, 0.5 * (dx - bbox_diag)) * random.uniform(-1, 1)
     y_translate = y0 + max(0, 0.5 * (dy - bbox_diag)) * random.uniform(-1, 1)
-    verts_array += [x_translate, y_translate]
+    # verts_array += [x_translate, y_translate]
     print(f"===== TRANSLATE =====")
     print(f"[x_translate, y_translate]: {[x_translate, y_translate]}.")
 
     # -------------------------
-    # Note. Library-based SRT (Scale, Rotate, Translate)
+    # Apply SRT (Scale, Rotate, Translate)
     # -------------------------
-    # trans = (
-    #     Affine2D()
-    #     .scale(x_scale, y_scale)
-    #     .rotate_deg(angle_deg)
-    #     .translate(x_translate, y_translate)
-    # )
-    # verts_array = trans.transform(verts_array)
+    trans = (
+        Affine2D()
+        .scale(x_scale, y_scale)
+        .rotate_deg(angle_deg)
+        .translate(x_translate, y_translate)
+    )
+    verts_array[:] = trans.transform(verts_array)
     
     # -------------------------
     # 7. Create Path
