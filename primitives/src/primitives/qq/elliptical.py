@@ -14,7 +14,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    end_deg: Optional[float] = None,
                    aspect_ratio: Optional[float] = None,
                    angle_deg: Optional[int] = None,
-                   jitter_amp: Optional[float] = 0.025,
+                   jitter_amp: Optional[float] = 0.02,
                    jitter_aspect: float = 0.1,
                    jitter_angle_deg: int = 5,
                    max_angle_delta_deg: Optional[int] = 20,
@@ -104,7 +104,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     ymin, ymax = vrange
     dx, dy = ymax - ymin, xmax - xmin
     print(f"dx: {dx}\ndy: {dy}")
-    bbox_side = min(dx, dy) * (1 - random.uniform(0.25, 0.9))
+    bbox_side = min(dx, dy) * (1 - random.uniform(0, 0.8))
     bbox_diag = bbox_side * math.sqrt(2)
     print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
 
@@ -164,8 +164,8 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     return arc_path
 
 
-hrange=(-10, 20)
-vrange=(-10, 30)
+hrange=(-10, 30)
+vrange=(-10, 20)
 
 arc = elliptical_arc(hrange=hrange, vrange=vrange, start_deg=0, end_deg=360, angle_deg=0)
 
