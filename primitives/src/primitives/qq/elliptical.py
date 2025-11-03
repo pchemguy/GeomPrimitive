@@ -33,7 +33,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    end_deg: Optional[float] = None,
                    aspect_ratio: Optional[float] = None,
                    angle_deg: Optional[int] = None,
-                   jitter_amp: Optional[float] = 0.02,
+                   jitter_amp: Optional[float] = 0.025,
                    jitter_aspect: float = 0.1,
                    max_angle_delta_deg: Optional[int] = 20,
                    min_angle_steps: Optional[int] = 3,
@@ -134,28 +134,17 @@ rotation_matrix = np.array([
 verts = arcarc.vertices
 # Apply SRT (Scale, Rotate, Translate) in one line
 # (verts * scale) @ rotate + translate
-verts = (verts * [x_scale, y_scale]) @ rotation_matrix + [x_translate, y_translate]    
-arcarc = mplPath(verts, arcarc.codes)
+# verts = (verts * [x_scale, y_scale]) @ rotation_matrix + [x_translate, y_translate]    
+# arcarc = mplPath(verts, arcarc.codes)
 
-
-print(
-    f"x0         : {x0}         \n"
-    f"y0         : {y0}         \n"
-    f"dx         : {dx}         \n"
-    f"dy         : {dy}         \n"
-    f"x_scale    : {x_scale}    \n"
-    f"y_scale    : {y_scale}    \n"
-    f"x_translate: {x_translate}\n"
-    f"y_translate: {y_translate}\n"
+trans = (
+    Affine2D()
+    .scale(x_scale, y_scale)
+    .rotate_deg(angle_deg)
+    .translate(x_translate, y_translate)
 )
 
-
-#_context = locals()
-#_context.pop("arcarc")
-#print_locals(_context)
-
-#exit()
-
+arcarc = mplPath(trans.transform(verts), arcarc.codes)
 
 fig, ax = plt.subplots(figsize=(5, 5))
 ax.add_patch(PathPatch(arcarc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
