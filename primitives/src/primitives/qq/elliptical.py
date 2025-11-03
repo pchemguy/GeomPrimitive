@@ -8,6 +8,25 @@ from matplotlib.path import Path as mplPath
 from matplotlib.transforms import Affine2D
 
 
+def print_locals(local_vars: dict):
+    """
+    Pretty-prints the top level of a dict with sorted keys.
+    Collapses non-scalar values to a single-line string.
+    """
+    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
+    scalar_types = (int, float, str, bool, type(None))
+
+    for key, value in sorted(local_vars.items()):        
+        if key[0] == "_":
+            pass
+        elif isinstance(value, scalar_types):
+            print(f"{key:<{max_key_len}}: {value}")
+        else:
+            value_str = str(value).replace('\n', ' ')
+            print(f"{key:<{max_key_len}}: {value_str}")
+
+
+
 def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    vrange: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
@@ -80,7 +99,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     return arc_path
 
 arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=360)
-print(arcarc)
+# print(arcarc)
 
 
 hrange=(-10, 20)
@@ -91,28 +110,51 @@ ymin, ymax = vrange
 dx, dy = ymax - ymin, xmax - xmin
 x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
 
-scale_factor = min(dx, dy) * (1 - random.uniform(0.25, 0.9))
+scale_factor = min(dx, dy) * (1 - random.uniform(0.2, 0.9)) * 0.5
 aspect_ratio = None
 if aspect_ratio is None or not isinstance(aspect_ratio, (float, int)):
-    aspect_ratio = random.uniform(0, 1)
-aspect_ratio = min(0.1, max(aspect_ratio, 1))
-angle_deg = None
+    aspect_ratio = max(0.25, 1 - abs(random.normalvariate(0, 0.25)))
+x_scale = scale_factor
+y_scale = scale_factor * aspect_ratio
+
 shift_amp_x = max(0, (dx - scale_factor * math.sqrt(2)) / 2)
 shift_amp_y = max(0, (dy - scale_factor * math.sqrt(2)) / 2)
-trans_x = x0 + shift_amp_x * random.uniform(-1, 1)
-trans_y = y0 + shift_amp_y * random.uniform(-1, 1)
+x_translate = x0 + shift_amp_x * random.uniform(-1, 1) / 2
+y_translate = y0 + shift_amp_y * random.uniform(-1, 1) / 2
 
+angle_deg = None
 if not isinstance(angle_deg, (int, float)):
     angle_deg = random.uniform(-90, 90)
+angle = np.radians(angle_deg)
+rotation_matrix = np.array([
+    [+np.cos(angle), np.sin(angle)],
+    [-np.sin(angle), np.cos(angle)]
+])
 
-trans = (
-    Affine2D()
-    .scale(scale_factor, scale_factor * aspect_ratio)
-    .rotate_deg(angle_deg)
-    .translate(trans_x, trans_y)
+verts = arcarc.vertices
+# Apply SRT (Scale, Rotate, Translate) in one line
+# (verts * scale) @ rotate + translate
+verts = (verts * [x_scale, y_scale]) @ rotation_matrix + [x_translate, y_translate]    
+arcarc = mplPath(verts, arcarc.codes)
+
+
+print(
+    f"x0         : {x0}         \n"
+    f"y0         : {y0}         \n"
+    f"dx         : {dx}         \n"
+    f"dy         : {dy}         \n"
+    f"x_scale    : {x_scale}    \n"
+    f"y_scale    : {y_scale}    \n"
+    f"x_translate: {x_translate}\n"
+    f"y_translate: {y_translate}\n"
 )
-arcarc = mplPath(trans.transform(arcarc.vertices), arcarc.codes)
 
+
+#_context = locals()
+#_context.pop("arcarc")
+#print_locals(_context)
+
+#exit()
 
 
 fig, ax = plt.subplots(figsize=(5, 5))
@@ -124,21 +166,6 @@ ax.set_xlim(*hrange)
 ax.set_ylim(*vrange)
 plt.show()
 
-
-def print_locals(local_vars: dict):
-    """
-    Pretty-prints the top level of a dict with sorted keys.
-    Collapses non-scalar values to a single-line string.
-    """
-    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
-    scalar_types = (int, float, str, bool, type(None))
-
-    for key, value in sorted(local_vars.items()):        
-        if isinstance(value, scalar_types):
-            print(f"{key:<{max_key_len}}: {value}")
-        else:
-            value_str = str(value).replace('\n', ' ')
-            print(f"{key:<{max_key_len}}: {value_str}")
 
 
 def cubic_arc_segment(start_deg=0, end_deg=90, amp=0.02):
