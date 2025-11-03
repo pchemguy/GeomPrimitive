@@ -13,7 +13,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    end_deg: Optional[float] = None,
                    aspect_ratio: Optional[float] = None,
                    jitter_amp: Optional[float] = 0.02,
-                   jitter_aspect: bool = True,
+                   jitter_aspect: float = 0.1,
                    max_angle_delta_deg: Optional[int] = 20,
                    min_angle_steps: Optional[int] = 3,
                   ) -> mplPath:
@@ -41,8 +41,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     delta_step: float = delta / step_count
     t = 4 / 3 * np.tan(delta_step / 4)
 
-    #print_locals(locals())
-    #return
+    jitter_y = 1 - (jitter_aspect * random.uniform(0, 1) if jitter_aspect else 0)
 
     P0 = [float(np.cos(start)), float(np.sin(start))]
     verts = [P0]
@@ -50,36 +49,32 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     end_section = start_section + delta_step
     for i in range(step_count):
         P1 = [float(np.cos(start_section) - t * np.sin(start_section)),
-              float(np.sin(start_section) + t * np.cos(start_section))]
+              float((np.sin(start_section) + t * np.cos(start_section)) * jitter_y)]
         P2 = [float(np.cos(end_section)   + t * np.sin(end_section)),
-              float(np.sin(end_section)   - t * np.cos(end_section))]
+              float((np.sin(end_section)   - t * np.cos(end_section)) * jitter_y)]
         P3 = [float(np.cos(end_section)),
-              float(np.sin(end_section))]
+              float((np.sin(end_section)) * jitter_y)]
         verts.extend([P1, P2, P3])
         start_section += delta_step
         end_section += delta_step
     codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * step_count
+
+    if jitter_amp:
+        p0 = verts[0]
+        jittered_verts = [p0]
+        for vert in verts[1:]:
+            jittered_verts.append([
+                vert[0] + jitter_amp * random.uniform(-1, 1),
+                vert[1] + jitter_amp * random.uniform(-1, 1)
+            ])
+        verts = jittered_verts
+
     if closed:
         codes.append(mplPath.CLOSEPOLY)
         verts.append(P0)
-    if not jitter:
-        verts = [
-            [vert[0] = vert[0] + jitter_amp * random.uniform(-1, 1),
-             vert[1] = vert[1] + jitter_amp * random.uniform(-1, 1),]
-            for vert in verts
-        ] 
-
+    
     arc_path: mplPath = mplPath(verts, codes)
 
-    print("======== verts ========")
-    print(np.array(verts))
-    print("======== arc_path.vertices ========")
-    print(arc_path.vertices)
-    print("======== codes ========")
-    print(np.array(codes))
-    print("======== arc_path.codes ========")
-    print(arc_path.codes)
-    
     return arc_path
 
 arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=360)
