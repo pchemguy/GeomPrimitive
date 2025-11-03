@@ -8,25 +8,6 @@ from matplotlib.path import Path as mplPath
 from matplotlib.transforms import Affine2D
 
 
-def print_locals(local_vars: dict):
-    """
-    Pretty-prints the top level of a dict with sorted keys.
-    Collapses non-scalar values to a single-line string.
-    """
-    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
-    scalar_types = (int, float, str, bool, type(None))
-
-    for key, value in sorted(local_vars.items()):        
-        if key[0] == "_":
-            pass
-        elif isinstance(value, scalar_types):
-            print(f"{key:<{max_key_len}}: {value}")
-        else:
-            value_str = str(value).replace('\n', ' ')
-            print(f"{key:<{max_key_len}}: {value_str}")
-
-
-
 def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    vrange: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
@@ -35,14 +16,30 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    angle_deg: Optional[int] = None,
                    jitter_amp: Optional[float] = 0.025,
                    jitter_aspect: float = 0.1,
+                   jitter_angle_deg: int = 5,
                    max_angle_delta_deg: Optional[int] = 20,
                    min_angle_steps: Optional[int] = 3,
                   ) -> mplPath:
-    xmin, xmax = hrange
-    ymin, ymax = vrange
-    if aspect_ratio is None or not isinstance(aspect_ratio, (float, int)):
-        aspect_ratio = random.uniform(0, 1)
-    aspect_ratio = min(0.1, max(aspect_ratio, 1))
+    """ Creates a generalized elliptical arc or an eelipse.
+
+    The code first creates a unit cicular arc using piecewise cubic Bezier
+    curves provided by Matplotlib. In priciple, a 90 deg arc can be approximated
+    by a single cubic curve very well. However, to imitate hand drawing, smaller
+    steps are used, set at the default value of 20 deg `max_angle_delta_deg`.
+
+    For smaller arcs, the smallest number of sections is set to 3 (`min_angle_steps`).
+
+    Once the unit arc or a full circle is created, Jitter is applied to individual
+    points (magnitude controlled by `jitter_amp`), as well as to aspect ratio
+    (`jitter_aspect` controls scaling of the y coordinates only. The latter is only
+    usefull for creating non-ideal circular arcs, as elliptical transform will absorb
+    this factor.
+
+    The circular arc is scaled to yeild an ellipse, rotated (with angle jitter), and
+    translated to yield the final generalized elliptical arc with jitter.
+    """
+    # 1. Create a unit circular arc using piecewise cubic Bezier curves.
+    #
     if start_deg is None:
         start_deg = random.uniform(0, 270)
         end_deg = random.uniform(end_deg + 5, 360)
@@ -62,92 +59,118 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     delta_step: float = delta / step_count
     t = 4 / 3 * np.tan(delta_step / 4)
 
-    jitter_y = 1 - (jitter_aspect * random.uniform(0, 1) if jitter_aspect else 0)
-
     P0 = [float(np.cos(start)), float(np.sin(start))]
     verts = [P0]
     start_section = start
     end_section = start_section + delta_step
     for i in range(step_count):
         P1 = [float(np.cos(start_section) - t * np.sin(start_section)),
-              float((np.sin(start_section) + t * np.cos(start_section)) * jitter_y)]
+              float(np.sin(start_section) + t * np.cos(start_section))]
         P2 = [float(np.cos(end_section)   + t * np.sin(end_section)),
-              float((np.sin(end_section)   - t * np.cos(end_section)) * jitter_y)]
+              float(np.sin(end_section)   - t * np.cos(end_section))]
         P3 = [float(np.cos(end_section)),
-              float((np.sin(end_section)) * jitter_y)]
+              float(np.sin(end_section))]
         verts.extend([P1, P2, P3])
         start_section += delta_step
         end_section += delta_step
+    
     codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * step_count
-
-    if jitter_amp:
-        p0 = verts[0]
-        jittered_verts = [p0]
-        for vert in verts[1:]:
-            jittered_verts.append([
-                vert[0] + jitter_amp * random.uniform(-1, 1),
-                vert[1] + jitter_amp * random.uniform(-1, 1)
-            ])
-        verts = jittered_verts
-
     if closed:
         codes.append(mplPath.CLOSEPOLY)
         verts.append(P0)
+
+    # -------------------------
+    # 2. Convert to NumPy array
+    # -------------------------
+    verts_array = np.array(verts)
+
+    # -------------------------
+    # 3. Apply Aspect Jitter (Multiplicative Scale)
+    # -------------------------
+    if jitter_aspect:
+        # We apply one random scale to the y-axis of all vertices
+        verts_array[:, 1] *= 1 - jitter_aspect * random.uniform(0, 1)  # Scales the entire y-column
+
+    # -------------------------
+    # 4. Apply Additive Jitter
+    # -------------------------
+    if jitter_amp:
+        verts_array += np.random.uniform(-1, 1, size=verts_array.shape) * jitter_amp
+
+    # -------------------------
+    # 5. Scale.
+    # -------------------------
+    xmin, xmax = hrange
+    ymin, ymax = vrange
+    dx, dy = ymax - ymin, xmax - xmin
+    print(f"dx: {dx}\ndy: {dy}")
+    bbox_side = min(dx, dy) * (1 - random.uniform(0.25, 0.9))
+    bbox_diag = bbox_side * math.sqrt(2)
+    print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
+
+    if aspect_ratio is None or not isinstance(aspect_ratio, (float, int)):
+        aspect_ratio = 1 - abs(random.normalvariate(0, 0.25))
+    aspect_ratio = max(0.25, min(aspect_ratio, 1))
+
+    x_scale = 0.5 * bbox_side
+    y_scale = 0.5 * bbox_side * aspect_ratio
+    verts_array *= [x_scale, y_scale]
+    print(f"===== SCALE =====")
+    print(f"[x_scale, y_scale]: {[x_scale, y_scale]}.")
+
+    # -------------------------
+    # 6. Rotate.
+    # -------------------------
+    if not isinstance(angle_deg, (int, float)):
+        angle_deg = random.uniform(-90, 90)
+    else:
+        angle_deg += jitter_angle_deg * random.uniform(-1, 1)
+    angle = np.radians(angle_deg)
+    rotation_matrix = np.array([
+        [+np.cos(angle), np.sin(angle)],
+        [-np.sin(angle), np.cos(angle)]
+    ])
+    verts_array @= rotation_matrix
+    print(f"===== ROTATE =====")
+    print(f"angle_deg: {angle_deg}.")
     
-    arc_path: mplPath = mplPath(verts, codes)
+    # -------------------------
+    # 6. Translate
+    # -------------------------
+    x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
+    x_translate = x0 + max(0, 0.5 * (dx - bbox_diag)) * random.uniform(-1, 1)
+    y_translate = y0 + max(0, 0.5 * (dy - bbox_diag)) * random.uniform(-1, 1)
+    verts_array += [x_translate, y_translate]
+    print(f"===== TRANSLATE =====")
+    print(f"[x_translate, y_translate]: {[x_translate, y_translate]}.")
+
+    # -------------------------
+    # Note. Library-based SRT (Scale, Rotate, Translate)
+    # -------------------------
+    # trans = (
+    #     Affine2D()
+    #     .scale(x_scale, y_scale)
+    #     .rotate_deg(angle_deg)
+    #     .translate(x_translate, y_translate)
+    # )
+    # verts_array = trans.transform(verts_array)
+    
+    # -------------------------
+    # 7. Create Path
+    # -------------------------
+    
+    arc_path: mplPath = mplPath(verts_array, codes)
 
     return arc_path
-
-arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=360)
-# print(arcarc)
 
 
 hrange=(-10, 20)
 vrange=(-10, 30)
 
-xmin, xmax = hrange
-ymin, ymax = vrange
-dx, dy = ymax - ymin, xmax - xmin
-x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
-
-scale_factor = min(dx, dy) * (1 - random.uniform(0.2, 0.9)) * 0.5
-aspect_ratio = None
-if aspect_ratio is None or not isinstance(aspect_ratio, (float, int)):
-    aspect_ratio = max(0.25, 1 - abs(random.normalvariate(0, 0.25)))
-x_scale = scale_factor
-y_scale = scale_factor * aspect_ratio
-
-shift_amp_x = max(0, (dx - scale_factor * math.sqrt(2)) / 2)
-shift_amp_y = max(0, (dy - scale_factor * math.sqrt(2)) / 2)
-x_translate = x0 + shift_amp_x * random.uniform(-1, 1) / 2
-y_translate = y0 + shift_amp_y * random.uniform(-1, 1) / 2
-
-angle_deg = None
-if not isinstance(angle_deg, (int, float)):
-    angle_deg = random.uniform(-90, 90)
-angle = np.radians(angle_deg)
-rotation_matrix = np.array([
-    [+np.cos(angle), np.sin(angle)],
-    [-np.sin(angle), np.cos(angle)]
-])
-
-verts = arcarc.vertices
-# Apply SRT (Scale, Rotate, Translate) in one line
-# (verts * scale) @ rotate + translate
-# verts = (verts * [x_scale, y_scale]) @ rotation_matrix + [x_translate, y_translate]    
-# arcarc = mplPath(verts, arcarc.codes)
-
-trans = (
-    Affine2D()
-    .scale(x_scale, y_scale)
-    .rotate_deg(angle_deg)
-    .translate(x_translate, y_translate)
-)
-
-arcarc = mplPath(trans.transform(verts), arcarc.codes)
+arc = elliptical_arc(hrange=hrange, vrange=vrange, start_deg=0, end_deg=360, angle_deg=0)
 
 fig, ax = plt.subplots(figsize=(5, 5))
-ax.add_patch(PathPatch(arcarc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
 
 ax.set_aspect("equal")
 ax.grid(True, ls="--", alpha=0.5)
@@ -205,12 +228,32 @@ def join_paths(path1: mplPath, path2: mplPath) -> mplPath:
 
 
 
-arc1 = cubic_arc_segment(0, 30, 0.04)  # any angle span <=90deg
-arc2 = cubic_arc_segment(30, 60, 0.04)
-arc3 = cubic_arc_segment(60, 90, 0.04)
-arc4 = cubic_arc_segment(90, 120, 0.04)
-arc5 = cubic_arc_segment(120, 150, 0.04)
-arc6 = cubic_arc_segment(150, 180, 0.04)
-arc = join_paths(join_paths(join_paths(arc1, arc2), join_paths(arc3, arc4)), join_paths(arc5, arc6))
-print(arc)
+#arc1 = cubic_arc_segment(0, 30, 0.04)  # any angle span <=90deg
+#arc2 = cubic_arc_segment(30, 60, 0.04)
+#arc3 = cubic_arc_segment(60, 90, 0.04)
+#arc4 = cubic_arc_segment(90, 120, 0.04)
+#arc5 = cubic_arc_segment(120, 150, 0.04)
+#arc6 = cubic_arc_segment(150, 180, 0.04)
+#arc = join_paths(join_paths(join_paths(arc1, arc2), join_paths(arc3, arc4)), join_paths(arc5, arc6))
+#print(arc)
+
+
+def print_locals(local_vars: dict):
+    """
+    Pretty-prints the top level of a dict with sorted keys.
+    Collapses non-scalar values to a single-line string.
+    """
+    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
+    scalar_types = (int, float, str, bool, type(None))
+
+    for key, value in sorted(local_vars.items()):        
+        if key[0] == "_":
+            pass
+        elif isinstance(value, scalar_types):
+            print(f"{key:<{max_key_len}}: {value}")
+        else:
+            value_str = str(value).replace('\n', ' ')
+            print(f"{key:<{max_key_len}}: {value_str}")
+
+
 
