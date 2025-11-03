@@ -20,7 +20,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    max_angle_delta_deg: Optional[int] = 20,
                    min_angle_steps: Optional[int] = 3,
                   ) -> mplPath:
-    """ Creates a generalized elliptical arc or an eelipse.
+    """ Creates a generalized elliptical arc or an ellipse.
 
     The code first creates a unit cicular arc using piecewise cubic Bezier
     curves provided by Matplotlib. In priciple, a 90 deg arc can be approximated
@@ -102,9 +102,9 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     # -------------------------
     xmin, xmax = hrange
     ymin, ymax = vrange
-    dx, dy = xmax - xmin, ymax - ymin
-    print(f"dx: {dx}\ndy: {dy}")
-    bbox_side = min(dx, dy) * (1 - random.uniform(0, 0.8))
+    width, height = xmax - xmin, ymax - ymin
+    print(f"width: {width}\nheight: {height}")
+    bbox_side = min(width, height) * (1 - random.uniform(0, 0.8))
     bbox_diag = bbox_side * math.sqrt(2)
     print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
 
@@ -135,17 +135,17 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     print(f"angle_deg: {angle_deg}.")
     
     # -------------------------
-    # 6. Translate params.
+    # 7. Translate params.
     # -------------------------
     x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
-    x_translate = x0 + max(0, 0.5 * (dx - bbox_diag)) * random.uniform(-1, 1)
-    y_translate = y0 + max(0, 0.5 * (dy - bbox_diag)) * random.uniform(-1, 1)
+    x_translate = x0 + max(0, 0.5 * (width - bbox_diag)) * random.uniform(-1, 1)
+    y_translate = y0 + max(0, 0.5 * (height - bbox_diag)) * random.uniform(-1, 1)
     # verts_array += [x_translate, y_translate]
     print(f"===== TRANSLATE =====")
     print(f"[x_translate, y_translate]: {[x_translate, y_translate]}.")
 
     # -------------------------
-    # Apply SRT (Scale, Rotate, Translate)
+    # 8. Apply SRT (Scale, Rotate, Translate)
     # -------------------------
     trans = (
         Affine2D()
@@ -156,7 +156,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     verts_array[:] = trans.transform(verts_array)
     
     # -------------------------
-    # 7. Create Path
+    # 9. Create Path
     # -------------------------
     
     arc_path: mplPath = mplPath(verts_array, codes)
