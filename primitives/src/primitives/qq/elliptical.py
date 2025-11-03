@@ -5,6 +5,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as mplPath
+from matplotlib.transforms import Affine2D
 
 
 def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
@@ -12,6 +13,7 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
                    end_deg: Optional[float] = None,
                    aspect_ratio: Optional[float] = None,
+                   angle_deg: Optional[int] = None,
                    jitter_amp: Optional[float] = 0.02,
                    jitter_aspect: float = 0.1,
                    max_angle_delta_deg: Optional[int] = 20,
@@ -81,13 +83,45 @@ arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=360
 print(arcarc)
 
 
+hrange=(-10, 20)
+vrange=(-10, 30)
+
+xmin, xmax = hrange
+ymin, ymax = vrange
+dx, dy = ymax - ymin, xmax - xmin
+x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
+
+scale_factor = min(dx, dy) * (1 - random.uniform(0.25, 0.9))
+aspect_ratio = None
+if aspect_ratio is None or not isinstance(aspect_ratio, (float, int)):
+    aspect_ratio = random.uniform(0, 1)
+aspect_ratio = min(0.1, max(aspect_ratio, 1))
+angle_deg = None
+shift_amp_x = max(0, (dx - scale_factor * math.sqrt(2)) / 2)
+shift_amp_y = max(0, (dy - scale_factor * math.sqrt(2)) / 2)
+trans_x = x0 + shift_amp_x * random.uniform(-1, 1)
+trans_y = y0 + shift_amp_y * random.uniform(-1, 1)
+
+if not isinstance(angle_deg, (int, float)):
+    angle_deg = random.uniform(-90, 90)
+
+trans = (
+    Affine2D()
+    .scale(scale_factor, scale_factor * aspect_ratio)
+    .rotate_deg(angle_deg)
+    .translate(trans_x, trans_y)
+)
+arcarc = mplPath(trans.transform(arcarc.vertices), arcarc.codes)
+
+
+
 fig, ax = plt.subplots(figsize=(5, 5))
 ax.add_patch(PathPatch(arcarc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
 
 ax.set_aspect("equal")
 ax.grid(True, ls="--", alpha=0.5)
-ax.set_xlim(-1.2, 1.2)
-ax.set_ylim(-1.2, 1.2)
+ax.set_xlim(*hrange)
+ax.set_ylim(*vrange)
 plt.show()
 
 
