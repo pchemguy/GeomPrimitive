@@ -7,28 +7,13 @@ from matplotlib.patches import PathPatch
 from matplotlib.path import Path as mplPath
 
 
-def print_locals(local_vars: dict):
-    """
-    Pretty-prints the top level of a dict with sorted keys.
-    Collapses non-scalar values to a single-line string.
-    """
-    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
-    scalar_types = (int, float, str, bool, type(None))
-
-    for key, value in sorted(local_vars.items()):        
-        if isinstance(value, scalar_types):
-            print(f"{key:<{max_key_len}}: {value}")
-        else:
-            value_str = str(value).replace('\n', ' ')
-            print(f"{key:<{max_key_len}}: {value_str}")
-
-
 def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
                    vrange: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
                    end_deg: Optional[float] = None,
                    aspect_ratio: Optional[float] = None,
-                   jitter: Optional[float] =0.02,
+                   jitter_amp: Optional[float] = 0.02,
+                   jitter_aspect: bool = True,
                    max_angle_delta_deg: Optional[int] = 20,
                    min_angle_steps: Optional[int] = 3,
                   ) -> mplPath:
@@ -64,8 +49,6 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     start_section = start
     end_section = start_section + delta_step
     for i in range(step_count):
-        start_section += delta_step
-        end_section += delta_step
         P1 = [float(np.cos(start_section) - t * np.sin(start_section)),
               float(np.sin(start_section) + t * np.cos(start_section))]
         P2 = [float(np.cos(end_section)   + t * np.sin(end_section)),
@@ -73,7 +56,18 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
         P3 = [float(np.cos(end_section)),
               float(np.sin(end_section))]
         verts.extend([P1, P2, P3])
+        start_section += delta_step
+        end_section += delta_step
     codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * step_count
+    if closed:
+        codes.append(mplPath.CLOSEPOLY)
+        verts.append(P0)
+    if not jitter:
+        verts = [
+            [vert[0] = vert[0] + jitter_amp * random.uniform(-1, 1),
+             vert[1] = vert[1] + jitter_amp * random.uniform(-1, 1),]
+            for vert in verts
+        ] 
 
     arc_path: mplPath = mplPath(verts, codes)
 
@@ -87,6 +81,35 @@ def elliptical_arc(hrange: tuple[float, float] = (0, 1023),
     print(arc_path.codes)
     
     return arc_path
+
+arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=360)
+print(arcarc)
+
+
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.add_patch(PathPatch(arcarc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+
+ax.set_aspect("equal")
+ax.grid(True, ls="--", alpha=0.5)
+ax.set_xlim(-1.2, 1.2)
+ax.set_ylim(-1.2, 1.2)
+plt.show()
+
+
+def print_locals(local_vars: dict):
+    """
+    Pretty-prints the top level of a dict with sorted keys.
+    Collapses non-scalar values to a single-line string.
+    """
+    max_key_len = max(len(k) for k in local_vars) + 1 # +1 for a space
+    scalar_types = (int, float, str, bool, type(None))
+
+    for key, value in sorted(local_vars.items()):        
+        if isinstance(value, scalar_types):
+            print(f"{key:<{max_key_len}}: {value}")
+        else:
+            value_str = str(value).replace('\n', ' ')
+            print(f"{key:<{max_key_len}}: {value_str}")
 
 
 def cubic_arc_segment(start_deg=0, end_deg=90, amp=0.02):
@@ -143,20 +166,6 @@ arc3 = cubic_arc_segment(60, 90, 0.04)
 arc4 = cubic_arc_segment(90, 120, 0.04)
 arc5 = cubic_arc_segment(120, 150, 0.04)
 arc6 = cubic_arc_segment(150, 180, 0.04)
-arcarc = elliptical_arc(hrange=(-1, 1), vrange=(-1, 1), start_deg=0, end_deg=3000)
-print(arcarc)
-
 arc = join_paths(join_paths(join_paths(arc1, arc2), join_paths(arc3, arc4)), join_paths(arc5, arc6))
-
 print(arc)
-print(arcarc)
-print(mplPath.CLOSEPOLY, mplPath.CURVE4)
 
-
-fig, ax = plt.subplots(figsize=(5, 5))
-ax.add_patch(PathPatch(arcarc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
-ax.set_aspect("equal")
-ax.grid(True, ls="--", alpha=0.5)
-ax.set_xlim(-1.2, 1.2)
-ax.set_ylim(-1.2, 1.2)
-plt.show()
