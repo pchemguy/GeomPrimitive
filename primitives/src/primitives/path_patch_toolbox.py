@@ -117,13 +117,17 @@ def random_cubic_spline_segment(start: PointXY, end: PointXY,
     return mplPath(verts, codes)
 
 
-def line_path(start: PointXY, end: PointXY, spline_count: int = 5,
-              amp: float = 0.15, tightness: float = 0.3, **kwargs) -> mplPath:
+def line_path(canvas_x1x2: PointXY,
+              canvas_y1y2: PointXY,
+              angle_deg: (Optional[float]) = None,
+              jitter_angle_deg: Optional[int] = 5,
+              spline_count: int = 5,
+              amp: float = 0.15,
+              tightness: float = 0.3,
+              **kwargs) -> mplPath:
     """Creates piecewise splined segment imitating hand drawing.
 
-    This function is designed to create a line segment between given points or,
-    if either point is not specified, a random segment within the unit box [-1, 1]
-    is created.
+    This function is designed to create a line segment between within.
 
     Provied or randomized segment is split into `spline_count` sections using
     `spline_count -1` points. All points are on the source segment, but are randomly
@@ -131,15 +135,50 @@ def line_path(start: PointXY, end: PointXY, spline_count: int = 5,
     split position. So long as JITTER_FACTOR < 0.5, the maximum distance reduaction
     of adjacent points is less than full step, ensuring a well behaving split.
     """
-    if not isinstance(start, tuple) or not isinstance(end, tuple):
-        start = (
-            -1 + min(1.5, abs(random.normalvariate(0, 0.5))),
-            -1 + min(1.5, abs(random.normalvariate(0, 0.5))),
+    if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
+        raise TypeError(
+            f"canvas_x1x2: {type(canvas_x1x2).__name__}\n"
+            f"canvas_y1y2: {type(canvas_y1y2).__name__}\n"
+            f"Both must be tuple[flaot, float]."
         )
-        end = (
-            max(start[0] + 0.25, 1 - min(1.5, abs(random.normalvariate(0, 0.5)))),
-            max(start[1] + 0.25, 1 - min(1.5, abs(random.normalvariate(0, 0.5)))),
-        )
+
+    xmin, xmax = canvas_x1x2
+    ymin, ymax = canvas_y1y2
+    width, height = xmax - xmin, ymax - ymin
+    
+    if not isinstance(angle_deg, (int, float)):
+        angle_deg = random.randint(-90, 90)
+    angle_deg = ((angle_deg + 90) % 180) - 90
+    if not isinstance(jitter_angle_deg, int): jitter_angle_deg = 5
+    angle_deg += jitter_angle_deg * random.uniform(-1, 1)
+
+    if abs(90 - abs(angle_deg)) < 0.1:
+        x1 = x2 = xmin + 0.5 * width + random.uniform(-1,1) * 0.4 * width
+        y1 = ymin + 0.25 * height * min(3, abs(random.normalvariate(0, 1)))
+        y2 = ymax - 0.25 * height * min(3, abs(random.normalvariate(0, 1)))
+        y2 = max(y2, y1 + 0.25 * height)
+    elif abs(angle_deg) < 0.1:
+        x1 = xmin + 0.25 * width * min(3, abs(random.normalvariate(0, 1)))
+        x2 = xmax - 0.25 * width * min(3, abs(random.normalvariate(0, 1)))
+        x2 = max(x2, x1 + 0.25 * width)
+        y1 = y2 = ymin + 0.5 * height + random.uniform(-1,1) * 0.4 * height
+    else:
+        x1 = xmin + 0.25 * width * min(3, abs(random.normalvariate(0, 1)))
+        if angle_deg > 45:
+            y1 = ymin + 0.25 * height * min(3, abs(random.normalvariate(0, 1)))
+        elif angle_deg < -45:
+            y1 = ymax - 0.25 * height * min(3, abs(random.normalvariate(0, 1)))
+        else:
+            y1 = ymin + 0.5 * height + 0.25 * height / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+    
+        slope = math.tan(math.radians(angle_deg))
+        xmax_adj = min(xmax, x1 + (ymax if slope > 0 else ymin - y1) / slope)
+        x2 = min(xmax, random.uniform(x1 + 1, xmax_adj))
+        y2 = min(ymax, y1 + slope * (x2 - x1))
+    
+    start = (x1, y1)
+    end = (x2, y2)
+    
     x0, y0 = start
     xn, yn = end
     dx, dy = xn - x0, yn - y0
@@ -246,8 +285,8 @@ def unit_circular_arc(start_deg: numeric = 0,
 
 
 def unit_box_rand_srt(shape_path: mplPath,
-                      canvas_x1x2: tuple[float, float] = (0, 1023),
-                      canvas_y1y2: tuple[float, float] = (0, 1023),
+                      canvas_x1x2: Optional[PointXY] = (0, 1023),
+                      canvas_y1y2: Optional[PointXY] = (0, 1023),
                       compress_y: Optional[float] = None,
                       angle_deg: Optional[int] = None,
                       jitter_angle_deg: Optional[int] = 5,
@@ -367,29 +406,6 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
     return arc_path
 
 
-def line_segment(canvas_x1x2: tuple[float, float] = (0, 1023),
-                 canvas_y1y2: tuple[float, float] = (0, 1023),
-                 start: PointXY = None,
-                 end: PointXY = None,
-                 angle_deg: Optional[int] = None,
-                 jitter_angle_deg: Optional[int] = 5,
-                 jitter_amp: Optional[float] = 0.15,
-                 jitter_tightness: Optional[float] = 0.3,
-                 spline_count: Optional[int] = 5,
-                ) -> mplPath:
-    """ Creates a piecewise splined line segment."""
-    #
-    unit_segment_path: mplPath = line_path(
-        start, end, spline_count, jitter_amp, jitter_tightness
-    )
-    
-    segment_path: mplPath = unit_box_rand_srt(
-        unit_segment_path, canvas_x1x2, canvas_y1y2, None, angle_deg, jitter_angle_deg
-    )
-
-    return segment_path
-
-
 def demo():
     canvas_x1x2=(-10, 30)
     canvas_y1y2=(-10, 20)
@@ -405,9 +421,8 @@ def demo():
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
         start_deg=0, end_deg=360, angle_deg=None
     )
-    segment = line_segment(
-        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
-        start=None, end=None, angle_deg=None
+    segment = line_path(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=None, jitter_angle_deg=0
     )
 
     ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
