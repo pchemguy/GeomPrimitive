@@ -59,6 +59,9 @@ def join_paths(paths: list[mplPath]) -> mplPath:
     return mplPath(final_verts, final_codes)
 
 
+# ---------------------------------------------------------
+# Utility and reference implementation; not currently used.
+# ---------------------------------------------------------
 def unit_circular_arc_segment(start_deg: numeric = 0, end_deg: numeric = 90) -> mplPath:
     """
     Return a cubic Bezier Path approximating a circular arc between
@@ -101,7 +104,7 @@ def unit_circular_arc(start_deg: numeric = 0,
     """
     if start_deg is None or end_deg is None:
         start_deg = random.uniform(0, 270)
-        end_deg = random.uniform(end_deg + 5, 360)
+        end_deg = random.uniform(start_deg + 5, 360)
     span_deg: float = end_deg - start_deg
     if span_deg < 1 or span_deg > 359:
         start_deg = 0
@@ -152,24 +155,30 @@ def unit_circular_arc(start_deg: numeric = 0,
     if jitter_amp:
         verts_ndarray += np.random.uniform(-1, 1, size=verts_ndarray.shape) * jitter_amp
 
+    # Replace the last point with the first point
+    verts_ndarray[-1] = verts_ndarray[0]
+
     return mplPath(verts_ndarray, codes)
 
 
-def unit_bbox_rand_srt(unit_bbox_path: mplPath,
-                       canvas_x1x2: tuple[float, float] = (0, 1023),
-                       canvas_y1y2: tuple[float, float] = (0, 1023),
-                       compress_y: Optional[float] = None,
-                       angle_deg: Optional[int] = None,
-                       jitter_angle_deg: Optional[int] = 5,
-                      ) -> mplPath:
+def unit_box_rand_srt(shape_path: mplPath,
+                      canvas_x1x2: tuple[float, float] = (0, 1023),
+                      canvas_y1y2: tuple[float, float] = (0, 1023),
+                      compress_y: Optional[float] = None,
+                      angle_deg: Optional[int] = None,
+                      jitter_angle_deg: Optional[int] = 5,
+                     ) -> mplPath:
     """ Performs a random Scale -> Rotate -> Translate of the unit bbox.
 
-    Implements a random SRT transform of a Matplotlin Path within the unit
-    bounding box. Scale and translation are random uniform within the target
-    canvas. Rotates by `angle_deg` (random, if not specified), If angle is
-    specified, unifrorm +/- `jitter_angle_deg` is added.
-    `compress_y` (randomized, if not specified) is used to compress y coordinates,
-    e.g., transforming unit circles and squares into ellipses and rectangles.
+    Applies a random Scale-Rotate-Translate (SRT) affine transform to a path defined
+    in a unit box ([-1, 1], hence, ubox_side=2 used for scaling). Note, alternatively,
+    the assumption of unit box can be replaced with the bounding box of the path.
+
+    Scale and translation are random uniform within the target canvas. Rotates by
+    `angle_deg` (random, if not specified), If angle is specified, unifrorm
+    +/- `jitter_angle_deg` is added. `compress_y` (randomized, if not specified) is
+    used to compress y coordinates, e.g., transforming unit circles and squares into
+    ellipses and rectangles.
     """
     # -------------------------
     # Scale params.
@@ -179,12 +188,13 @@ def unit_bbox_rand_srt(unit_bbox_path: mplPath,
     width, height = xmax - xmin, ymax - ymin
     print(f"width: {width}\nheight: {height}")
     ubox_side = 2
-    bbox_side = min(width, height) * (1 - random.uniform(0, 0.8))
+    scale_factor_range: tuple[float, float] = (0.2, 0.9)
+    bbox_side = min(width, height) * random.uniform(*scale_factor_range)
     bbox_diag = bbox_side * math.sqrt(2)
     print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
 
     if not isinstance(compress_y, (float, int)):
-        compress_y = 1 - abs(random.normalvariate(0, 0.25))
+        compress_y = 1 - abs(random.normalvariate(0, 0.5))
     compress_y = max(0.25, min(compress_y, 1))
 
     x_scale = bbox_side / ubox_side
@@ -199,7 +209,6 @@ def unit_bbox_rand_srt(unit_bbox_path: mplPath,
         angle_deg = random.uniform(-90, 90)
     else:
         angle_deg += jitter_angle_deg * random.uniform(-1, 1)
-    angle = np.radians(angle_deg)
     print(f"===== ROTATE =====")
     print(f"angle_deg: {angle_deg}.")
     
@@ -221,12 +230,12 @@ def unit_bbox_rand_srt(unit_bbox_path: mplPath,
         .rotate_deg(angle_deg)
         .translate(x_translate, y_translate)
     )
-    verts = trans.transform(unit_bbox_path.vertices)
+    verts = trans.transform(shape_path.vertices)
     
     # -------------------------
     # 9. Create Path
     # -------------------------
-    trans_path: mplPath = mplPath(verts, unit_bbox_path.codes)
+    trans_path: mplPath = mplPath(verts, shape_path.codes)
 
     return trans_path
 
@@ -255,10 +264,10 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
     Once the unit arc or a full circle is created, Jitter is applied to individual
     points (magnitude controlled by `jitter_amp`), as well as to aspect ratio
     (`jitter_y` controls scaling of the y coordinates only. The latter is only
-    usefull for creating non-ideal circular arcs, as elliptical transform will absorb
+    useful for creating non-ideal circular arcs, as elliptical transform will absorb
     this factor.
 
-    The circular arc is scaled to yeild an ellipse, rotated (with angle jitter), and
+    The circular arc is scaled to yield an ellipse, rotated (with angle jitter), and
     translated to yield the final generalized elliptical arc with jitter.
     """
     # Create a unit circular arc using piecewise cubic Bezier curves.
@@ -267,7 +276,7 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
         start_deg, end_deg, jitter_amp, jitter_y, max_angle_step_deg, min_angle_steps
     )
     
-    arc_path: mplPath = unit_bbox_rand_srt(
+    arc_path: mplPath = unit_box_rand_srt(
         unit_arc_path, canvas_x1x2, canvas_y1y2, compress_y, angle_deg, jitter_angle_deg
     )
 
