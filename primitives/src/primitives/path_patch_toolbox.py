@@ -1,6 +1,5 @@
 """
-rng.py
-------
+path_patch_toolbox.py
 """
 
 from __future__ import annotations
@@ -66,16 +65,15 @@ def join_paths(paths: list[mplPath]) -> mplPath:
     return mplPath(final_verts, final_codes)
 
 
-# ---------------------------------------------------------
-# Utility and reference implementation; not currently used.
-# ---------------------------------------------------------
 def unit_circular_arc_segment(start_deg: numeric = 0, end_deg: numeric = 90) -> mplPath:
-    """
-    Return a cubic Bezier Path approximating a circular arc between
+    """Circular Arc - Utility and reference implementation. Not currently used.
+
+    Creates a cubic Bezier Path approximating a circular arc between
     start_deg and end_deg (degrees). Works best for spans <= 90deg.
     """
     if abs(end_deg - start_deg) > 90:
-        raise ValueError("Span too large for single cubic Bezier; split into <=90deg segments.")
+        raise ValueError(
+            "Span too large for single cubic Bezier; split into <=90deg segments.")
 
     start, end = np.radians(start_deg), np.radians(end_deg)
     delta = end - start
@@ -93,6 +91,84 @@ def unit_circular_arc_segment(start_deg: numeric = 0, end_deg: numeric = 90) -> 
     codes = [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
     return mplPath(verts, codes)
 
+
+def random_cubic_spline_segment(start: PointXY, end: PointXY,
+                                amp: float = 0.15, tightness: float = 0.3) -> mplPath:
+    """Cubic Spline Segment - Utility and reference implementation. Not currently used.
+
+    Creates a single cubic spline section imitating a hand-drawn segment.
+
+    """
+    x0, y0 = start
+    x1, y1 = end
+    dx = x1 - x0
+    dy = y1 - y0
+    
+    dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+    dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+
+    P0 = (x0, y0)
+    P1 = (x0 + dx * tightness - dy * dev1, y0 + dy * tightness + dx * dev1)
+    P2 = (x1 - dx * tightness - dy * dev2, y1 - dy * tightness + dx * dev2)
+    P3 = (x1, y1)
+
+    verts = [P0, P1, P2, P3]
+    codes = [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
+    return mplPath(verts, codes)
+
+
+def line_path(start: PointXY, end: PointXY, spline_count: int = 5,
+              amp: float = 0.15, tightness: float = 0.3, **kwargs) -> mplPath:
+    """Creates piecewise splined segment imitating hand drawing.
+
+    This function is designed to create a line segment between given points or,
+    if either point is not specified, a random segment within the unit box [-1, 1]
+    is created.
+
+    Provied or randomized segment is split into `spline_count` sections using
+    `spline_count -1` points. All points are on the source segment, but are randomly
+    shifted along the line by JITTER_FACTOR of the step with respect to the equal
+    split position. So long as JITTER_FACTOR < 0.5, the maximum distance reduaction
+    of adjacent points is less than full step, ensuring a well behaving split.
+    """
+    if not isinstance(start, tuple) or not isinstance(end, tuple):
+        start = (
+            -1 + min(1.5, abs(random.normalvariate(0, 0.5))),
+            -1 + min(1.5, abs(random.normalvariate(0, 0.5))),
+        )
+        end = (
+            max(start[0] + 0.25, 1 - min(1.5, abs(random.normalvariate(0, 0.5)))),
+            max(start[1] + 0.25, 1 - min(1.5, abs(random.normalvariate(0, 0.5)))),
+        )
+    x0, y0 = start
+    xn, yn = end
+    dx, dy = xn - x0, yn - y0
+    stepx, stepy = dx / spline_count, dy / spline_count
+    
+    JITTER_FACTOR = 0.4
+    xp, yp = start
+    verts: list[PointXY] = [start]
+    for i in range(1, spline_count + 1):
+        slide = random.uniform(-1, 1) * JITTER_FACTOR
+        xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
+        dx, dy = xi - xp, yi - yp
+
+        dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
+        P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
+        P3 = (xi, yi)
+
+        verts.extend([P1, P2, P3])        
+        xp, yp = xi, yi
+
+    verts[-1] = end
+    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * spline_count
+    
+    print(f"~~~~~~~~~~LINE PATH~~~~~~~~~~~~~ line_path() verts: \n {verts} \n codes: \n {codes}")
+    print_locals(locals())
+    return mplPath(verts, codes)
+    
 
 def unit_circular_arc(start_deg: numeric = 0,
                       end_deg: numeric = 90,
@@ -176,7 +252,7 @@ def unit_box_rand_srt(shape_path: mplPath,
                       angle_deg: Optional[int] = None,
                       jitter_angle_deg: Optional[int] = 5,
                      ) -> mplPath:
-    """ Performs a random Scale -> Rotate -> Translate of the unit bbox.
+    """ Performs a random Scale -> Rotate -> Translate of the unit box.
 
     Applies a random Scale-Rotate-Translate (SRT) affine transform to a path defined
     in a unit box ([-1, 1], hence, ubox_side=2 used for scaling). Note, alternatively,
@@ -291,19 +367,54 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
     return arc_path
 
 
-canvas_x1x2=(-10, 30)
-canvas_y1y2=(-10, 20)
+def line_segment(canvas_x1x2: tuple[float, float] = (0, 1023),
+                 canvas_y1y2: tuple[float, float] = (0, 1023),
+                 start: PointXY = None,
+                 end: PointXY = None,
+                 angle_deg: Optional[int] = None,
+                 jitter_angle_deg: Optional[int] = 5,
+                 jitter_amp: Optional[float] = 0.15,
+                 jitter_tightness: Optional[float] = 0.3,
+                 spline_count: Optional[int] = 5,
+                ) -> mplPath:
+    """ Creates a piecewise splined line segment."""
+    #
+    unit_segment_path: mplPath = line_path(
+        start, end, spline_count, jitter_amp, jitter_tightness
+    )
+    
+    segment_path: mplPath = unit_box_rand_srt(
+        unit_segment_path, canvas_x1x2, canvas_y1y2, None, angle_deg, jitter_angle_deg
+    )
 
-arc = elliptical_arc(canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, start_deg=0, end_deg=360, angle_deg=0)
-
-fig, ax = plt.subplots(figsize=(5, 5))
-ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
-
-ax.set_aspect("equal")
-ax.grid(True, ls="--", alpha=0.5)
-ax.set_xlim(*canvas_x1x2)
-ax.set_ylim(*canvas_y1y2)
-plt.show()
+    return segment_path
 
 
+def demo():
+    canvas_x1x2=(-10, 30)
+    canvas_y1y2=(-10, 20)
+        
+    fig, ax = plt.subplots(figsize=(5, 5))
 
+    ax.set_aspect("equal")
+    ax.grid(True, ls="--", alpha=0.5)
+    ax.set_xlim(*canvas_x1x2)
+    ax.set_ylim(*canvas_y1y2)
+
+    arc = elliptical_arc(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
+        start_deg=0, end_deg=360, angle_deg=None
+    )
+    segment = line_segment(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
+        start=None, end=None, angle_deg=None
+    )
+
+    ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+    ax.add_patch(PathPatch(segment, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+    
+    plt.show()
+
+
+if __name__ == "__main__":
+    demo()
