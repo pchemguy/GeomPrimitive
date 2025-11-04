@@ -121,10 +121,10 @@ def line_path(canvas_x1x2: PointXY,
               canvas_y1y2: PointXY,
               angle_deg: (Optional[float]) = None,
               jitter_angle_deg: Optional[int] = 5,
-              spline_count: int = 5,
-              amp: float = 0.15,
-              tightness: float = 0.3,
-              **kwargs) -> mplPath:
+              spline_count: Optional[int] = 5,
+              amp: Optional[float] = 0.15,
+              tightness: Optional[float] = 0.3,
+             ) -> mplPath:
     """Creates piecewise splined segment imitating hand drawing.
 
     This function is designed to create a line segment between within.
@@ -209,8 +209,26 @@ def line_path(canvas_x1x2: PointXY,
     return mplPath(verts, codes)
     
 
-def unit_circular_arc(start_deg: numeric = 0,
-                      end_deg: numeric = 90,
+def polyline_path(points: list[PointXY],
+                  spline_count: Optional[int] = 5,
+                  amp: Optional[float] = 0.15,
+                  tightness: Optional[float] = 0.3,
+                 ) -> mplPath:
+    """Creates a wavy polyline."""
+    if not isinstance(points, Iterable) or isinstance(points, (str, bytes)):
+        raise TypeError(
+            f"'points' must be an iterable of (x, y) pairs, got {type(points).__name__}"
+        )
+    if len(points) < 2:
+        raise ValueError(
+            f"At least two points are required to form a polyline: got {len(points)}."
+        )
+    if not 
+
+
+
+def unit_circular_arc(start_deg: Optional[numeric] = 0,
+                      end_deg: Optional[numeric] = 90,
                       jitter_amp: Optional[float] = 0.02,
                       jitter_y: Optional[float] = 0.1,
                       max_angle_step_deg: Optional[int] = 20,
