@@ -1,3 +1,10 @@
+"""
+rng.py
+------
+"""
+
+from __future__ import annotations
+
 import numpy as np
 import random
 import math
@@ -35,7 +42,7 @@ def join_paths(paths: list[mplPath]) -> mplPath:
     Assumes the end of path N is the start of path N+1.
     """
     if not paths:
-        raise ValueError(f"Exected a list of Matplotlib paths.")
+        raise ValueError(f"Expected a list of Matplotlib paths.")
 
     for path in paths:
         if not isinstance(path, mplPath):
@@ -97,7 +104,7 @@ def unit_circular_arc(start_deg: numeric = 0,
     """ Creates a unit circular arc.
 
     Uses piecewise cubic Bezier curves provided by Matplotlib to approximate a unit 
-    circular arc. In priciple, a 90 deg arc can be approximated by a single cubic
+    circular arc. In principle, a 90 deg arc can be approximated by a single cubic
     curve very well. However, to imitate hand drawing, smaller steps are used, 
     set at the default value of 20 deg `max_angle_step_deg`. For the same reason,
     the smallest number of sections is also set (`min_angle_steps`).
@@ -156,7 +163,8 @@ def unit_circular_arc(start_deg: numeric = 0,
         verts_ndarray += np.random.uniform(-1, 1, size=verts_ndarray.shape) * jitter_amp
 
     # Replace the last point with the first point
-    verts_ndarray[-1] = verts_ndarray[0]
+    if closed:
+        verts_ndarray[-1] = verts_ndarray[0]
 
     return mplPath(verts_ndarray, codes)
 
@@ -175,7 +183,7 @@ def unit_box_rand_srt(shape_path: mplPath,
     the assumption of unit box can be replaced with the bounding box of the path.
 
     Scale and translation are random uniform within the target canvas. Rotates by
-    `angle_deg` (random, if not specified), If angle is specified, unifrorm
+    `angle_deg` (random, if not specified), If angle is specified, uniform
     +/- `jitter_angle_deg` is added. `compress_y` (randomized, if not specified) is
     used to compress y coordinates, e.g., transforming unit circles and squares into
     ellipses and rectangles.
@@ -183,11 +191,11 @@ def unit_box_rand_srt(shape_path: mplPath,
     # -------------------------
     # Scale params.
     # -------------------------
+    UNIT_BOX_SIDE = 2
     xmin, xmax = canvas_x1x2
     ymin, ymax = canvas_y1y2
     width, height = xmax - xmin, ymax - ymin
     print(f"width: {width}\nheight: {height}")
-    ubox_side = 2
     scale_factor_range: tuple[float, float] = (0.2, 0.9)
     bbox_side = min(width, height) * random.uniform(*scale_factor_range)
     bbox_diag = bbox_side * math.sqrt(2)
@@ -197,8 +205,8 @@ def unit_box_rand_srt(shape_path: mplPath,
         compress_y = 1 - abs(random.normalvariate(0, 0.5))
     compress_y = max(0.25, min(compress_y, 1))
 
-    x_scale = bbox_side / ubox_side
-    y_scale = bbox_side / ubox_side * compress_y
+    x_scale = bbox_side / UNIT_BOX_SIDE
+    y_scale = bbox_side / UNIT_BOX_SIDE * compress_y
     print(f"===== SCALE =====")
     print(f"[x_scale, y_scale]: {[x_scale, y_scale]}.")
 
@@ -255,7 +263,7 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
     """ Creates a generalized elliptical arc or an ellipse.
 
     The code first creates a unit circular arc using piecewise cubic Bezier
-    curves provided by Matplotlib. In priciple, a 90 deg arc can be approximated
+    curves provided by Matplotlib. In principle, a 90 deg arc can be approximated
     by a single cubic curve very well. However, to imitate hand drawing, smaller
     steps are used, set at the default value of 20 deg `max_angle_step_deg`.
 
