@@ -7,7 +7,10 @@ from __future__ import annotations
 import numpy as np
 import random
 import math
+from enum import Enum, auto
 from typing import Optional, Union
+from collections.abc import Iterable
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as mplPath
@@ -192,8 +195,8 @@ def line_path(canvas_x1x2: PointXY,
         xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
         dx, dy = xi - xp, yi - yp
 
-        dev1 = max(-1, min(random.normalvariate(0, 1) / 3, 1)) * amp
-        dev2 = max(-1, min(random.normalvariate(0, 1) / 3, 1)) * amp
+        dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
         P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
         P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
         P3 = (xi, yi)
@@ -215,6 +218,7 @@ def polyline_path(points: list[PointXY],
                   tightness: Optional[float] = 0.3,
                  ) -> mplPath:
     """Creates a wavy polyline."""
+
     if not isinstance(points, Iterable) or isinstance(points, (str, bytes)):
         raise TypeError(
             f"'points' must be an iterable of (x, y) pairs, got {type(points).__name__}"
@@ -223,7 +227,103 @@ def polyline_path(points: list[PointXY],
         raise ValueError(
             f"At least two points are required to form a polyline: got {len(points)}."
         )
-    if not 
+    if not isinstance(spline_count, int) or spline_count < 1:
+        spline_count = 5
+    for name, val in {"amp": amp, "tightness": tightness}.items():
+        if not isinstance(val, (int, float)):
+            raise TypeError(f"{name} must be numeric, got {type(val).__name__}")
+
+    P1 = points[0]
+    Pn = points[-1]
+    closed = math.hypot(Pn[0]-P1[0], Pn[1]-P1[1]) < 1e-6
+
+    end = points[0]
+    verts: list[PointXY] = [points[0]]
+    for start, end in zip(points, points[1:]):
+        x0, y0 = start
+        xn, yn = end
+        dx, dy = xn - x0, yn - y0
+        stepx, stepy = dx / spline_count, dy / spline_count
+        
+        JITTER_FACTOR = 0.4
+        xp, yp = start
+        for i in range(1, spline_count + 1):
+            slide = random.uniform(-1, 1) * JITTER_FACTOR
+            xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
+            dx, dy = xi - xp, yi - yp
+    
+            dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+            dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+            P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
+            P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
+            P3 = (xi, yi)
+    
+            verts.extend([P1, P2, P3])        
+            xp, yp = xi, yi
+    
+        verts[-1] = end
+        
+    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * spline_count * (len(points) - 1)
+
+    if closed:
+        codes.append(mplPath.CLOSEPOLY)
+        verts.append(points[0])
+
+    return mplPath(verts, codes)
+
+
+def triangle_verts(kind: Optional[dict[str, int]] = None,
+                  jitter_angle_deg: Optional[int] = 5,
+                  jitter_r_amp: Optional[float] = 0.02
+                     ) -> mplPath:
+    """Generates vertices of triangle inscribed into a unit circle.
+
+    The `kind` dict should contain two integer fields:
+        "equal_sides": 1, 2, or 3.
+        "angle_category":   This value is compared with 90 to determine
+                            requested triangle (actual value is not used):
+                            <90 - ACUTE
+                            =90 - RIGHT
+                            >90 - OBTUSE
+
+    RIGHT  ISOSCELES: [(-1, 0), {1, 1}, (1, 0), (-1, 0)]
+    RIGHT           : Same base, (1, 1) vertex is moved along the circle.
+    ACUTE  ISOSCELES: Base is lowered.
+    OBTUSE ISOSCELES: Base is raised.
+    EQUILATERAL     : Base is lowered.
+
+    The most straightforward approach is, perhaps, generating the three polar angles to define
+    positions of vertices on the circle. Each angle can additioally be jittered, as well as the
+    radius. To vary size, vary circle radius to less than 1.
+    """
+    equal_sides: int = 3
+    angle_category: int = 60
+    if isinstance(kind, dict):
+        equal_sides = kind.get("equal_sides", 3)
+        angle_category = kind.get("angle_category", 60)
+
+    if equal_sides == 3:
+        pass
+    elif equal_sides == 2:
+        if angle_category < 90:
+            pass
+        elif angle_category == 90:
+            pass
+        elif angle_category > 90:
+            pass
+        else:
+            pass
+    elif equal_sides == 1:
+        if angle_category < 90:
+            pass
+        elif angle_category == 90:
+            pass
+        elif angle_category > 90:
+            pass
+        else:
+            pass
+    else:
+        raise ValueError(f"Invalid equal_sides count: {equal_side}.")
 
 
 
@@ -439,12 +539,16 @@ def demo():
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
         start_deg=0, end_deg=360, angle_deg=None
     )
+    ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+
     segment = line_path(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=None, jitter_angle_deg=0
     )
-
-    ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
     ax.add_patch(PathPatch(segment, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+
+    polyline = polyline_path([(-5,5), (5,-5), (15,5), (-5,5)])
+    ax.add_patch(PathPatch(polyline, edgecolor="brown", lw=5, facecolor="none", linestyle="dotted"))
+
     
     plt.show()
 
