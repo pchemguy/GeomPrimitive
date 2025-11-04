@@ -192,8 +192,8 @@ def line_path(canvas_x1x2: PointXY,
         xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
         dx, dy = xi - xp, yi - yp
 
-        dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
-        dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        dev1 = max(-1, min(random.normalvariate(0, 1) / 3, 1)) * amp
+        dev2 = max(-1, min(random.normalvariate(0, 1) / 3, 1)) * amp
         P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
         P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
         P3 = (xi, yi)
