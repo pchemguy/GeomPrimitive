@@ -1,5 +1,9 @@
 """
 path_patch_toolbox.py
+---------------------
+
+https://chatgpt.com/c/69025b9d-b044-8333-8159-aac740d7bf70
+https://chatgpt.com/c/6905add2-1ff8-8328-ba21-6c370614dcc4
 """
 
 from __future__ import annotations
@@ -303,14 +307,27 @@ def triangle_verts(kind: Optional[dict[str, int]] = None,
         angle_category = kind.get("angle_category", 60)
 
     if equal_sides == 3:
-        pass
+        theta = {
+            alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+            for alpha in [90, -30, -150}
     elif equal_sides == 2:
         if angle_category < 90:
-            pass
+            angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
+            theta = {
+                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+                for alpha in [90, -45 + angle_offset, -135 + angle_offset}
+            }
         elif angle_category == 90:
-            pass
+            theta = {
+                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+                for alpha in [90, 0, 180}
+            }
         elif angle_category > 90:
-            pass
+            angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
+            theta = {
+                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+                for alpha in [90, -45 + angle_offset, -135 + angle_offset}
+            }
         else:
             pass
     elif equal_sides == 1:
