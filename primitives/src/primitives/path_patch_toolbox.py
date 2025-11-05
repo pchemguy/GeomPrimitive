@@ -252,10 +252,17 @@ def polyline_path(points: list[PointXY],
             xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
             dx, dy = xi - xp, yi - yp
     
-            dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
-            dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
-            P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
-            P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
+            dev1 = max(-1, min(1, random.normalvariate(0, 1 / 3))) * amp
+            dev2 = max(-1, min(1, random.normalvariate(0, 1 / 3))) * amp
+
+            P1 = (
+                xp + dx * tightness - dy * dev1, 
+                yp + dy * tightness + dx * dev1
+            )
+            P2 = (
+                xi - dx * tightness - dy * dev2,
+                yi - dy * tightness + dx * dev2
+            )
             P3 = (xi, yi)
     
             verts.extend([P1, P2, P3])        
@@ -272,10 +279,10 @@ def polyline_path(points: list[PointXY],
     return mplPath(verts, codes)
 
 
-def triangle_verts(kind: Optional[dict[str, int]] = None,
+def unit_triangle(kind: Optional[dict[str, int]] = None,
                   jitter_angle_deg: Optional[int] = 5,
-                  jitter_r_amp: Optional[float] = 0.02
-                     ) -> mplPath:
+                  base_angle: Optional[int] = None,
+                 ) -> mplPath:
     """Generates vertices of triangle inscribed into a unit circle.
 
     The `kind` dict should contain two integer fields:
@@ -293,8 +300,7 @@ def triangle_verts(kind: Optional[dict[str, int]] = None,
     EQUILATERAL     : Base is lowered.
 
     The most straightforward approach is, perhaps, generating the three polar angles to define
-    positions of vertices on the circle. Each angle can additioally be jittered, as well as the
-    radius. To vary size, vary circle radius to less than 1.
+    positions of vertices on the circle. Each angle can additioally be jittered.
     """
     equal_sides: int = 3
     angle_category: int = 60
@@ -303,42 +309,30 @@ def triangle_verts(kind: Optional[dict[str, int]] = None,
         angle_category = kind.get("angle_category", 60)
 
     if equal_sides == 3:
-        theta = [
-            alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-            for alpha in [90, -30, -150]
-        ]
-    elif equal_sides == 2:
-        if angle_category < 90:
-            angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
-            theta = [
-                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, -45 + angle_offset, -135 + angle_offset]
-            ]
-        elif angle_category == 90:
-            theta = [
-                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, 0, 180]
-            ]
-        elif angle_category > 90:
-            angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
-            theta = [
-                alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, -45 + angle_offset, -135 + angle_offset]
-            ]
-        else:
-            pass
-    elif equal_sides == 1:
-        if angle_category < 90:
-            pass
-        elif angle_category == 90:
-            pass
-        elif angle_category > 90:
-            pass
-        else:
-            pass
+        thetas = [90, -30, 210]
     else:
-        raise ValueError(f"Invalid equal_sides count: {equal_side}.")
+        top_offset = (
+            0 if equal_sides > 1 else random.choice([-1, 1]) *
+            random.uniform(jitter_angle_deg, 90 - jitter_angle_deg)
+        )
+        base_offset = (
+            ((angle_category > 90) - (angle_category < 90)) *
+            random.uniform(jitter_angle_deg, 90 - jitter_angle_deg)
+        )
+        thetas = [90 + top_offset, 0 + base_offset, 180 - base_offset]
 
+    if not isinstance(base_angle, (int, float)):
+        base_angle = random.uniform(-90, 90)
+    else:
+        base_angle += jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+    top_jitter = jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+    thetas[0] += top_jitter
+    thetas = [math.radians(theta + base_angle) for theta in thetas]
+    verts = [(math.cos(theta_rad), math.sin(theta_rad)) for theta_rad in thetas]
+    verts.append(verts[0])
+    codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
+
+    return mplPath(verts, codes)
 
 
 def unit_circular_arc(start_deg: Optional[numeric] = 0,
