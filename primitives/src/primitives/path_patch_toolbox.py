@@ -254,22 +254,15 @@ def line_path_polar(canvas_x1x2: PointXY,
     if not isinstance(jitter_angle_deg, int): jitter_angle_deg = 5
     angle_deg += jitter_angle_deg * random.uniform(-1, 1)
 
-    normal_deg = angle_deg + 90
-    offset_margin = jitter_angle_deg
-    normal_offset_deg = random.uniform(0 + offset_margin, 180 - offset_margin)
-
-    alpha1 = np.radians(normal_deg + normal_offset_deg)
-    alpha2 = np.radians(normal_deg - normal_offset_deg)
 
     sf = random.uniform(0.2, 1) * canvas_size / UNIT_BOX_SIZE
 
-    x1, y1 = np.cos(alpha1) * sf, np.sin(alpha1) * sf
-    x2, y2 = np.cos(alpha2) * sf, np.sin(alpha2) * sf
+    x1, y1 = np.cos(angle_deg) * sf, np.sin(angle_deg) * sf
+    x2, y2 = -x1, -y1
 
-    bbox_xcenter, bbox_ycenter = (x1 + x2) / 2, (y1 + y2) / 2
     bbox_width, bbox_height = abs(x2 - x1), abs(y2 - y1)
-    tx = canvas_xcenter - bbox_xcenter + random.uniform(-1, 1) * (canvas_width - bbox_width) / 2
-    ty = canvas_ycenter - bbox_ycenter + random.uniform(-1, 1) * (canvas_height - bbox_height) / 2
+    tx = canvas_xcenter + random.uniform(-1, 1) * (canvas_width - bbox_width) / 2
+    ty = canvas_ycenter + random.uniform(-1, 1) * (canvas_height - bbox_height) / 2
     x1, x2 = x1 + tx, x2 + tx
     y1, y2 = y1 + ty, y2 + ty
 
