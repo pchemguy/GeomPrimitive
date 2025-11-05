@@ -132,9 +132,7 @@ def line_path(canvas_x1x2: PointXY,
               amp: Optional[float] = 0.15,
               tightness: Optional[float] = 0.3,
              ) -> mplPath:
-    """Creates piecewise splined segment imitating hand drawing.
-
-    This function is designed to create a line segment between within.
+    """Creates a hand-drawn-style line segment centered within the target canvas.
 
     Provied or randomized segment is split into `spline_count` sections using
     `spline_count -1` points. All points are on the source segment, but are randomly
@@ -146,7 +144,7 @@ def line_path(canvas_x1x2: PointXY,
         raise TypeError(
             f"canvas_x1x2: {type(canvas_x1x2).__name__}\n"
             f"canvas_y1y2: {type(canvas_y1y2).__name__}\n"
-            f"Both must be tuple[flaot, float]."
+            f"Both must be tuple[float, float]."
         )
 
     xmin, xmax = canvas_x1x2
@@ -224,9 +222,7 @@ def line_path_polar(canvas_x1x2: PointXY,
                     amp: Optional[float] = 0.15,
                     tightness: Optional[float] = 0.3,
                    ) -> mplPath:
-    """Creates piecewise splined segment imitating hand drawing.
-
-    This function is designed to create a line segment between within.
+    """Creates a hand-drawn-style line segment centered within the target canvas.
 
     Provied or randomized segment is split into `spline_count` sections using
     `spline_count -1` points. All points are on the source segment, but are randomly
@@ -238,7 +234,7 @@ def line_path_polar(canvas_x1x2: PointXY,
         raise TypeError(
             f"canvas_x1x2: {type(canvas_x1x2).__name__}\n"
             f"canvas_y1y2: {type(canvas_y1y2).__name__}\n"
-            f"Both must be tuple[flaot, float]."
+            f"Both must be tuple[float, float]."
         )
 
     xmin, xmax = canvas_x1x2
@@ -246,7 +242,7 @@ def line_path_polar(canvas_x1x2: PointXY,
     canvas_xcenter, canvas_ycenter = (xmax + xmin) / 2, (ymax + ymin) / 2
     canvas_width, canvas_height = xmax - xmin, ymax - ymin
     canvas_size = min(canvas_width, canvas_height)
-    UNIT_BOX_SIZE = 2
+    UNIT_BOX_SIZE = 2 # Side length of canonical coordinate frame (-1..+1)
     
     if not isinstance(angle_deg, (int, float)):
         angle_deg = random.randint(-90, 90)
@@ -257,12 +253,18 @@ def line_path_polar(canvas_x1x2: PointXY,
 
     sf = random.uniform(0.2, 1) * canvas_size / UNIT_BOX_SIZE
 
-    x1, y1 = np.cos(angle_deg) * sf, np.sin(angle_deg) * sf
+    x1, y1 = math.cos(np.radians(angle_deg)) * sf, math.sin(np.radians(angle_deg)) * sf
     x2, y2 = -x1, -y1
 
-    bbox_width, bbox_height = abs(x2 - x1), abs(y2 - y1)
-    tx = canvas_xcenter + random.uniform(-1, 1) * (canvas_width - bbox_width) / 2
-    ty = canvas_ycenter + random.uniform(-1, 1) * (canvas_height - bbox_height) / 2
+    bbox_width  = abs(x2 - x1)
+    bbox_height = abs(y2 - y1)
+
+    tx_range = (canvas_width  - bbox_width) / 2
+    ty_range = (canvas_height - bbox_height) / 2
+
+    tx = canvas_xcenter + tx_range * random.uniform(-1, 1)
+    ty = canvas_ycenter + ty_range * random.uniform(-1, 1)    
+
     x1, x2 = x1 + tx, x2 + tx
     y1, y2 = y1 + ty, y2 + ty
 
