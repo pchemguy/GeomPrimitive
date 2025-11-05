@@ -216,6 +216,96 @@ def line_path(canvas_x1x2: PointXY,
     return mplPath(verts, codes)
     
 
+def line_path_polar(canvas_x1x2: PointXY,
+                    canvas_y1y2: PointXY,
+                    angle_deg: (Optional[float]) = None,
+                    jitter_angle_deg: Optional[int] = 5,
+                    spline_count: Optional[int] = 5,
+                    amp: Optional[float] = 0.15,
+                    tightness: Optional[float] = 0.3,
+                   ) -> mplPath:
+    """Creates piecewise splined segment imitating hand drawing.
+
+    This function is designed to create a line segment between within.
+
+    Provied or randomized segment is split into `spline_count` sections using
+    `spline_count -1` points. All points are on the source segment, but are randomly
+    shifted along the line by JITTER_FACTOR of the step with respect to the equal
+    split position. So long as JITTER_FACTOR < 0.5, the maximum distance reduaction
+    of adjacent points is less than full step, ensuring a well behaving split.
+    """
+    if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
+        raise TypeError(
+            f"canvas_x1x2: {type(canvas_x1x2).__name__}\n"
+            f"canvas_y1y2: {type(canvas_y1y2).__name__}\n"
+            f"Both must be tuple[flaot, float]."
+        )
+
+    xmin, xmax = canvas_x1x2
+    ymin, ymax = canvas_y1y2
+    canvas_xcenter, canvas_ycenter = (xmax + xmin) / 2, (ymax + ymin) / 2
+    canvas_width, canvas_height = xmax - xmin, ymax - ymin
+    canvas_size = min(canvas_width, canvas_height)
+    UNIT_BOX_SIZE = 2
+    
+    if not isinstance(angle_deg, (int, float)):
+        angle_deg = random.randint(-90, 90)
+    angle_deg = ((angle_deg + 90) % 180) - 90
+    if not isinstance(jitter_angle_deg, int): jitter_angle_deg = 5
+    angle_deg += jitter_angle_deg * random.uniform(-1, 1)
+
+    normal_deg = angle_deg + 90
+    offset_margin = jitter_angle_deg
+    normal_offset_deg = random.uniform(0 + offset_margin, 180 - offset_margin)
+
+    alpha1 = np.radians(normal_deg + normal_offset_deg)
+    alpha2 = np.radians(normal_deg - normal_offset_deg)
+
+    sf = random.uniform(0.2, 1) * canvas_size / UNIT_BOX_SIZE
+
+    x1, y1 = np.cos(alpha1) * sf, np.sin(alpha1) * sf
+    x2, y2 = np.cos(alpha2) * sf, np.sin(alpha2) * sf
+
+    bbox_xcenter, bbox_ycenter = (x1 + x2) / 2, (y1 + y2) / 2
+    bbox_width, bbox_height = abs(x2 - x1), abs(y2 - y1)
+    tx = canvas_xcenter - bbox_xcenter + random.uniform(-1, 1) * (canvas_width - bbox_width) / 2
+    ty = canvas_ycenter - bbox_ycenter + random.uniform(-1, 1) * (canvas_height - bbox_height) / 2
+    x1, x2 = x1 + tx, x2 + tx
+    y1, y2 = y1 + ty, y2 + ty
+
+    start = (x1, y1)
+    end = (x2, y2)
+    
+    x0, y0 = start
+    xn, yn = end
+    dx, dy = xn - x0, yn - y0
+    stepx, stepy = dx / spline_count, dy / spline_count
+    
+    JITTER_FACTOR = 0.4
+    xp, yp = start
+    verts: list[PointXY] = [start]
+    for i in range(1, spline_count + 1):
+        slide = random.uniform(-1, 1) * JITTER_FACTOR
+        xi, yi = x0 + (i + slide) * stepx, y0 + (i + slide) * stepy
+        dx, dy = xi - xp, yi - yp
+
+        dev1 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        dev2 = max(-1, min(random.normalvariate(0, 1 / 3), 1)) * amp
+        P1 = (xp + dx * tightness - dy * dev1, yp + dy * tightness + dx * dev1)
+        P2 = (xi - dx * tightness - dy * dev2, yi - dy * tightness + dx * dev2)
+        P3 = (xi, yi)
+
+        verts.extend([P1, P2, P3])        
+        xp, yp = xi, yi
+
+    verts[-1] = end
+    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * spline_count
+    
+    print(f"~~~~~~~~~~LINE PATH~~~~~~~~~~~~~ line_path() verts: \n {verts} \n codes: \n {codes}")
+    print_locals(locals())
+    return mplPath(verts, codes)
+
+
 def polyline_path(points: list[PointXY],
                   spline_count: Optional[int] = 5,
                   amp: Optional[float] = 0.15,
@@ -307,27 +397,28 @@ def triangle_verts(kind: Optional[dict[str, int]] = None,
         angle_category = kind.get("angle_category", 60)
 
     if equal_sides == 3:
-        theta = {
+        theta = [
             alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-            for alpha in [90, -30, -150}
+            for alpha in [90, -30, -150]
+        ]
     elif equal_sides == 2:
         if angle_category < 90:
             angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
-            theta = {
+            theta = [
                 alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, -45 + angle_offset, -135 + angle_offset}
-            }
+                for alpha in [90, -45 + angle_offset, -135 + angle_offset]
+            ]
         elif angle_category == 90:
-            theta = {
+            theta = [
                 alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, 0, 180}
-            }
+                for alpha in [90, 0, 180]
+            ]
         elif angle_category > 90:
             angle_offset = (45 - 1 - jitter_angle_deg) * random.uniform(-1, 1)
-            theta = {
+            theta = [
                 alpha + jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-                for alpha in [90, -45 + angle_offset, -135 + angle_offset}
-            }
+                for alpha in [90, -45 + angle_offset, -135 + angle_offset]
+            ]
         else:
             pass
     elif equal_sides == 1:
@@ -562,6 +653,11 @@ def demo():
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=None, jitter_angle_deg=0
     )
     ax.add_patch(PathPatch(segment, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+
+    segment1 = line_path_polar(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=None, jitter_angle_deg=0
+    )
+    ax.add_patch(PathPatch(segment1, edgecolor="cyan", lw=4, facecolor="none", linestyle="dashdot"))
 
     polyline = polyline_path([(-5,5), (5,-5), (15,5), (-5,5)])
     ax.add_patch(PathPatch(polyline, edgecolor="brown", lw=5, facecolor="none", linestyle="dotted"))

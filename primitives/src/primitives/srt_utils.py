@@ -3,6 +3,8 @@ srt_utils.py
 ------------
 
 https://chatgpt.com/c/690af605-a038-832a-aff2-ab08190adb02
+
+NOTE: Early not functioning draft.
 """
 
 from __future__ import annotations
