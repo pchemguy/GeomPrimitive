@@ -43,34 +43,36 @@ def print_locals(local_vars: dict) -> None:
             print(f"{key:<{max_key_len}}: {value_str}")
 
 
-def join_paths(paths: list[mplPath]) -> mplPath:
+def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
     """
-    Joins a list of paths into a single continuous path.
-    Assumes the end of path N is the start of path N+1.
+    Joins a list of Matplotlib paths into a single Path.
+
+    Args:
+        paths: List of Path objects.
+        preserve_moveto: If False (default), skip the initial MOVETO of each subsequent
+            path so that all segments form one continuous path.
+            If True, keep every MOVETO, preserving disjoint subpaths.
+
+    Returns:
+        Combined Path object.
     """
     if not paths:
-        raise ValueError(f"Expected a list of Matplotlib paths.")
+        raise ValueError("Expected a non-empty list of Matplotlib paths.")
 
     for path in paths:
         if not isinstance(path, mplPath):
-            raise TypeError(f"Expected a list of Matplotlib paths. Received {type(path).__name__}.")
+            raise TypeError(f"Expected a list of Matplotlib paths, got {type(path).__name__}.")
 
-    # Start with the first path's vertices and codes
-    all_verts = [paths[0].vertices]
-    all_codes = [paths[0].codes]
+    verts_list, codes_list = [paths[0].vertices], [paths[0].codes]
 
-    # Iterate over the rest of the paths
+    start = 0 if preserve_moveto else 1
     for path in paths[1:]:
-        if path.vertices.size > 0:
-            # Get vertices and codes, skipping the first (MOVETO)
-            all_verts.append(path.vertices[1:])
-            all_codes.append(path.codes[1:])
+        if path.vertices.size == 0:
+            continue
+        verts_list.append(path.vertices[start:])
+        codes_list.append(path.codes[start:])
 
-    # Concatenate all at once at the end (more efficient)
-    final_verts = np.concatenate(all_verts)
-    final_codes = np.concatenate(all_codes)
-    
-    return mplPath(final_verts, final_codes)
+    return mplPath(np.concatenate(verts_list), np.concatenate(codes_list))
 
 
 def bounded_normal(mu: float = 0.0,
