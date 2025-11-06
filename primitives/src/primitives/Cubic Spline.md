@@ -97,7 +97,7 @@ def bezier_path_from_tabulated(
     tension: float = 0.0,
 ) -> Path:
   """
-  Construct a Matplotlib Path using cubic Bezier segments with C¹ continuity.
+  Construct a Matplotlib Path using cubic Bezier segments with C1 continuity.
 
   Args:
     x: 1D increasing array of x coordinates.

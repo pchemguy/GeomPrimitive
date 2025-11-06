@@ -713,6 +713,63 @@ def unit_circular_arc(start_deg: Optional[numeric] = 0,
     return mplPath(verts_ndarray, codes)
 
 
+def bezier_from_xy_dy(x: np.ndarray, y: np.ndarray, dy: np.ndarray = None,
+                      tension: float = 0.0) -> mplPath:
+    """
+    Construct a Matplotlib Path using cubic Bezier segments with C1 continuity.
+  
+    Args:
+        x: 1D increasing array of x coordinates.
+        y: 1D array of y(x).
+        dy: Optional 1D array of y' values (same shape as x).
+            If None, they are estimated using finite differences with optional tension.
+        tension: Smoothness control (0 = Catmull-Rom, 1 = polyline).
+        
+    Returns:
+        matplotlib.path.Path
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    n = len(x)
+    if n < 2:
+        raise ValueError("Need at least two points")
+  
+    if dy is None:
+        dy = np.empty_like(y)
+        dx = np.diff(x)
+        # Central differences
+        dy[1:-1] = (y[2:] - y[:-2]) / (x[2:] - x[:-2])
+        # One-sided at boundaries
+        dy[0] = (y[1] - y[0]) / dx[0]
+        dy[-1] = (y[-1] - y[-2]) / dx[-1]
+        dy *= (1 - tension)
+  
+    # Segment sizes
+    h = np.diff(x)
+  
+    # Compute control points for all segments in vectorized form
+    x0, y0, dy0 = x[:-1], y[:-1], dy[:-1]
+    x1, y1, dy1 = x[1:],  y[1:],  dy[1:]
+  
+    B0 = np.column_stack([x0, y0])
+    B1 = np.column_stack([x0 + h / 3.0, y0 + (h * dy0) / 3.0])
+    B2 = np.column_stack([x1 - h / 3.0, y1 - (h * dy1) / 3.0])
+    B3 = np.column_stack([x1, y1])
+  
+    # Interleave all control points into one vertex array
+    verts = np.empty((len(B0) * 3 + 1, 2), dtype=float)
+    codes = np.full(len(verts), mplPath.CURVE4, dtype=np.uint8)
+    codes[0] = mplPath.MOVETO
+  
+    # Fill vertices
+    verts[0] = B0[0]
+    verts[1::3] = B1
+    verts[2::3] = B2
+    verts[3::3] = B3
+  
+    return mplPath(verts, codes)
+
+
 def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
                    canvas_y1y2: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
@@ -791,6 +848,11 @@ def demo():
     )
     ax.add_patch(PathPatch(rectangle, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
 
+
+    x = np.linspace(-1, 1, 50)
+    y = np.sin(np.pi * x)
+    function1 = bezier_from_xy_dy(x, y, tension=0.25)
+    ax.add_patch(PathPatch(function1, edgecolor="gold", lw=1, facecolor="none", linestyle="solid"))
     
     plt.show()
 
