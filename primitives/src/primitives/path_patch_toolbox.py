@@ -848,11 +848,17 @@ def demo():
     )
     ax.add_patch(PathPatch(rectangle, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
 
-
-    x = np.linspace(-1, 1, 50)
+    x = np.linspace(-1, 1, 10)
     y = np.sin(np.pi * x)
-    function1 = bezier_from_xy_dy(x, y, tension=0.25)
-    ax.add_patch(PathPatch(function1, edgecolor="gold", lw=1, facecolor="none", linestyle="solid"))
+    dy = np.cos(np.pi * x) * np.pi
+    function1 = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=None, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function1, edgecolor="gold", lw=2, facecolor="none", linestyle="solid"))
+    function2 = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=dy, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function2, edgecolor="violet", lw=2, facecolor="none", linestyle="solid"))
     
     plt.show()
 
