@@ -482,7 +482,7 @@ def unit_triangle_rnd(equal_sides: int = None,
     return mplPath(verts, codes)
 
 
-def triangle(canvas_x1x2: PointXY,
+def triangle_path(canvas_x1x2: PointXY,
              canvas_y1y2: PointXY,
              equal_sides: int = None,
              angle_category: int = None,
@@ -492,6 +492,16 @@ def triangle(canvas_x1x2: PointXY,
              amp: float = 0.15,
              tightness: float = 0.3,
             ) -> mplPath:
+    """Creates a random triangle.
+
+    Composes three primitives:
+    1. unit_triangle_rnd() - geometric primitive generation
+    2. random_srt_path()   - geometric transformation to canvas space
+    3. polyline_path()     - stylization into hand-drawn form
+    
+    This function performs *no* parameter interpretation or mutation
+    beyond connecting compatible interfaces between the components.
+    """
     # Creates unit triangle
 
     unit_shape: mplPath = unit_triangle_rnd(
@@ -501,12 +511,12 @@ def triangle(canvas_x1x2: PointXY,
     # Transforms (random SRT) unit triangle to canvas
     
     shape_srt: mplPath = random_srt_path(
-        unit_shape, canvas_x1x2, canvas_y1y2, None, base_angle, (0, 0)
+        unit_shape, canvas_x1x2, canvas_y1y2, None, 0, (0, 0)
     )
 
     # Creates hand-drawn style
 
-    shape_handdrawn = polyline_path(list[shape_srt.vertices], spline_count, amp, tightness)
+    shape_handdrawn = polyline_path(list(shape_srt.vertices), spline_count, amp, tightness)
     
     return shape_handdrawn
 
@@ -653,6 +663,11 @@ def demo():
 
     polyline = polyline_path([(-5,5), (5,-5), (15,5), (-5,5)])
     ax.add_patch(PathPatch(polyline, edgecolor="brown", lw=5, facecolor="none", linestyle="dotted"))
+
+    triangle = triangle_path(
+        canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
+    )
+    ax.add_patch(PathPatch(triangle, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
 
     
     plt.show()
