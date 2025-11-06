@@ -72,9 +72,13 @@ def join_paths(paths: list[mplPath]) -> mplPath:
     return mplPath(final_verts, final_codes)
 
 
-def random_srt_path(shape: mplPath, canvas_x1x2: PointXY, canvas_y1y2: PointXY,
-                    y_compress: float = None, angle_deg: numeric = None,
-                    origin: PointXY = None) -> mplPath:
+def random_srt_path(shape: mplPath,
+                    canvas_x1x2: PointXY,
+                    canvas_y1y2: PointXY,
+                    y_compress: float = None,
+                    angle_deg: numeric = None,
+                    origin: PointXY = None
+                   ) -> mplPath:
     if not isinstance(shape, mplPath):
         raise TypeError(f"Expected a Matplotlib path. Received {type(shape).__name__}.")
     if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
@@ -133,6 +137,85 @@ def random_srt_path(shape: mplPath, canvas_x1x2: PointXY, canvas_y1y2: PointXY,
     verts_array = trans.transform(shape.vertices)
     
     return mplPath(verts_array, shape.codes)
+
+
+def unit_box_rand_srt(shape_path: mplPath,
+                      canvas_x1x2: Optional[PointXY] = (0, 1023),
+                      canvas_y1y2: Optional[PointXY] = (0, 1023),
+                      y_compress: Optional[float] = None,
+                      angle_deg: Optional[int] = None,
+                      jitter_angle_deg: Optional[int] = 5,
+                     ) -> mplPath:
+    """ Performs a random Scale -> Rotate -> Translate of the unit box.
+
+    Applies a random Scale-Rotate-Translate (SRT) affine transform to a path defined
+    in a unit box ([-1, 1], hence, ubox_side=2 used for scaling). Note, alternatively,
+    the assumption of unit box can be replaced with the bounding box of the path.
+
+    Scale and translation are random uniform within the target canvas. Rotates by
+    `angle_deg` (random, if not specified), If angle is specified, uniform
+    +/- `jitter_angle_deg` is added. `y_compress` (randomized, if not specified) is
+    used to compress y coordinates, e.g., transforming unit circles and squares into
+    ellipses and rectangles.
+    """
+    # -------------------------
+    # Scale params.
+    # -------------------------
+    UNIT_BOX_SIDE = 2
+    xmin, xmax = canvas_x1x2
+    ymin, ymax = canvas_y1y2
+    width, height = xmax - xmin, ymax - ymin
+    print(f"width: {width}\nheight: {height}")
+    scale_factor_range: tuple[float, float] = (0.2, 0.9)
+    bbox_side = min(width, height) * random.uniform(*scale_factor_range)
+    bbox_diag = bbox_side * math.sqrt(2)
+    print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
+
+    if not isinstance(y_compress, (float, int)):
+        y_compress = 1 - abs(random.normalvariate(0, 0.5))
+    y_compress = max(0.25, min(y_compress, 1))
+
+    x_scale = bbox_side / UNIT_BOX_SIDE
+    y_scale = bbox_side / UNIT_BOX_SIDE * y_compress
+    print(f"===== SCALE =====")
+    print(f"[x_scale, y_scale]: {[x_scale, y_scale]}.")
+
+    # -------------------------
+    # Rotate params.
+    # -------------------------
+    if not isinstance(angle_deg, (int, float)):
+        angle_deg = random.uniform(-90, 90)
+    else:
+        angle_deg += jitter_angle_deg * random.uniform(-1, 1)
+    print(f"===== ROTATE =====")
+    print(f"angle_deg: {angle_deg}.")
+    
+    # -------------------------
+    # Translate params.
+    # -------------------------
+    x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
+    x_translate = x0 + max(0, 0.5 * (width - bbox_diag)) * random.uniform(-1, 1)
+    y_translate = y0 + max(0, 0.5 * (height - bbox_diag)) * random.uniform(-1, 1)
+    print(f"===== TRANSLATE =====")
+    print(f"[x_translate, y_translate]: {[x_translate, y_translate]}.")
+
+    # -------------------------
+    # Apply SRT (Scale, Rotate, Translate)
+    # -------------------------
+    trans = (
+        Affine2D()
+        .scale(x_scale, y_scale)
+        .rotate_deg(angle_deg)
+        .translate(x_translate, y_translate)
+    )
+    verts = trans.transform(shape_path.vertices)
+    
+    # -------------------------
+    # 9. Create Path
+    # -------------------------
+    trans_path: mplPath = mplPath(verts, shape_path.codes)
+
+    return trans_path
 
 
 def unit_circular_arc_segment(start_deg: numeric = 0, end_deg: numeric = 90) -> mplPath:
@@ -342,34 +425,35 @@ def polyline_path(points: list[PointXY],
     return mplPath(verts, codes)
 
 
-def unit_triangle(kind: Optional[dict[str, int]] = None,
-                  jitter_angle_deg: Optional[int] = 5,
-                  base_angle: Optional[int] = None,
-                 ) -> mplPath:
+def unit_triangle_rnd(equal_sides: int = None,
+                      angle_category: int = None,
+                      jitter_angle_deg: int = 5,
+                      base_angle: int = None,
+                     ) -> mplPath:
     """Generates vertices of triangle inscribed into a unit circle.
 
-    The `kind` dict should contain two integer fields:
-        "equal_sides": 1, 2, or 3.
+    Arguments:
+        "equal_sides":      1, 2, or 3.
         "angle_category":   This value is compared with 90 to determine
                             requested triangle (actual value is not used):
                             <90 - ACUTE
                             =90 - RIGHT
                             >90 - OBTUSE
-
-    RIGHT  ISOSCELES: [(-1, 0), {1, 1}, (1, 0), (-1, 0)]
-    RIGHT           : Same base, (1, 1) vertex is moved along the circle.
-    ACUTE  ISOSCELES: Base is lowered.
-    OBTUSE ISOSCELES: Base is raised.
-    EQUILATERAL     : Base is lowered.
-
-    The most straightforward approach is, perhaps, generating the three polar angles to define
-    positions of vertices on the circle. Each angle can additioally be jittered.
     """
-    equal_sides: int = 3
-    angle_category: int = 60
-    if isinstance(kind, dict):
-        equal_sides = kind.get("equal_sides", 3)
-        angle_category = kind.get("angle_category", 60)
+    if not equal_sides:
+        equal_sides = random.choice((1, 2, 3))
+    if not equal_sides in (1, 2, 3):
+        raise ValueError(
+            f"equal_sides must be an integer in [1, 3].\n"
+            f"Received type: {type(equal_sides).__name__}; value: {equal_sides}."
+        )
+    if not angle_category:
+        angle_category = random.choice((60, 90, 120))
+    if not isinstance(angle_category, (int, float)):
+        raise TypeError(
+            f"angle_category must be ot type integer or float.\n"
+            f"Received type: {type(angle_category).__name__}; value: {angle_category}."
+        )
 
     if equal_sides == 3:
         thetas = [90, -30, 210]
@@ -396,6 +480,35 @@ def unit_triangle(kind: Optional[dict[str, int]] = None,
     codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
 
     return mplPath(verts, codes)
+
+
+def triangle(canvas_x1x2: PointXY,
+             canvas_y1y2: PointXY,
+             equal_sides: int = None,
+             angle_category: int = None,
+             base_angle: int = None,
+             jitter_angle_deg: int = 5,
+             spline_count: int = 5,
+             amp: float = 0.15,
+             tightness: float = 0.3,
+            ) -> mplPath:
+    # Creates unit triangle
+
+    unit_shape: mplPath = unit_triangle_rnd(
+        equal_sides, angle_category, jitter_angle_deg, base_angle
+    )
+
+    # Transforms (random SRT) unit triangle to canvas
+    
+    shape_srt: mplPath = random_srt_path(
+        unit_shape, canvas_x1x2, canvas_y1y2, None, base_angle, (0, 0)
+    )
+
+    # Creates hand-drawn style
+
+    shape_handdrawn = polyline_path(list[shape_srt.vertices], spline_count, amp, tightness)
+    
+    return shape_handdrawn
 
 
 def unit_circular_arc(start_deg: Optional[numeric] = 0,
@@ -473,90 +586,11 @@ def unit_circular_arc(start_deg: Optional[numeric] = 0,
     return mplPath(verts_ndarray, codes)
 
 
-def unit_box_rand_srt(shape_path: mplPath,
-                      canvas_x1x2: Optional[PointXY] = (0, 1023),
-                      canvas_y1y2: Optional[PointXY] = (0, 1023),
-                      compress_y: Optional[float] = None,
-                      angle_deg: Optional[int] = None,
-                      jitter_angle_deg: Optional[int] = 5,
-                     ) -> mplPath:
-    """ Performs a random Scale -> Rotate -> Translate of the unit box.
-
-    Applies a random Scale-Rotate-Translate (SRT) affine transform to a path defined
-    in a unit box ([-1, 1], hence, ubox_side=2 used for scaling). Note, alternatively,
-    the assumption of unit box can be replaced with the bounding box of the path.
-
-    Scale and translation are random uniform within the target canvas. Rotates by
-    `angle_deg` (random, if not specified), If angle is specified, uniform
-    +/- `jitter_angle_deg` is added. `compress_y` (randomized, if not specified) is
-    used to compress y coordinates, e.g., transforming unit circles and squares into
-    ellipses and rectangles.
-    """
-    # -------------------------
-    # Scale params.
-    # -------------------------
-    UNIT_BOX_SIDE = 2
-    xmin, xmax = canvas_x1x2
-    ymin, ymax = canvas_y1y2
-    width, height = xmax - xmin, ymax - ymin
-    print(f"width: {width}\nheight: {height}")
-    scale_factor_range: tuple[float, float] = (0.2, 0.9)
-    bbox_side = min(width, height) * random.uniform(*scale_factor_range)
-    bbox_diag = bbox_side * math.sqrt(2)
-    print(f"bbox_side: {bbox_side}\nbbox_diag: {bbox_diag}")
-
-    if not isinstance(compress_y, (float, int)):
-        compress_y = 1 - abs(random.normalvariate(0, 0.5))
-    compress_y = max(0.25, min(compress_y, 1))
-
-    x_scale = bbox_side / UNIT_BOX_SIDE
-    y_scale = bbox_side / UNIT_BOX_SIDE * compress_y
-    print(f"===== SCALE =====")
-    print(f"[x_scale, y_scale]: {[x_scale, y_scale]}.")
-
-    # -------------------------
-    # Rotate params.
-    # -------------------------
-    if not isinstance(angle_deg, (int, float)):
-        angle_deg = random.uniform(-90, 90)
-    else:
-        angle_deg += jitter_angle_deg * random.uniform(-1, 1)
-    print(f"===== ROTATE =====")
-    print(f"angle_deg: {angle_deg}.")
-    
-    # -------------------------
-    # Translate params.
-    # -------------------------
-    x0, y0 = (xmin + xmax) / 2, (ymin + ymax) / 2
-    x_translate = x0 + max(0, 0.5 * (width - bbox_diag)) * random.uniform(-1, 1)
-    y_translate = y0 + max(0, 0.5 * (height - bbox_diag)) * random.uniform(-1, 1)
-    print(f"===== TRANSLATE =====")
-    print(f"[x_translate, y_translate]: {[x_translate, y_translate]}.")
-
-    # -------------------------
-    # Apply SRT (Scale, Rotate, Translate)
-    # -------------------------
-    trans = (
-        Affine2D()
-        .scale(x_scale, y_scale)
-        .rotate_deg(angle_deg)
-        .translate(x_translate, y_translate)
-    )
-    verts = trans.transform(shape_path.vertices)
-    
-    # -------------------------
-    # 9. Create Path
-    # -------------------------
-    trans_path: mplPath = mplPath(verts, shape_path.codes)
-
-    return trans_path
-
-
 def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
                    canvas_y1y2: tuple[float, float] = (0, 1023),
                    start_deg: Optional[float] = None,
                    end_deg: Optional[float] = None,
-                   compress_y: Optional[float] = None,
+                   y_compress: Optional[float] = None,
                    angle_deg: Optional[int] = None,
                    jitter_angle_deg: Optional[int] = 5,
                    jitter_amp: Optional[float] = 0.02,
@@ -589,7 +623,7 @@ def elliptical_arc(canvas_x1x2: tuple[float, float] = (0, 1023),
     )
     
     arc_path: mplPath = unit_box_rand_srt(
-        unit_arc_path, canvas_x1x2, canvas_y1y2, compress_y, angle_deg, jitter_angle_deg
+        unit_arc_path, canvas_x1x2, canvas_y1y2, y_compress, angle_deg, jitter_angle_deg
     )
 
     return arc_path
