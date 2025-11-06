@@ -862,6 +862,15 @@ def demo():
     )
     ax.add_patch(PathPatch(function2, edgecolor="violet", lw=2, facecolor="none", linestyle="solid"))
     
+    x = np.linspace(0.1, 10, 100)
+    y = 1 / x
+    dy = -1 / (x * x)
+    function3 = random_srt_path(
+        join_paths([bezier_from_xy_dy(-x, -y, dy=None, tension=0.25), bezier_from_xy_dy(x, y, dy=None, tension=0.25)], True), 
+        canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function3, edgecolor="magenta", lw=2, facecolor="none", linestyle="solid"))
+    
     plt.show()
 
 
