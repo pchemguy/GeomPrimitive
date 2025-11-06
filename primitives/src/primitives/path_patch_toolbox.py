@@ -72,6 +72,32 @@ def join_paths(paths: list[mplPath]) -> mplPath:
     return mplPath(final_verts, final_codes)
 
 
+def bounded_normal(mu: float = 0.0,
+                   sigma_x3: float = 3.0,
+                   cutoff_sigmas: float = 3.0) -> float:
+    """Generates a random from a normal distribution clipped to cutoff_sigmas x s.
+
+    Args:
+        mu: Mean of the distribution.
+        sigma_x3: Value corresponding to 3 sigma.
+        cutoff_sigmas: Clipping threshold in sigma units (default = 3.0).
+
+    Returns:
+        A float sampled from a normal distribution truncated symmetrically around mu.
+    """
+    for name, val in (
+        ("mu", mu),
+        ("sigma_x3", sigma_x3),
+        ("cutoff_sigmas", cutoff_sigmas),
+    ):
+        if not isinstance(val, (int, float)):
+            raise TypeError(f"{name} must be numeric, got {type(val).__name__}")
+    sigma = sigma_x3 / 3
+    cutoff = sigma * cutoff_sigmas
+    val = random.normalvariate(mu, sigma)
+    return max(mu - cutoff, min(mu + cutoff, val))
+
+
 def random_srt_path(shape: mplPath,
                     canvas_x1x2: PointXY,
                     canvas_y1y2: PointXY,
@@ -468,13 +494,15 @@ def unit_triangle_rnd(equal_sides: int = None,
         )
         thetas = [90 + top_offset, 0 + base_offset, 180 - base_offset]
 
+    top_jitter = jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
+    thetas[0] += top_jitter
+
     if not isinstance(base_angle, (int, float)):
         base_angle = random.uniform(-90, 90)
     else:
         base_angle += jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-    top_jitter = jitter_angle_deg / 3 * max(-3, min(3, random.normalvariate(0, 1)))
-    thetas[0] += top_jitter
-    thetas = [math.radians(theta + base_angle) for theta in thetas]
+    thetas = [(theta + base_angle) for theta in thetas]
+    thetas = [math.radians(((theta + 180) % 360) - 180) for theta in thetas]
     verts = [(math.cos(theta_rad), math.sin(theta_rad)) for theta_rad in thetas]
     verts.append(verts[0])
     codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
@@ -482,16 +510,66 @@ def unit_triangle_rnd(equal_sides: int = None,
     return mplPath(verts, codes)
 
 
+def unit_rectangle_rnd(equal_sides: int = None,
+                       jitter_angle_deg: int = 5,
+                       base_angle: int = None,
+                      ) -> mplPath:
+    """Generates vertices of a rectangle or square inscribed in a unit circle.
+
+    Args:
+        equal_sides: 2 for rectangle, 4 for square. Randomly chosen if None.
+        jitter_angle_deg: Maximum angular deviation (degrees).
+        base_angle: Base rotation of the figure (degrees).
+
+    TODO:
+        Switch from offset-based aspect ratio to post-SRT y_compress, aligning logic
+        with circular-arc primitives. The generalized composition pattern should be:
+            1. Generate base geometry (e.g. unit line, unit circle arc, unit square)
+            2. Apply hand-drawn jitter *before* SRT
+            3. Apply SRT, with y_compress < 1 for ellipses/rectangles
+    """
+    if not equal_sides:
+        equal_sides = random.choice((2, 4))
+    if not equal_sides in (2, 4):
+        raise ValueError(
+            f"equal_sides must be an integer (2 or 4).\n"
+            f"Received type: {type(equal_sides).__name__}; value: {equal_sides}."
+        )
+
+    offset = (
+        0 if equal_sides == 4 else random.choice([-1, 1]) *
+        random.uniform(jitter_angle_deg, 45 - jitter_angle_deg)
+    )
+    if not isinstance(base_angle, (int, float)):
+        base_angle = random.uniform(-90, 90)
+    else:
+        base_angle += bounded_normal(sigma_x3=jitter_angle_deg)
+
+    thetas = [
+          45 + base_angle + offset + bounded_normal(sigma_x3=jitter_angle_deg),
+         135 + base_angle - offset + bounded_normal(sigma_x3=jitter_angle_deg),
+        -135 + base_angle + offset + bounded_normal(sigma_x3=jitter_angle_deg),
+         -45 + base_angle - offset + bounded_normal(sigma_x3=jitter_angle_deg),
+    ]
+
+    thetas = [math.radians(((theta + 180) % 360) - 180) for theta in thetas]
+    verts = [(math.cos(theta_rad), math.sin(theta_rad)) for theta_rad in thetas]
+    verts.append(verts[0])
+    codes = [mplPath.MOVETO] + [mplPath.LINETO] * (len(verts) - 2) + [mplPath.CLOSEPOLY]
+
+    return mplPath(verts, codes)
+
+
 def triangle_path(canvas_x1x2: PointXY,
-             canvas_y1y2: PointXY,
-             equal_sides: int = None,
-             angle_category: int = None,
-             base_angle: int = None,
-             jitter_angle_deg: int = 5,
-             spline_count: int = 5,
-             amp: float = 0.15,
-             tightness: float = 0.3,
-            ) -> mplPath:
+                  canvas_y1y2: PointXY,
+                  equal_sides: int = None,
+                  angle_category: int = None,
+                  base_angle: int = None,
+                  jitter_angle_deg: int = 5,
+                  spline_count: int = 5,
+                  amp: float = 0.15,
+                  tightness: float = 0.3,
+                 ) -> mplPath:
     """Creates a random triangle.
 
     Composes three primitives:
@@ -506,6 +584,44 @@ def triangle_path(canvas_x1x2: PointXY,
 
     unit_shape: mplPath = unit_triangle_rnd(
         equal_sides, angle_category, jitter_angle_deg, base_angle
+    )
+
+    # Transforms (random SRT) unit triangle to canvas
+    
+    shape_srt: mplPath = random_srt_path(
+        unit_shape, canvas_x1x2, canvas_y1y2, None, 0, (0, 0)
+    )
+
+    # Creates hand-drawn style
+
+    shape_handdrawn = polyline_path(list(shape_srt.vertices), spline_count, amp, tightness)
+    
+    return shape_handdrawn
+
+
+def rectangle_path(canvas_x1x2: PointXY,
+                   canvas_y1y2: PointXY,
+                   equal_sides: int = None,
+                   base_angle: int = None,
+                   jitter_angle_deg: int = 5,
+                   spline_count: int = 5,
+                   amp: float = 0.15,
+                   tightness: float = 0.3,
+                  ) -> mplPath:
+    """Creates a random rectangle.
+
+    Composes three primitives:
+    1. unit_rectangle_rnd() - geometric primitive generation
+    2. random_srt_path()    - geometric transformation to canvas space
+    3. polyline_path()      - stylization into hand-drawn form
+    
+    This function performs *no* parameter interpretation or mutation
+    beyond connecting compatible interfaces between the components.
+    """
+    # Creates unit triangle
+
+    unit_shape: mplPath = unit_rectangle_rnd(
+        equal_sides, jitter_angle_deg, base_angle
     )
 
     # Transforms (random SRT) unit triangle to canvas
@@ -668,6 +784,11 @@ def demo():
         canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
     )
     ax.add_patch(PathPatch(triangle, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
+
+    rectangle = rectangle_path(
+        canvas_x1x2, canvas_y1y2, equal_sides = None, base_angle = None
+    )
+    ax.add_patch(PathPatch(rectangle, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
 
     
     plt.show()
