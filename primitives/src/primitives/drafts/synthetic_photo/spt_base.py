@@ -5,15 +5,18 @@ spt_base.py
 
 from __future__ import annotations
 
-from typing import TypeAlias
+import math
+from typing import TypeAlias, Sequence, Union
 import numpy as np
+from numpy.typing import NDArray
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
-ImageBGR:  TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGB:  TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 3) RGB order
-ImageRGBA: TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 4) RGBA order
+ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
+ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
+ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
+ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
 
 def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
@@ -24,6 +27,50 @@ def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
 def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
     """Convert BGR (OpenCV) to RGB (Matplotlib)."""
     return bgr[..., ::-1]
+
+
+def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
+                   title_style: dict = None, figsize_scale: float = 5) -> None:
+    """
+    Display multiple images in an automatically balanced rectangular grid.
+
+    Layout rule:
+        cols = ceil(sqrt(N))
+        rows = ceil(N / cols)
+    (Keeps the layout close to square, with longer side horizontal.)
+
+    Args:
+        images: Sequence of NumPy arrays (RGB or RGBA).
+        titles: Optional list of titles, same length as images.
+        title_style: Optional dict for Matplotlib title styling.
+        figsize_scale: Multiplier for overall figure size.
+    """
+    n = len(images)
+    if n == 0:
+        raise ValueError("No images to display.")
+
+    # --- Compute balanced grid ---
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+
+    fig_w = cols * figsize_scale
+    fig_h = rows * figsize_scale * 0.9
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h))
+    axes = np.array(axes).reshape(-1)  # flatten axes array
+
+    # --- Title style defaults ---
+    style = dict(fontsize=16, fontweight="bold", color="green")
+    if title_style:
+        style.update(title_style)
+
+    # --- Draw each image ---
+    for (ax, img, title) in zip(axes, images, titles):
+        ax.imshow(img)
+        ax.set_title(title, **style)
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 
 def add_grid(ax, width_mm=100, height_mm=80) -> None:
@@ -87,24 +134,11 @@ def main():
     bgr:  ImageBGR  = rgba2bgr(rgba)
     rgb:  ImageRGB  = bgr2rgb(bgr)
     
-    # ----------------------------------------------------------------------
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    
-    axes[0].imshow(rgba)
-    title = "Matplotlib RGBA"
-    axes[0].set_title(title, fontsize=16, fontweight="bold", color="green")
-    axes[0].axis("off")
-    
-    axes[1].imshow(rgb)
-    title = "Roundtrip: RGBA -> BGR -> RGB"
-    axes[1].set_title(title, fontsize=16, fontweight="bold", color="green")
-    axes[1].axis("off")
-    
-    plt.tight_layout()
-    plt.show()
+    show_RGBx_grid(
+        [rgba, rgb], 
+        ["Matplotlib RGBA", "Roundtrip: RGBA -> BGR -> RGB"]
+    )
 
 
 if __name__ == "__main__":
     main()
-
-        
