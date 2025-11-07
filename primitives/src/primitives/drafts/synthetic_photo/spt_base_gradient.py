@@ -183,6 +183,27 @@ def main():
                                grad_cx=0,
                                grad_cy=0,
                            )
+    default_props = {
+        "img":               base_bgr,
+        "top_bright":        1.1,
+        "bottom_dark":       0.9,
+        "lighting_mode":     "linear",
+        "lighting_strength": 1,
+        "gradient_angle":    90,
+        "grad_cx":           0,
+        "grad_cy":           0,
+    }
+    
+    demos = {
+        "Linear 90deg x 0": {"lighting_strength": 0, "gradient_angle": 90}},
+        "Linear 90deg x 1": {"lighting_strength": 1, "gradient_angle": 90}},
+        "Linear 90deg x 5": {"lighting_strength": 5, "gradient_angle": 90}},
+        "Linear 45deg x 1": {"lighting_strength": 5, "gradient_angle": 90}},
+    }
+
+    for (title, custom_props) in demos.items():
+        apply_lighting_gradient(**{**default_props, **custom_props})
+
     grad_rgb: ImageRGB = bgr2rgb(grad_bgr)
     
     show_RGBx_grid(

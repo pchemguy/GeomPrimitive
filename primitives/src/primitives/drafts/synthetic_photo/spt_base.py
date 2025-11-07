@@ -29,7 +29,7 @@ def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
     return bgr[..., ::-1]
 
 
-def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
+def show_RGBx_grid(images: dict[str, ImageRGBx],
                    title_style: dict = None, figsize_scale: float = 5) -> None:
     """
     Display multiple images in an automatically balanced rectangular grid.
@@ -64,7 +64,7 @@ def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
         style.update(title_style)
 
     # --- Draw each image ---
-    for (ax, img, title) in zip(axes, images, titles):
+    for (title, img), ax in zip(images.items(), axes):
         ax.imshow(img)
         ax.set_title(title, **style)
         ax.axis("off")
@@ -134,10 +134,10 @@ def main():
     bgr:  ImageBGR  = rgba2bgr(rgba)
     rgb:  ImageRGB  = bgr2rgb(bgr)
     
-    show_RGBx_grid(
-        [rgba, rgb], 
-        ["Matplotlib RGBA", "Roundtrip: RGBA -> BGR -> RGB"]
-    )
+    show_RGBx_grid({
+        "Matplotlib RGBA":               rgba,
+        "Roundtrip: RGBA -> BGR -> RGB": rgb,
+    })
 
 
 if __name__ == "__main__":
