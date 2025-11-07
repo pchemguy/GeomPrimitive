@@ -19,17 +19,17 @@ ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
 ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
 
-def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
+def bgr_from_rgba(rgba: ImageRGBA) -> ImageBGR:
     """Convert RGBA (Matplotlib) to BGR (OpenCV)."""
     return rgba[..., :3][..., ::-1]
 
 
-def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
+def rgb_from_bgr(bgr: ImageBGR) -> ImageRGB:
     """Convert BGR (OpenCV) to RGB (Matplotlib)."""
     return bgr[..., ::-1]
 
 
-def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
+def show_RGBx_grid(images: dict[str, ImageRGBx],
                    title_style: dict = None, figsize_scale: float = 5) -> None:
     """
     Display multiple images in an automatically balanced rectangular grid.
@@ -40,8 +40,7 @@ def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
     (Keeps the layout close to square, with longer side horizontal.)
 
     Args:
-        images: Sequence of NumPy arrays (RGB or RGBA).
-        titles: Optional list of titles, same length as images.
+        images: Dictionary of <Title>:<Image>; Image - NumPy array (RGB or RGBA).
         title_style: Optional dict for Matplotlib title styling.
         figsize_scale: Multiplier for overall figure size.
     """
@@ -64,7 +63,7 @@ def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
         style.update(title_style)
 
     # --- Draw each image ---
-    for (ax, img, title) in zip(axes, images, titles):
+    for (title, img), ax in zip(images.items(), axes):
         ax.imshow(img)
         ax.set_title(title, **style)
         ax.axis("off")
@@ -172,7 +171,7 @@ def apply_lighting_gradient(img: ImageBGR,
 def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
-    base_bgr:  ImageBGR  = rgba2bgr(base_rgba)
+    base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
     grad_bgr:  ImageBGR  = apply_lighting_gradient(
                                img=base_bgr,
                                top_bright=1.1,
@@ -195,21 +194,18 @@ def main():
     }
     
     demos = {
-        "Linear 90deg x 0": {"lighting_strength": 0, "gradient_angle": 90}},
-        "Linear 90deg x 1": {"lighting_strength": 1, "gradient_angle": 90}},
-        "Linear 90deg x 5": {"lighting_strength": 5, "gradient_angle": 90}},
-        "Linear 45deg x 1": {"lighting_strength": 5, "gradient_angle": 90}},
+        "Linear 90deg x 0": {"lighting_strength": 0, "gradient_angle": 90},
+        "Linear 90deg x 1": {"lighting_strength": 1, "gradient_angle": 90},
+        "Linear 90deg x 5": {"lighting_strength": 5, "gradient_angle": 90},
+        "Linear 45deg x 5": {"lighting_strength": 5, "gradient_angle": 45},
     }
 
     for (title, custom_props) in demos.items():
-        apply_lighting_gradient(**{**default_props, **custom_props})
+        demos[title] = rgb_from_bgr(
+            apply_lighting_gradient(**{**default_props, **custom_props})
+        )
 
-    grad_rgb: ImageRGB = bgr2rgb(grad_bgr)
-    
-    show_RGBx_grid(
-        [base_rgba, grad_rgb], 
-        ["Matplotlib RGBA", "Gradient - Linear, 90deg"]
-    )
+    show_RGBx_grid(demos)
 
 
 if __name__ == "__main__":

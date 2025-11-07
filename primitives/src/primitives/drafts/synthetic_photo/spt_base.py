@@ -19,12 +19,12 @@ ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
 ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
 
-def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
+def bgr_from_rgba(rgba: ImageRGBA) -> ImageBGR:
     """Convert RGBA (Matplotlib) to BGR (OpenCV)."""
     return rgba[..., :3][..., ::-1]
 
 
-def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
+def rgb_from_bgr(bgr: ImageBGR) -> ImageRGB:
     """Convert BGR (OpenCV) to RGB (Matplotlib)."""
     return bgr[..., ::-1]
 
@@ -40,8 +40,7 @@ def show_RGBx_grid(images: dict[str, ImageRGBx],
     (Keeps the layout close to square, with longer side horizontal.)
 
     Args:
-        images: Sequence of NumPy arrays (RGB or RGBA).
-        titles: Optional list of titles, same length as images.
+        images: Dictionary of <Title>:<Image>; Image - NumPy array (RGB or RGBA).
         title_style: Optional dict for Matplotlib title styling.
         figsize_scale: Multiplier for overall figure size.
     """
@@ -131,8 +130,8 @@ def render_scene(width_mm: float = 100,
 def main():
     # ----------------------------------------------------------------------
     rgba: ImageRGBA = render_scene()
-    bgr:  ImageBGR  = rgba2bgr(rgba)
-    rgb:  ImageRGB  = bgr2rgb(bgr)
+    bgr:  ImageBGR  = bgr_from_rgba(rgba)
+    rgb:  ImageRGB  = rgb_from_bgr(bgr)
     
     show_RGBx_grid({
         "Matplotlib RGBA":               rgba,
