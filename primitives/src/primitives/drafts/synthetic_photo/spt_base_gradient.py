@@ -1,24 +1,76 @@
 """
-spt_base.py
+spt_base_gradient.py
 -----------
 """
 
 from __future__ import annotations
 
-from typing import TypeAlias
+import math
+from typing import TypeAlias, Sequence, Union
 import numpy as np
-import cv2
+from numpy.typing import NDArray
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
-ImageBGR:  TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGBA: TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 4) RGBA order
+ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
+ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
+ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
+ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
 
-def rgb2rgba(rgba: ImageRGBA) -> ImageBGR:
+def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
     """Convert RGBA (Matplotlib) to BGR (OpenCV)."""
-    return cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR)
+    return rgba[..., :3][..., ::-1]
+
+
+def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
+    """Convert BGR (OpenCV) to RGB (Matplotlib)."""
+    return bgr[..., ::-1]
+
+
+def show_RGBx_grid(images: Sequence[ImageRGBx], titles: Sequence[str] = None,
+                   title_style: dict = None, figsize_scale: float = 5) -> None:
+    """
+    Display multiple images in an automatically balanced rectangular grid.
+
+    Layout rule:
+        cols = ceil(sqrt(N))
+        rows = ceil(N / cols)
+    (Keeps the layout close to square, with longer side horizontal.)
+
+    Args:
+        images: Sequence of NumPy arrays (RGB or RGBA).
+        titles: Optional list of titles, same length as images.
+        title_style: Optional dict for Matplotlib title styling.
+        figsize_scale: Multiplier for overall figure size.
+    """
+    n = len(images)
+    if n == 0:
+        raise ValueError("No images to display.")
+
+    # --- Compute balanced grid ---
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+
+    fig_w = cols * figsize_scale
+    fig_h = rows * figsize_scale * 0.9
+    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h))
+    axes = np.array(axes).reshape(-1)  # flatten axes array
+
+    # --- Title style defaults ---
+    style = dict(fontsize=16, fontweight="bold", color="green")
+    if title_style:
+        style.update(title_style)
+
+    # --- Draw each image ---
+    for (ax, img, title) in zip(axes, images, titles):
+        ax.imshow(img)
+        ax.set_title(title, **style)
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 
 def add_grid(ax, width_mm=100, height_mm=80) -> None:
@@ -44,7 +96,7 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
     ax.add_collection(lc_major)
 
 
-def render_scene(width_mm: float = 100,
+def render_scene(width_mm: float = 100, 
                  height_mm: float = 80,
                  dpi: int = 200) -> ImageRGBA:
     """Render an ideal grid + primitives scene via Matplotlib.
@@ -76,15 +128,68 @@ def render_scene(width_mm: float = 100,
     return rgba
 
 
-def main():
-    rgba: np.ndarray = render_scene()
+def apply_lighting_gradient(img: ImageBGR,
+                            top_bright: float = 1.1,
+                            bottom_dark: float = 0.9,
+                            lighting_mode: str = "linear",
+                            lighting_strength: float = 5,
+                            gradient_angle: float = 90,
+                            grad_cx: float = 0,
+                            grad_cy: float = 0,
+                           ) -> ImageBGR:
+    """Apply lighting gradient (linear or radial, normalized)."""
+    if (not lighting_mode) or (lighting_strength <= 1e-6):
+        return img
 
-    plt.imshow(rgba)
-    plt.axis("off")
-    plt.title("Matplotlib RGBA Display")
-    plt.show()
+    angle_rad = math.radians(gradient_angle)
+
+    h, w = img.shape[:2]
+    y, x = np.indices((h, w), dtype=np.float32)
+
+    # --- Base gradient shape ---
+    if lighting_mode == "linear":
+        u = (np.cos(angle_rad) * (x / w) +
+             np.sin(angle_rad) * (y / h))
+        u = (u - u.min()) / (u.max() - u.min() + 1e-9)
+    else:  # Radial
+        cx = (0.5 + grad_cx) * w
+        cy = (0.5 + grad_cy) * h
+        r = np.sqrt((x - cx)**2 + (y - cy)**2)
+        corners = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype=np.float32)
+        r_max = np.max(np.sqrt((corners[:, 0] - cx)**2 + (corners[:, 1] - cy)**2))
+        u = np.clip(r / (r_max + 1e-9), 0.0, 1.0)
+
+    # --- Compute lighting map ---
+    grad = top_bright + (bottom_dark - top_bright) * u
+    # Interpolate between flat (1.0) and full gradient
+    lighting = 1.0 + lighting_strength * (grad - 1.0)
+
+    img_f = np.clip(img.astype(np.float32) * lighting[..., None], 0, 255)
+
+    return img_f.astype(np.uint8)
+
+
+def main():
+    # ----------------------------------------------------------------------
+    base_rgba: ImageRGBA = render_scene()
+    base_bgr:  ImageBGR  = rgba2bgr(base_rgba)
+    grad_bgr:  ImageBGR  = apply_lighting_gradient(
+                               img=base_bgr,
+                               top_bright=1.1,
+                               bottom_dark=0.9,
+                               lighting_mode="linear",
+                               lighting_strength=4,
+                               gradient_angle=90,
+                               grad_cx=0,
+                               grad_cy=0,
+                           )
+    grad_rgb: ImageRGB = bgr2rgb(grad_bgr)
+    
+    show_RGBx_grid(
+        [base_rgba, grad_rgb], 
+        ["Matplotlib RGBA", "Gradient - Linear, 90deg"]
+    )
 
 
 if __name__ == "__main__":
     main()
-
