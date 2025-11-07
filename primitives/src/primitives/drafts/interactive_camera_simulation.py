@@ -1,8 +1,13 @@
 """
-interactive_camera_simulation.py
---------------------------------
-Interactive demo: simulate camera tilt + perspective + lens distortion
-with automatic bounding and OpenCV trackbars.
+perspective_lens_opencv_demo.py
+-------------------------------
+Simulate perspective (camera not perpendicular) + radial lens distortion
+on a flat grid with a rectangle and a circle, using OpenCV.
+
+This version:
+- Uses a proper 2D homography for perspective.
+- Then applies an approximate radial distortion via cv2.remap.
+- Distorts BOTH the grid and overlaid shapes.
 """
 
 import cv2
@@ -10,100 +15,156 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------
-# 1. Generate grid + shapes
+# 1. Base image: grid + rectangle + circle
 # ---------------------------------------------------------------------
-def make_grid_image(width=800, height=600, step=50):
-  img = np.ones((height, width, 3), np.uint8) * 255
-  for x in range(0, width, step):
-    cv2.line(img, (x, 0), (x, height), (200, 200, 200), 1)
-  for y in range(0, height, step):
-    cv2.line(img, (0, y), (width, y), (200, 200, 200), 1)
-  cv2.rectangle(img, (200, 150), (600, 450), (0, 0, 255), 2)
-  cv2.circle(img, (400, 300), 100, (0, 255, 0), 2)
-  return img
+def make_grid_image(width: int = 800,
+                    height: int = 600,
+                    step: int = 50) -> np.ndarray:
+    """Create white background with gray grid, red rectangle, green circle."""
+    img = np.ones((height, width, 3), np.uint8) * 255
 
+    # Grid
+    for x in range(0, width, step):
+        cv2.line(img, (x, 0), (x, height), (200, 200, 200), 1)
+    for y in range(0, height, step):
+        cv2.line(img, (0, y), (width, y), (200, 200, 200), 1)
 
-# ---------------------------------------------------------------------
-# 2. Compute camera projection with safe normalization
-# ---------------------------------------------------------------------
-def project_image(img, yaw_deg, pitch_deg, roll_deg, k1, k2):
-  h, w = img.shape[:2]
-  fx = fy = 800
-  cx, cy = w / 2, h / 2
-  K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], np.float32)
-  dist = np.array([k1, k2, 0.0, 0.0, 0.0], np.float32)
+    # Rectangle (red)
+    cv2.rectangle(img, (200, 150), (600, 450), (0, 0, 255), 2)
 
-  yaw, pitch, roll = np.deg2rad([yaw_deg, pitch_deg, roll_deg])
-  Rx = np.array([[1, 0, 0],
-                 [0, np.cos(pitch), -np.sin(pitch)],
-                 [0, np.sin(pitch), np.cos(pitch)]])
-  Ry = np.array([[np.cos(yaw), 0, np.sin(yaw)],
-                 [0, 1, 0],
-                 [-np.sin(yaw), 0, np.cos(yaw)]])
-  Rz = np.array([[np.cos(roll), -np.sin(roll), 0],
-                 [np.sin(roll), np.cos(roll), 0],
-                 [0, 0, 1]])
-  R = Rz @ Ry @ Rx
+    # Circle (green)
+    cv2.circle(img, (400, 300), 100, (0, 255, 0), 2)
 
-  tvec = np.array([[0], [0], [800]], np.float32)
-
-  yy, xx = np.indices((h, w), np.float32)
-  pts = np.stack([xx.ravel(), yy.ravel(), np.zeros_like(xx).ravel()], axis=-1)
-  pts2d, _ = cv2.projectPoints(pts, cv2.Rodrigues(R)[0], tvec, K, dist)
-  pts2d = pts2d.reshape(h, w, 2)
-
-  # --- Compute bounding box of projected coordinates
-  xmin, xmax = np.nanmin(pts2d[..., 0]), np.nanmax(pts2d[..., 0])
-  ymin, ymax = np.nanmin(pts2d[..., 1]), np.nanmax(pts2d[..., 1])
-  sx = w / (xmax - xmin)
-  sy = h / (ymax - ymin)
-  scale = min(sx, sy)
-  pts2d[..., 0] = (pts2d[..., 0] - xmin) * scale
-  pts2d[..., 1] = (pts2d[..., 1] - ymin) * scale
-
-  mapx = np.clip(pts2d[..., 0].astype(np.float32), 0, w - 1)
-  mapy = np.clip(pts2d[..., 1].astype(np.float32), 0, h - 1)
-  warped = cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR,
-                     borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-  return warped
+    return img
 
 
 # ---------------------------------------------------------------------
-# 3. Interactive control loop
+# 2. Perspective warp via homography
 # ---------------------------------------------------------------------
-def main():
-  img = make_grid_image()
-  cv2.namedWindow("Camera Simulation", cv2.WINDOW_NORMAL)
+def apply_perspective(img: np.ndarray,
+                      tilt_x: float = 0.25,
+                      tilt_y: float = 0.20) -> np.ndarray:
+    """
+    Apply a planar perspective transform (homography) to mimic camera tilt.
 
-  def add_slider(name, minv, maxv, start):
-    cv2.createTrackbar(name, "Camera Simulation", start, maxv - minv, lambda v: None)
-    # store offset so we can map to signed range
-    return minv
+    tilt_x, tilt_y ~ 0.0 .. 0.4
+      - tilt_x controls how much the top edge converges horizontally.
+      - tilt_y controls how much the top is 'farther' (smaller vertically).
+    """
+    h, w = img.shape[:2]
 
-  yaw_off = add_slider("Yaw", 0, 90, 25)
-  pitch_off = add_slider("Pitch", 0, 90, 15)
-  roll_off = add_slider("Roll", 0, 90, 5)
-  k1_off = add_slider("k1 (x1e-3)", 0, 100, 30)
-  k2_off = add_slider("k2 (x1e-5)", 0, 100, 10)
+    # Source corners (full image)
+    src = np.float32([
+        [0,       0      ],
+        [w - 1.0, 0      ],
+        [w - 1.0, h - 1.0],
+        [0,       h - 1.0],
+    ])
 
-  print("Adjust sliders: Yaw, Pitch, Roll, k1, k2 (press ESC to exit)")
+    # Destination corners: trapezoid inside the frame
+    dx = tilt_x * w
+    dy = tilt_y * h
 
-  while True:
-    yaw = cv2.getTrackbarPos("Yaw", "Camera Simulation") + yaw_off
-    pitch = cv2.getTrackbarPos("Pitch", "Camera Simulation") + pitch_off
-    roll = cv2.getTrackbarPos("Roll", "Camera Simulation") + roll_off
-    k1 = (cv2.getTrackbarPos("k1 (x1e-5)", "Camera Simulation") - 50) / 1e5
-    k2 = (cv2.getTrackbarPos("k2 (x1e-2)", "Camera Simulation") - 50) / 1e10
+    dst = np.float32([
+        [0.0 + dx,    0.0 + dy],     # top-left pulled in & up
+        [w - 1.0 - dx, 0.0 + dy / 2],  # top-right pulled in & slightly up
+        [w - 1.0,     h - 1.0],      # bottom-right stays near corner
+        [0.0,         h - 1.0 - dy], # bottom-left slightly up
+    ])
 
-    warped = project_image(img, yaw, pitch, roll, k1, k2)
-    stacked = np.hstack((img, warped))
-    cv2.imshow("Camera Simulation", stacked)
+    H = cv2.getPerspectiveTransform(src, dst)
 
-    if cv2.waitKey(10) & 0xFF == 27:
-      break
+    # Warp with same output size -> no clipping
+    warped = cv2.warpPerspective(
+        img,
+        H,
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+    return warped
 
-  cv2.destroyAllWindows()
+
+# ---------------------------------------------------------------------
+# 3. Radial lens distortion (approximate forward model via remap)
+# ---------------------------------------------------------------------
+def apply_radial_distortion(img: np.ndarray,
+                            k1: float = -0.25,
+                            k2: float = 0.0) -> np.ndarray:
+    """
+    Apply barrel (k1 < 0) or pincushion (k1 > 0) distortion
+    using an approximate inverse radial mapping + cv2.remap.
+
+    This treats the given image as the UNDISTORTED one and generates
+    a distorted view.
+    """
+    h, w = img.shape[:2]
+    cx, cy = w / 2.0, h / 2.0
+    # Use the larger half-dimension to normalize radius
+    r_norm = max(cx, cy)
+
+    # Destination pixel grid (the distorted image coordinate system)
+    xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
+                         np.arange(h, dtype=np.float32))
+
+    # Normalize to [-1, 1] around the center
+    x_d = (xx - cx) / r_norm
+    y_d = (yy - cy) / r_norm
+    r2 = x_d * x_d + y_d * y_d
+
+    # Forward radial model (undistorted -> distorted) is:
+    #   x_d = x_u * (1 + k1*r^2 + k2*r^4)
+    # For remap, we want dest -> source: we approximate inverse as:
+    #   x_u ~ x_d / (1 + k1*r^2 + k2*r^4)
+    factor = 1.0 + k1 * r2 + k2 * r2 * r2
+    # Avoid division by zero in extreme cases
+    factor = np.where(factor == 0.0, 1.0, factor)
+
+    x_u = x_d / factor
+    y_u = y_d / factor
+
+    # Back to pixel coordinates in the *source* (undistorted) image
+    map_x = (x_u * r_norm + cx).astype(np.float32)
+    map_y = (y_u * r_norm + cy).astype(np.float32)
+
+    distorted = cv2.remap(
+        img,
+        map_x,
+        map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+    return distorted
+
+
+# ---------------------------------------------------------------------
+# 4. Demo
+# ---------------------------------------------------------------------
+def main() -> None:
+    base = make_grid_image()
+
+    # Step 1: perspective (camera not perpendicular)
+    persp = apply_perspective(base, tilt_x=0.25, tilt_y=0.20)
+
+    # Step 2: lens distortion
+    #   k1 < 0 -> barrel, k1 > 0 -> pincushion
+    persp_barrel = apply_radial_distortion(persp, k1=-0.30, k2=0.05)
+    persp_pincushion = apply_radial_distortion(persp, k1=+0.30, k2=-0.05)
+
+    # Stack for visual comparison
+    row1 = np.hstack((base, persp))
+    row2 = np.hstack((persp_barrel, persp_pincushion))
+    stacked = np.vstack((row1, row2))
+
+    cv2.imshow(
+        "Top: original | perspective   |   Bottom: perspective+barrel | perspective+pincushion",
+        stacked,
+    )
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-  main()
+    main()
