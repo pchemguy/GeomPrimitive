@@ -128,55 +128,145 @@ class SyntheticPhotoProcessor:
   | **smartphone** | 0.8                 | 0.15 / 0.10 | -0.25 / +0.05      | medium      | Realistic handheld photo        |
   | **wide_lab**   | 0.6                 | 0.2 / 0.15  | -0.35 / +0.1       | low         | Wide lab shot, strong curvature |
   | **lowlight**   | 1.0                 | 0.1         | -0.15 / +0.05      | high        | Dim lighting, grainy edges      |
+  
+  # Parameter groups
+  
+  | Setter                   | Purpose                                | Validation logic                                          |
+  | ------------------------ | -------------------------------------- | --------------------------------------------------------- |
+  | `set_lighting_texture()` | Handles illumination & texture realism | Clamps brightness and texture strength to safe range      |
+  | `set_noise()`            | Handles pre-optical sensor noise       | Prevents numeric blowout; `blur_sigma` always positive    |
+  | `set_optics()`           | Camera geometry & lens                 | Prevents invalid FOV or distortion coefficients           |
+  | `set_post_optical()`     | Final image effects                    | Limits vignette and chromatic shift to perceptual realism |
   """
 
   # ------------------------------------------------------------------
   def __init__(self,
-               top_bright=1.15,
-               bottom_dark=0.85,
-               texture_strength=0.12,
-               texture_scale=8.0,
-               # --- Noise controls ---
-               gaussian_std=0.02,
-               poisson_noise=True,
-               sp_amount=0.0,         # Salt & pepper: 0-0.05
-               speckle_var=0.0,       # Speckle variance: 0-0.05
-               blur_sigma=0.8,
+               # Optional quick preset
+               preset: str | None = None,
+
+               # --- Lighting & Texture ---
+               top_bright: float = 1.15,
+               bottom_dark: float = 0.85,
+               texture_strength: float = 0.12,
+               texture_scale: float = 8.0,
+
+               # --- Noise ---
+               gaussian_std: float = 0.02,
+               poisson_noise: bool = True,
+               sp_amount: float = 0.0,
+               speckle_var: float = 0.0,
+               blur_sigma: float = 0.8,
+
                # --- Optics ---
-               tilt_x=0.18,
-               tilt_y=0.10,
-               focal_scale=1.0,
-               k1=-0.25,
-               k2=0.05,
-               pad_px=100,
-               # --- Post-optical ---
-               vignette_strength=0.35,
-               warm_strength=0.10):
+               tilt_x: float = 0.18,
+               tilt_y: float = 0.10,
+               focal_scale: float = 1.0,
+               k1: float = -0.25,
+               k2: float = 0.05,
+               pad_px: int = 100,
 
-    self.top_bright = top_bright
-    self.bottom_dark = bottom_dark
-    self.texture_strength = texture_strength
-    self.texture_scale = texture_scale
-    
-    # noise controls
-    self.gaussian_std = gaussian_std
-    self.poisson_noise = poisson_noise
-    self.sp_amount = sp_amount
-    self.speckle_var = speckle_var
-    self.blur_sigma = blur_sigma
+               # --- Post-Optical ---
+               vignette_strength: float = 0.35,
+               warm_strength: float = 0.10):
+    """Initialize SyntheticPhotoProcessor.
 
-    # optics
-    self.tilt_x = tilt_x
-    self.tilt_y = tilt_y
-    self.focal_scale = focal_scale
-    self.k1 = k1
-    self.k2 = k2
-    self.pad_px = pad_px
+    Args:
+        preset: Optional preset name (if provided, overrides all manual params).
+        Other parameters correspond to their physical groups; see setters.
+    """
+    if preset:
+      # Apply preset if given (overrides all)
+      self.set_preset(preset)
+    else:
+      # Store groups via unified setters for consistency
+      self.set_lighting_texture(top_bright, bottom_dark, texture_strength, texture_scale)
+      self.set_noise(gaussian_std, poisson_noise, sp_amount, speckle_var, blur_sigma)
+      self.set_optics(tilt_x, tilt_y, focal_scale, k1, k2, pad_px)
+      self.set_post_optical(vignette_strength, warm_strength)
 
-    # post-optical
-    self.vignette_strength = vignette_strength
-    self.warm_strength = warm_strength
+  # ------------------------------------------------------------------
+  def set_lighting_texture(self,
+                           top_bright: float,
+                           bottom_dark: float,
+                           texture_strength: float,
+                           texture_scale: float) -> None:
+    """Configure lighting gradient and paper texture parameters.
 
+    Args:
+        top_bright: Relative top brightness multiplier (~1.0-1.3).
+        bottom_dark: Relative bottom brightness multiplier (~0.7-1.0).
+        texture_strength: Amplitude of paper texture (0-1).
+        texture_scale: Gaussian smoothing kernel for texture (>0).
+    """
+    import numpy as np
+    self.top_bright = float(np.clip(top_bright, 0.5, 2.0))
+    self.bottom_dark = float(np.clip(bottom_dark, 0.5, 2.0))
+    self.texture_strength = float(np.clip(texture_strength, 0.0, 1.0))
+    self.texture_scale = max(0.1, float(texture_scale))
+
+  # ------------------------------------------------------------------
+  def set_noise(self,
+                gaussian_std: float,
+                poisson_noise: bool,
+                sp_amount: float,
+                speckle_var: float,
+                blur_sigma: float) -> None:
+    """Configure sensor noise model parameters.
+
+    Args:
+        gaussian_std: sigma of Gaussian noise (0-0.2 typical).
+        poisson_noise: Whether to apply Poisson noise.
+        sp_amount: Salt-and-pepper noise fraction (0-0.1).
+        speckle_var: Variance of multiplicative speckle (0-0.1 typical).
+        blur_sigma: Gaussian blur radius (0-5 typical).
+    """
+    import numpy as np
+    self.gaussian_std = float(np.clip(gaussian_std, 0.0, 0.3))
+    self.poisson_noise = bool(poisson_noise)
+    self.sp_amount = float(np.clip(sp_amount, 0.0, 0.1))
+    self.speckle_var = float(np.clip(speckle_var, 0.0, 0.2))
+    self.blur_sigma = float(np.clip(blur_sigma, 0.0, 10.0))
+
+  # ------------------------------------------------------------------
+  def set_optics(self,
+                 tilt_x: float,
+                 tilt_y: float,
+                 focal_scale: float,
+                 k1: float,
+                 k2: float,
+                 pad_px: int) -> None:
+    """Configure optical geometry and lens distortion parameters.
+
+    Args:
+        tilt_x: Horizontal tilt fraction (0-0.5 typical).
+        tilt_y: Vertical tilt fraction (0-0.5 typical).
+        focal_scale: FOV scaling (>0). <1 wide, >1 telephoto.
+        k1: Primary radial distortion coefficient (~-0.5-0.5).
+        k2: Secondary radial distortion coefficient (~-0.5-0.5).
+        pad_px: Border padding (>=0).
+    """
+    import numpy as np
+    self.tilt_x = float(np.clip(tilt_x, 0.0, 0.5))
+    self.tilt_y = float(np.clip(tilt_y, 0.0, 0.5))
+    self.focal_scale = max(0.05, float(focal_scale))
+    self.k1 = float(np.clip(k1, -1.0, 1.0))
+    self.k2 = float(np.clip(k2, -1.0, 1.0))
+    self.pad_px = max(0, int(pad_px))
+
+  # ------------------------------------------------------------------
+  def set_post_optical(self,
+                       vignette_strength: float,
+                       warm_strength: float) -> None:
+    """Configure post-optical vignetting and chromatic effects.
+
+    Args:
+        vignette_strength: Radial attenuation strength (0-1 typical).
+        warm_strength: Channel bias simulating color temperature shift (0-0.5).
+    """
+    import numpy as np
+    self.vignette_strength = float(np.clip(vignette_strength, 0.0, 1.0))
+    self.warm_strength = float(np.clip(warm_strength, 0.0, 0.5))
+  
   # ------------------------------------------------------------------
   @classmethod
   def from_json(cls, path: str) -> "SyntheticPhotoProcessor":

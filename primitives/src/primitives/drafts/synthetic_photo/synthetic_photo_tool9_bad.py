@@ -13,6 +13,7 @@ Usage demo at bottom reproduces previous pipeline exactly.
 
 import json
 import hashlib
+import warnings
 from datetime import datetime
 import numpy as np
 import cv2
@@ -128,55 +129,197 @@ class SyntheticPhotoProcessor:
   | **smartphone** | 0.8                 | 0.15 / 0.10 | -0.25 / +0.05      | medium      | Realistic handheld photo        |
   | **wide_lab**   | 0.6                 | 0.2 / 0.15  | -0.35 / +0.1       | low         | Wide lab shot, strong curvature |
   | **lowlight**   | 1.0                 | 0.1         | -0.15 / +0.05      | high        | Dim lighting, grainy edges      |
+  
+  # Parameter groups
+  
+  | Setter                   | Purpose                                | Validation logic                                          |
+  | ------------------------ | -------------------------------------- | --------------------------------------------------------- |
+  | `set_lighting_texture()` | Handles illumination & texture realism | Clamps brightness and texture strength to safe range      |
+  | `set_noise()`            | Handles pre-optical sensor noise       | Prevents numeric blowout; `blur_sigma` always positive    |
+  | `set_optics()`           | Camera geometry & lens                 | Prevents invalid FOV or distortion coefficients           |
+  | `set_post_optical()`     | Final image effects                    | Limits vignette and chromatic shift to perceptual realism |
   """
 
   # ------------------------------------------------------------------
   def __init__(self,
-               top_bright=1.15,
-               bottom_dark=0.85,
-               texture_strength=0.12,
-               texture_scale=8.0,
-               # --- Noise controls ---
-               gaussian_std=0.02,
-               poisson_noise=True,
-               sp_amount=0.0,         # Salt & pepper: 0-0.05
-               speckle_var=0.0,       # Speckle variance: 0-0.05
-               blur_sigma=0.8,
+               # Optional quick preset
+               preset: str | None = None,
+
+               # --- Lighting & Texture ---
+               top_bright: float = 1.15,
+               bottom_dark: float = 0.85,
+               texture_strength: float = 0.12,
+               texture_scale: float = 8.0,
+
+               # --- Noise ---
+               gaussian_std: float = 0.02,
+               poisson_noise: bool = True,
+               sp_amount: float = 0.0,
+               speckle_var: float = 0.0,
+               blur_sigma: float = 0.8,
+
                # --- Optics ---
-               tilt_x=0.18,
-               tilt_y=0.10,
-               focal_scale=1.0,
-               k1=-0.25,
-               k2=0.05,
-               pad_px=100,
-               # --- Post-optical ---
-               vignette_strength=0.35,
-               warm_strength=0.10):
+               tilt_x: float = 0.18,
+               tilt_y: float = 0.10,
+               focal_scale: float = 1.0,
+               k1: float = -0.25,
+               k2: float = 0.05,
+               pad_px: int = 100,
 
-    self.top_bright = top_bright
-    self.bottom_dark = bottom_dark
-    self.texture_strength = texture_strength
-    self.texture_scale = texture_scale
-    
-    # noise controls
-    self.gaussian_std = gaussian_std
-    self.poisson_noise = poisson_noise
-    self.sp_amount = sp_amount
-    self.speckle_var = speckle_var
-    self.blur_sigma = blur_sigma
+               # --- Post-Optical ---
+               vignette_strength: float = 0.35,
+               warm_strength: float = 0.10):
+    """Initialize SyntheticPhotoProcessor.
 
-    # optics
-    self.tilt_x = tilt_x
-    self.tilt_y = tilt_y
-    self.focal_scale = focal_scale
-    self.k1 = k1
-    self.k2 = k2
-    self.pad_px = pad_px
+    Args:
+        preset: Optional preset name (if provided, overrides all manual params).
+        Other parameters correspond to their physical groups; see setters.
+    """
+    # Create local logger
+    self.logger = logging.getLogger(self.__class__.__name__)
+    if not self.logger.handlers:
+      handler = logging.StreamHandler()
+      fmt = logging.Formatter("[%(levelname)s] %(message)s")
+      handler.setFormatter(fmt)
+      self.logger.addHandler(handler)
+      self.logger.setLevel(logging.INFO)
 
-    # post-optical
-    self.vignette_strength = vignette_strength
-    self.warm_strength = warm_strength
+    if preset:
+      # Apply preset if given (overrides all)
+      self.logger.info(f"Applying preset: {preset}")
+      self.set_preset(preset)
+    else:
+      # Store groups via unified setters for consistency
+      self.set_lighting_texture(top_bright, bottom_dark, texture_strength, texture_scale)
+      self.set_noise(gaussian_std, poisson_noise, sp_amount, speckle_var, blur_sigma)
+      self.set_optics(tilt_x, tilt_y, focal_scale, k1, k2, pad_px)
+      self.set_post_optical(vignette_strength, warm_strength)
 
+  # ================================================================
+  # Safe warning helper
+  # ================================================================
+  def _warn_clip(self, param: str, value: float, new_value: float,
+                 low: float, high: float):
+    if new_value != value:
+      msg = (f"\u26A0\uFE0F  Parameter '{param}' clipped from {value:.3f} "
+             f"to {new_value:.3f} (valid range {low:.3f}-{high:.3f})")
+      try:
+        self.logger.warning(msg)
+      except Exception:
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
+  
+  # ------------------------------------------------------------------
+  def set_lighting_texture(self,
+                           top_bright: float,
+                           bottom_dark: float,
+                           texture_strength: float,
+                           texture_scale: float) -> None:
+    """Configure lighting gradient and paper texture parameters."""
+    tb = float(np.clip(top_bright, 0.5, 2.0))
+    self._warn_clip("top_bright", top_bright, tb, 0.5, 2.0)
+  
+    bd = float(np.clip(bottom_dark, 0.5, 2.0))
+    self._warn_clip("bottom_dark", bottom_dark, bd, 0.5, 2.0)
+  
+    ts = float(np.clip(texture_strength, 0.0, 1.0))
+    self._warn_clip("texture_strength", texture_strength, ts, 0.0, 1.0)
+  
+    sc = max(0.1, float(texture_scale))
+    if sc != texture_scale:
+      msg = "\u26A0\uFE0F  Parameter 'texture_scale' raised to minimum 0.1"
+      if self.logger:
+        self.logger.warning(msg)
+      else:
+        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+  
+    self.top_bright = tb
+    self.bottom_dark = bd
+    self.texture_strength = ts
+    self.texture_scale = sc
+  
+  # ------------------------------------------------------------------
+  def set_noise(self,
+                gaussian_std: float,
+                poisson_noise: bool,
+                sp_amount: float,
+                speckle_var: float,
+                blur_sigma: float) -> None:
+    """Configure sensor noise model parameters."""
+    gs = float(np.clip(gaussian_std, 0.0, 0.3))
+    self._warn_clip("gaussian_std", gaussian_std, gs, 0.0, 0.3)
+  
+    sa = float(np.clip(sp_amount, 0.0, 0.1))
+    self._warn_clip("sp_amount", sp_amount, sa, 0.0, 0.1)
+  
+    sv = float(np.clip(speckle_var, 0.0, 0.2))
+    self._warn_clip("speckle_var", speckle_var, sv, 0.0, 0.2)
+  
+    bs = float(np.clip(blur_sigma, 0.0, 10.0))
+    self._warn_clip("blur_sigma", blur_sigma, bs, 0.0, 10.0)
+  
+    self.gaussian_std = gs
+    self.poisson_noise = bool(poisson_noise)
+    self.sp_amount = sa
+    self.speckle_var = sv
+    self.blur_sigma = bs
+  
+  # ------------------------------------------------------------------
+  def set_optics(self,
+                 tilt_x: float,
+                 tilt_y: float,
+                 focal_scale: float,
+                 k1: float,
+                 k2: float,
+                 pad_px: int) -> None:
+    """Configure optical geometry and lens distortion parameters."""
+    tx = float(np.clip(tilt_x, 0.0, 0.5))
+    self._warn_clip("tilt_x", tilt_x, tx, 0.0, 0.5)
+  
+    ty = float(np.clip(tilt_y, 0.0, 0.5))
+    self._warn_clip("tilt_y", tilt_y, ty, 0.0, 0.5)
+  
+    fs = max(0.05, float(focal_scale))
+    if fs != focal_scale:
+      msg = "\u26A0\uFE0F  Parameter 'focal_scale' raised to minimum 0.05"
+      if self.logger:
+        self.logger.warning(msg)
+      else:
+        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+    k1c = float(np.clip(k1, -1.0, 1.0))
+    self._warn_clip("k1", k1, k1c, -1.0, 1.0)
+  
+    k2c = float(np.clip(k2, -1.0, 1.0))
+    self._warn_clip("k2", k2, k2c, -1.0, 1.0)
+  
+    pp = max(0, int(pad_px))
+    if pp != pad_px:
+      msg = f"\u26A0\uFE0F  Parameter 'pad_px' raised to minimum 0"
+      if self.logger:
+        self.logger.warning(msg)
+      else:
+        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+  
+    self.tilt_x = tx
+    self.tilt_y = ty
+    self.focal_scale = fs
+    self.k1 = k1c
+    self.k2 = k2c
+    self.pad_px = pp
+  
+  # ------------------------------------------------------------------
+  def set_post_optical(self,
+                       vignette_strength: float,
+                       warm_strength: float) -> None:
+    """Configure post-optical vignetting and chromatic effects."""
+    vs = float(np.clip(vignette_strength, 0.0, 1.0))
+    self._warn_clip("vignette_strength", vignette_strength, vs, 0.0, 1.0)
+  
+    ws = float(np.clip(warm_strength, 0.0, 0.5))
+    self._warn_clip("warm_strength", warm_strength, ws, 0.0, 0.5)
+  
+    self.vignette_strength = vs
+    self.warm_strength = ws
+  
   # ------------------------------------------------------------------
   @classmethod
   def from_json(cls, path: str) -> "SyntheticPhotoProcessor":
@@ -686,29 +829,4 @@ class SyntheticPhotoProcessor:
 
 # =====================================================================
 # Demo reproducing previous result
-# =====================================================================
-if __name__ == "__main__":
-  rgba = render_scene()
-  proc = SyntheticPhotoProcessor()
-  proc.set_preset("smartphone")
-  
-  # Log configuration
-  proc.describe(include_hash=True)
-
-  # Retrieve JSON text
-  cfg_json = proc.describe(format="json", include_hash=True, return_str=True)
-
-  # Save both human-readable and machine-readable configs
-  proc.describe(path="smartphone_config.txt")
-  proc.describe(format="json", path="smartphone_config.json", include_hash=True)
-  
-  # Reconstruct processor from saved JSON
-  proc_clone = SyntheticPhotoProcessor.from_json("smartphone_config.json")
-  
-  # Verify equality
-  print(proc_clone.describe(return_str=True))
-  
-  # Generate identical image
-  result = proc_clone.process(rgba)
-  cv2.imshow("Reconstructed Processor Output", result)
-  cv2.waitKey(0)
+# ===============================================================
