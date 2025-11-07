@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-11-07T09:34:19",
+  "class": "SyntheticPhotoProcessor",
+  "parameters": {
+    "lighting": {
+      "top_bright": 1.15,
+      "bottom_dark": 0.85,
+      "texture_strength": 0.12,
+      "texture_scale": 8.0
+    },
+    "noise": {
+      "gaussian_std": 0.02,
+      "poisson_noise": true,
+      "sp_amount": 0.005,
+      "speckle_var": 0.015,
+      "blur_sigma": 0.8
+    },
+    "optics": {
+      "tilt_x": 0.15,
+      "tilt_y": 0.1,
+      "focal_scale": 0.8,
+      "k1": -0.25,
+      "k2": 0.05,
+      "pad_px": 100
+    },
+    "post_optical": {
+      "vignette_strength": 0.35,
+      "warm_strength": 0.1
+    }
+  },
+  "hash": "c51d85e06f89ef4a1a086b42ea32f7d292c81001228c67ae634c41f727174309"
+}
