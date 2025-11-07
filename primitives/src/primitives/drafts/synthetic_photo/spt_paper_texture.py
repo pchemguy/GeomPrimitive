@@ -205,14 +205,7 @@ def apply_paper_background(
       preset, shape=(height_px, width_px), seed=seed
   )
 
-  # --- Determine extent slightly beyond plot limits
-  x0, x1 = ax.get_xlim()
-  y0, y1 = ax.get_ylim()
-  dx, dy = x1 - x0, y1 - y0
-  xpad, ypad = dx * pad, dy * pad
-  extent = [x0 - xpad, x1 + xpad, y0 - ypad, y1 + ypad]
-
-  # --- Draw under all elements
+  # Draw the texture in axes coordinates (0�1), independent of data
   ax.imshow(
       tex,
       extent=extent,
