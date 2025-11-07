@@ -7,23 +7,18 @@ from __future__ import annotations
 
 from typing import TypeAlias
 import numpy as np
+import cv2
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
 ImageBGR:  TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGB:  TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 3) RGB order
 ImageRGBA: TypeAlias = np.typing.NDArray[np.uint8]  # (H, W, 4) RGBA order
 
 
-def rgba2bgr(rgba: ImageRGBA) -> ImageBGR:
+def rgb2rgba(rgba: ImageRGBA) -> ImageBGR:
     """Convert RGBA (Matplotlib) to BGR (OpenCV)."""
-    return rgba[..., :3][..., ::-1]
-
-
-def bgr2rgb(bgr: ImageBGR) -> ImageRGB:
-    """Convert BGR (OpenCV) to RGB (Matplotlib)."""
-    return bgr[..., ::-1]
+    return cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR)
 
 
 def add_grid(ax, width_mm=100, height_mm=80) -> None:
@@ -49,7 +44,7 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
     ax.add_collection(lc_major)
 
 
-def render_scene(width_mm: float = 100, 
+def render_scene(width_mm: float = 100,
                  height_mm: float = 80,
                  dpi: int = 200) -> ImageRGBA:
     """Render an ideal grid + primitives scene via Matplotlib.
@@ -82,29 +77,14 @@ def render_scene(width_mm: float = 100,
 
 
 def main():
-    # ----------------------------------------------------------------------
-    rgba: ImageRGBA = render_scene()
-    bgr:  ImageBGR  = rgba2bgr(rgba)
-    rgb:  ImageRGB  = bgr2rgb(bgr)
-    
-    # ----------------------------------------------------------------------
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    
-    axes[0].imshow(rgba)
-    title = "Matplotlib RGBA"
-    axes[0].set_title(title, fontsize=16, fontweight="bold", color="green")
-    axes[0].axis("off")
-    
-    axes[1].imshow(rgb)
-    title = "Roundtrip: RGBA -> BGR -> RGB"
-    axes[1].set_title(title, fontsize=16, fontweight="bold", color="green")
-    axes[1].axis("off")
-    
-    plt.tight_layout()
+    rgba: np.ndarray = render_scene()
+
+    plt.imshow(rgba)
+    plt.axis("off")
+    plt.title("Matplotlib RGBA Display")
     plt.show()
 
 
 if __name__ == "__main__":
     main()
 
-        
