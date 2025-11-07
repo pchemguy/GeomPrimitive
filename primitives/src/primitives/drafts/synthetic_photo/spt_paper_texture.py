@@ -258,7 +258,6 @@ def paper_style(
           preset=preset,
           seed=seed,
           reuse=tex_cache,  # reuse first texture for consistency
-          pad=pad,
           alpha=alpha,
       )
     return fig, axes
