@@ -1,25 +1,25 @@
 SyntheticPhotoProcessor configuration:
-  --- Lighting & Texture ---
-  top_bright        = 1.150
-  bottom_dark       = 0.850
-  texture_strength  = 0.120
-  texture_scale     = 8.00
+  --- Lighting ---
+  top_bright        = 1.15
+  bottom_dark       = 0.85
+  texture_strength  = 0.12
+  texture_scale     = 8.0
 
   --- Noise ---
-  gaussian_std      = 0.020
+  gaussian_std      = 0.02
   poisson_noise     = True
   sp_amount         = 0.005
   speckle_var       = 0.015
-  blur_sigma        = 0.800
+  blur_sigma        = 0.8
 
   --- Optics ---
-  tilt_x            = 0.150
-  tilt_y            = 0.100
-  focal_scale       = 0.800
-  k1                = -0.250
-  k2                = 0.050
+  tilt_x            = 0.15
+  tilt_y            = 0.1
+  focal_scale       = 0.8
+  k1                = -0.25
+  k2                = 0.05
   pad_px            = 100
 
-  --- Post-Optical ---
-  vignette_strength = 0.350
-  warm_strength     = 0.100
+  --- Post_optical ---
+  vignette_strength = 0.35
+  warm_strength     = 0.1

@@ -74,7 +74,75 @@ def render_scene(width_mm: float = 100,
 # SyntheticPhotoProcessor: config + full image pipeline
 # ======================================================================
 class SyntheticPhotoProcessor:
-  """Synthetic camera simulation and configuration/provenance manager."""
+  """Synthetic camera simulation and manager.
+  Apply physically ordered postprocessing steps to a Matplotlib RGBA scene.
+
+  Attributes (suggested typical range):
+  ------------------------------------
+  
+  # Lighting & texture (pre-optical)
+  
+  top_bright: float  (1.0-1.2)   - brightness at top of paper
+  bottom_dark: float (0.6-1.0)   - brightness at bottom
+  texture_strength: float (0.0-0.2) - 0 disables, >0 stronger paper fibers
+  texture_scale: float (4-12)    - larger = coarser fibers
+
+  # Sensor simulation (pre-optical)
+  
+  | Parameter       | 0 (off)      | 0.02 (moderate)     | 0.05 (strong)              |
+  | --------------- | ------------ | ------------------- | -------------------------- |
+  | `gaussian_std`  | clean sensor | light readout grain | harsh electronic noise     |
+  | `poisson_noise` | off          | on                  | on (binary toggle)         |
+  | `sp_amount`     | none         | few dead pixels     | visible salt/pepper spots  |
+  | `speckle_var`   | none         | film-grain shimmer  | heavy multiplicative noise |
+
+  # Optical mapping
+
+  | Parameter     | Range      | Visual effect                                         |
+  | ------------- | ---------- | ----------------------------------------------------- |
+  | `focal_scale` | <1         | **Wide angle**: more paper visible, slight stretching |
+  |               | 1          | **Baseline**: current appearance                      |
+  |               | >1         | **Telephoto**: tighter crop, less distortion          |
+  | `tilt_x`      | 0-0.3      | Horizontal skew / yaw                                 |
+  | `tilt_y`      | 0-0.3      | Vertical skew / pitch                                 |
+  | `k1`, `k2`    | +/-0.1-0.3 | Barrel or pincushion curvature                        |
+
+  The combination of focal_scale, tilt_x/y, and k1/k2 gives you an expressive, camera-like
+  control surface - you can replicate everything from a flat scanner-like top-down view
+  (focal_scale=1, tilt=0, k1=k2=0) to a handheld smartphone photo (focal_scale~0.8,
+  tilt_x~0.15, tilt_y~0.1, k1~-0.25).
+
+  # Post-optical (camera artifacts)
+  
+  vignette_strength: float (0-0.5)  - 0 disables; 0.3 moderate
+  warm_strength: float (0-0.2)      - red cast toward edges; 0 disables
+
+  # Presets
+
+  Each preset should define a physically consistent camera behavior:
+  - Field of view (focal length)
+  - Perspective tilt
+  - Lens distortion
+  - Vignetting & chromatic edges
+  - Optional noise characteristics  
+  
+  | Preset         | FOV (`focal_scale`) | Tilt (x/y)  | Distortion (k1/k2) | Noise Level | Visual Style                    |
+  | -------------- | ------------------- | ----------- | ------------------ | ----------- | ------------------------------- |
+  | **flatbed**    | 1.0                 | 0           | 0                  | none        | Perfect top-down scan           |
+  | **dslr_macro** | 1.5                 | 0.05        | +0.05              | very low    | Slight zoom, clean optics       |
+  | **smartphone** | 0.8                 | 0.15 / 0.10 | -0.25 / +0.05      | medium      | Realistic handheld photo        |
+  | **wide_lab**   | 0.6                 | 0.2 / 0.15  | -0.35 / +0.1       | low         | Wide lab shot, strong curvature |
+  | **lowlight**   | 1.0                 | 0.1         | -0.15 / +0.05      | high        | Dim lighting, grainy edges      |
+  
+  # Parameter groups
+  
+  | Setter                   | Purpose                                | Validation logic                                          |
+  | ------------------------ | -------------------------------------- | --------------------------------------------------------- |
+  | `set_lighting_texture()` | Handles illumination & texture realism | Clamps brightness and texture strength to safe range      |
+  | `set_noise()`            | Handles pre-optical sensor noise       | Prevents numeric blowout; `blur_sigma` always positive    |
+  | `set_optics()`           | Camera geometry & lens                 | Prevents invalid FOV or distortion coefficients           |
+  | `set_post_optical()`     | Final image effects                    | Limits vignette and chromatic shift to perceptual realism | 
+  """
 
   # ------------------------------------------------------------------
   def __init__(self,
@@ -100,7 +168,12 @@ class SyntheticPhotoProcessor:
                # --- Post-Optical ---
                vignette_strength: float = 0.35,
                warm_strength: float = 0.10):
+    """Initialize SyntheticPhotoProcessor.
 
+    Args:
+        preset: Optional preset name (if provided, overrides all manual params).
+        Other parameters correspond to their physical groups; see setters.
+    """
     # Logger (safe default; can be replaced by user)
     self.logger = logging.getLogger(self.__class__.__name__)
     if not self.logger.handlers:
@@ -143,6 +216,14 @@ class SyntheticPhotoProcessor:
                            bottom_dark: float,
                            texture_strength: float,
                            texture_scale: float) -> None:
+    """Configure lighting gradient and paper texture parameters.
+
+    Args:
+        top_bright: Relative top brightness multiplier (~1.0-1.3).
+        bottom_dark: Relative bottom brightness multiplier (~0.7-1.0).
+        texture_strength: Amplitude of paper texture (0-1).
+        texture_scale: Gaussian smoothing kernel for texture (>0).
+    """
     tb = float(np.clip(top_bright, 0.5, 2.0))
     self._warn_clip("top_bright", top_bright, tb, 0.5, 2.0)
 
@@ -169,6 +250,15 @@ class SyntheticPhotoProcessor:
                 sp_amount: float,
                 speckle_var: float,
                 blur_sigma: float) -> None:
+    """Configure sensor noise model parameters.
+
+    Args:
+        gaussian_std: sigma of Gaussian noise (0-0.2 typical).
+        poisson_noise: Whether to apply Poisson noise.
+        sp_amount: Salt-and-pepper noise fraction (0-0.1).
+        speckle_var: Variance of multiplicative speckle (0-0.1 typical).
+        blur_sigma: Gaussian blur radius (0-5 typical).
+    """
     gs = float(np.clip(gaussian_std, 0.0, 0.3))
     self._warn_clip("gaussian_std", gaussian_std, gs, 0.0, 0.3)
 
@@ -195,6 +285,16 @@ class SyntheticPhotoProcessor:
                  k1: float,
                  k2: float,
                  pad_px: int) -> None:
+    """Configure optical geometry and lens distortion parameters.
+
+    Args:
+        tilt_x: Horizontal tilt fraction (0-0.5 typical).
+        tilt_y: Vertical tilt fraction (0-0.5 typical).
+        focal_scale: FOV scaling (>0). <1 wide, >1 telephoto.
+        k1: Primary radial distortion coefficient (~-0.5-0.5).
+        k2: Secondary radial distortion coefficient (~-0.5-0.5).
+        pad_px: Border padding (>=0).
+    """
     tx = float(np.clip(tilt_x, 0.0, 0.5))
     self._warn_clip("tilt_x", tilt_x, tx, 0.0, 0.5)
 
@@ -228,6 +328,12 @@ class SyntheticPhotoProcessor:
   def set_post_optical(self,
                        vignette_strength: float,
                        warm_strength: float) -> None:
+    """Configure post-optical vignetting and chromatic effects.
+
+    Args:
+        vignette_strength: Radial attenuation strength (0-1 typical).
+        warm_strength: Channel bias simulating color temperature shift (0-0.5).
+    """
     vs = float(np.clip(vignette_strength, 0.0, 1.0))
     self._warn_clip("vignette_strength", vignette_strength, vs, 0.0, 1.0)
 
@@ -275,7 +381,7 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def apply_paper_lighting(self, img: np.ndarray) -> np.ndarray:
-    """Pre-optical illumination gradient on the paper."""
+    """Uneven lighting gradient (pre-optical)."""
     h, w = img.shape[:2]
     grad = np.linspace(self.top_bright, self.bottom_dark,
                        h, dtype=np.float32).reshape(h, 1)
@@ -285,7 +391,7 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def add_paper_texture(self, img: np.ndarray) -> np.ndarray:
-    """Pre-optical multiplicative paper texture."""
+    """Multiplicative paper fiber texture (pre-optical)."""
     if self.texture_strength <= 0:
       return img
     h, w = img.shape[:2]
@@ -300,7 +406,15 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def apply_sensor_noise(self, img: np.ndarray) -> np.ndarray:
-    """Apply Gaussian, Poisson, s&p, and speckle noise + blur."""
+    """Apply combined sensor-domain noises and blur.
+
+    Each noise model can be independently controlled.
+
+    Gaussian  (gaussian_std): additive white noise [0 -> 0.05]
+    Poisson   (poisson_noise): photon shot noise (bool)
+    Salt&Pepper (sp_amount): impulse noise fraction [0 -> 0.05]
+    Speckle   (speckle_var): multiplicative variance [0 -> 0.05]
+    """
     img_f = util.img_as_float(img)
 
     # Gaussian
@@ -332,7 +446,14 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def apply_camera_effects(self, img: np.ndarray) -> np.ndarray:
-    """Apply focal scaling, perspective tilt, and radial lens distortion."""
+    """Apply focal scaling, perspective tilt, and radial lens distortion.
+
+    Args:
+        img: Input BGR uint8 image (pre-optical domain).
+
+    Returns:
+        np.ndarray: Distorted image simulating optical projection.
+    """
     # Padding
     if self.pad_px > 0:
       img = cv2.copyMakeBorder(img,
@@ -342,7 +463,13 @@ class SyntheticPhotoProcessor:
                                value=(255, 255, 255))
     h, w = img.shape[:2]
 
-    # Focal scaling (zoom / FOV)
+    # ===============================================================
+    # 1. FOCAL LENGTH (Field of View)
+    # ---------------------------------------------------------------
+    # focal_scale = 1.0 -> baseline FOV
+    # focal_scale > 1 -> telephoto (zoom-in, narrower)
+    # focal_scale < 1 -> wide angle (zoom-out, wider)
+    # ===============================================================
     if self.focal_scale != 1.0:
       f = self.focal_scale
       new_w = int(round(w / f))
@@ -355,7 +482,12 @@ class SyntheticPhotoProcessor:
       cropped = img[y1:y2, x1:x2]
       img = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
-    # Perspective tilt
+    # ===============================================================
+    # 2. CAMERA TILT (Perspective)
+    # ---------------------------------------------------------------
+    # tilt_x, tilt_y are normalized fractions of width/height.
+    # 0 = no tilt; 0.3 = strong skew.
+    # ===============================================================
     dx = self.tilt_x * w
     dy = self.tilt_y * h
     src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
@@ -369,7 +501,13 @@ class SyntheticPhotoProcessor:
                                 borderMode=cv2.BORDER_CONSTANT,
                                 borderValue=(255, 255, 255))
 
-    # Radial distortion
+    # ===============================================================
+    # 3. RADIAL LENS DISTORTION
+    # ---------------------------------------------------------------
+    # k1 < 0 -> barrel (wide angle)
+    # k1 > 0 -> pincushion (telephoto)
+    # k2 refines curvature falloff
+    # ===============================================================
     cx, cy = w / 2.0, h / 2.0
     r_norm = max(cx, cy)
     xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
@@ -392,7 +530,7 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def add_vignette_and_color_shift(self, img: np.ndarray) -> np.ndarray:
-    """Post-optical vignetting + warm edges."""
+    """Apply post-lens vignetting and chromatic imbalance."""
     if self.vignette_strength <= 0 and self.warm_strength <= 0:
       return img
 
@@ -428,6 +566,23 @@ class SyntheticPhotoProcessor:
     img = self.apply_camera_effects(img)
     img = self.add_vignette_and_color_shift(img)
     return img
+
+  # ------------------------------------------------------------------
+  def process_stages(self, rgba: np.ndarray) -> dict[str, np.ndarray]:
+    """Run full pipeline and return intermediate stages as dict.
+
+    Returns:
+        dict with keys:
+          'base', 'lit', 'textured', 'noisy', 'optical', 'final'
+    """
+    stages: dict[str, np.ndarray] = {}
+    stages["base"] = self.from_rgba(rgba)
+    stages["lit"] = self.apply_paper_lighting(stages["base"])
+    stages["textured"] = self.add_paper_texture(stages["lit"])
+    stages["noisy"] = self.apply_sensor_noise(stages["textured"])
+    stages["optical"] = self.apply_camera_effects(stages["noisy"])
+    stages["final"] = self.add_vignette_and_color_shift(stages["optical"])
+    return stages
 
   # ===================================================================
   # Provenance / hashing / JSON
@@ -481,6 +636,17 @@ class SyntheticPhotoProcessor:
                path: str | None = None,
                include_hash: bool = False,
                return_str: bool = False) -> str | None:
+    """Describe or export the current processor configuration.
+
+    Args:
+        format: "text" (default) or "json" - controls return/output format.
+        path: Optional file path to save configuration (.txt or .json).
+        return_str: If True, returns the formatted representation instead of printing.
+        include_hash: If True, include a SHA256 hash of parameters for reproducibility.
+
+    Returns:
+        str | None: The formatted configuration string or JSON text.
+    """
     meta = {
       "timestamp": datetime.now().isoformat(timespec="seconds"),
       "class": "SyntheticPhotoProcessor",
@@ -509,6 +675,7 @@ class SyntheticPhotoProcessor:
   # ------------------------------------------------------------------
   @classmethod
   def from_json(cls, path: str) -> SyntheticPhotoProcessor:
+    """Reconstruct a processor instance from a saved JSON configuration."""
     with open(path, "r", encoding="utf-8") as f:
       meta = json.load(f)
     if "parameters" not in meta:
@@ -523,6 +690,15 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def verify_hash(self, path: str, verbose: bool = True) -> bool:
+    """Verify that the current processor parameters match a saved JSON hash.
+
+    Args:
+        path: Path to a previously saved configuration JSON (with 'hash' field).
+        verbose: If True, prints verification results.
+
+    Returns:
+        bool: True if hash matches (identical configuration), False otherwise.
+    """
     with open(path, "r", encoding="utf-8") as f:
       meta = json.load(f)
     if "hash" not in meta:
@@ -549,7 +725,27 @@ if __name__ == "__main__":
   processor = SyntheticPhotoProcessor(preset="smartphone")
   img = processor.process(rgba)
 
-  # Show result
-  cv2.imshow("Synthetic Lab Photo (Smartphone Preset)", img)
+  rgba = render_scene()
+  proc = SyntheticPhotoProcessor()
+  proc.set_preset("smartphone")
+  
+  # Log configuration
+  proc.describe(include_hash=True)
+
+  # Retrieve JSON text
+  cfg_json = proc.describe(format="json", include_hash=True, return_str=True)
+
+  # Save both human-readable and machine-readable configs
+  proc.describe(path="smartphone_config.txt")
+  proc.describe(format="json", path="smartphone_config.json", include_hash=True)
+  
+  # Reconstruct processor from saved JSON
+  proc_clone = SyntheticPhotoProcessor.from_json("smartphone_config.json")
+  
+  # Verify equality
+  print(proc_clone.describe(return_str=True))
+  
+  # Generate identical image
+  result = proc_clone.process(rgba)
+  cv2.imshow("Reconstructed Processor Output", result)
   cv2.waitKey(0)
-  cv2.destroyAllWindows()
