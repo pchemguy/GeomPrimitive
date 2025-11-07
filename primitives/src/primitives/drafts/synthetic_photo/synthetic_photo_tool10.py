@@ -184,7 +184,7 @@ class SyntheticPhotoProcessor:
       self.logger.setLevel(logging.INFO)
 
     # Initialize via preset or manual groups
-    if preset:
+    if not preset is None:
       self.set_preset(preset)
     else:
       self.set_lighting_texture(top_bright, bottom_dark,
@@ -223,6 +223,9 @@ class SyntheticPhotoProcessor:
         bottom_dark: Relative bottom brightness multiplier (~0.7-1.0).
         texture_strength: Amplitude of paper texture (0-1).
         texture_scale: Gaussian smoothing kernel for texture (>0).
+
+    Disable effects:
+        self.set_lighting_texture(1, 1, 0, 0)
     """
     tb = float(np.clip(top_bright, 0.5, 2.0))
     self._warn_clip("top_bright", top_bright, tb, 0.5, 2.0)
@@ -233,10 +236,7 @@ class SyntheticPhotoProcessor:
     ts = float(np.clip(texture_strength, 0.0, 1.0))
     self._warn_clip("texture_strength", texture_strength, ts, 0.0, 1.0)
 
-    sc = max(0.1, float(texture_scale))
-    if sc != texture_scale:
-      self.logger.warning(
-        "\u26A0\uFE0F  Parameter 'texture_scale' raised to minimum 0.1")
+    sc = float(np.clip(texture_scale, 0.0, 1.0))
 
     self.top_bright = tb
     self.bottom_dark = bd
@@ -258,6 +258,9 @@ class SyntheticPhotoProcessor:
         sp_amount: Salt-and-pepper noise fraction (0-0.1).
         speckle_var: Variance of multiplicative speckle (0-0.1 typical).
         blur_sigma: Gaussian blur radius (0-5 typical).
+
+    Disable effects:
+        self.set_noise(0, False, 0, 0, 0)
     """
     gs = float(np.clip(gaussian_std, 0.0, 0.3))
     self._warn_clip("gaussian_std", gaussian_std, gs, 0.0, 0.3)
@@ -294,6 +297,9 @@ class SyntheticPhotoProcessor:
         k1: Primary radial distortion coefficient (~-0.5-0.5).
         k2: Secondary radial distortion coefficient (~-0.5-0.5).
         pad_px: Border padding (>=0).
+
+    Disable effects:
+        self.set_optics(0, 0, 1, 0, 0, 0)
     """
     tx = float(np.clip(tilt_x, 0.0, 0.5))
     self._warn_clip("tilt_x", tilt_x, tx, 0.0, 0.5)
@@ -333,6 +339,9 @@ class SyntheticPhotoProcessor:
     Args:
         vignette_strength: Radial attenuation strength (0-1 typical).
         warm_strength: Channel bias simulating color temperature shift (0-0.5).
+
+    Disable effects:
+        self.set_post_optical(0, 0)
     """
     vs = float(np.clip(vignette_strength, 0.0, 1.0))
     self._warn_clip("vignette_strength", vignette_strength, vs, 0.0, 1.0)
@@ -343,20 +352,53 @@ class SyntheticPhotoProcessor:
     self.vignette_strength = vs
     self.warm_strength = ws
 
+  # ------------------------------------------------------------------
+  def clear(self) -> None:
+    """Clears all settings effectively making all effects NO-OP.
+    
+    | Group              | Call                               | Effect                                        |
+    | ------------------ | ---------------------------------- | --------------------------------------------- |
+    | Lighting & texture | `set_lighting_texture(1, 1, 0, 0)` | Neutral gradient, no texture                  |
+    | Noise              | `set_noise(0, False, 0, 0, 0)`     | All noise & blur off                          |
+    | Optics             | `set_optics(0, 0, 1, 0, 0, 0)`     | No tilt, 1x focal scale, no radial distortion |
+    | Post-optical       | `set_post_optical(0, 0)`           | No vignette, no chromatic shift               |
+    
+    
+    """
+    #                         top_bright bottom_dark texture_strength texture_scale
+    self.set_lighting_texture(1,         1,          0,               0)
+    #              gaussian_std poisson_noise sp_amount speckle_var blur_sigma
+    self.set_noise(0,           False,        0,        0,          0)
+    #               tilt_x tilt_y focal_scale k1 k2 pad_px
+    self.set_optics(0,     0,     1,          0, 0, 0)
+    #                     vignette_strength warm_strength
+    self.set_post_optical(0,                0)
+    self.logger.info(f"Cleared all effects.")
+  
   # ===================================================================
   # Presets
   # ===================================================================
   def set_preset(self, name: str) -> None:
+    """Configure the processor to mimic a realistic camera type.
+
+    Available presets:
+      - 'flatbed'     : Perfect orthographic scan (no optics, no noise)
+      - 'dslr_macro'  : Slight telephoto, mild vignette, clean optics
+      - 'smartphone'  : Wide lens, mild barrel distortion, visible vignetting
+      - 'wide_lab'    : Very wide FOV, pronounced barrel distortion
+      - 'lowlight'    : Noisy, strong vignetting, reduced contrast
+
+    After calling, you can still fine-tune attributes manually.
+
+    Args:
+        name: One of the preset names (case-insensitive).
+    """
     preset = name.lower().strip()
+    self.clear()
+    if preset == "none" or preset == "" or preset == "flatbed": return
     self.logger.info(f"Applying preset '{preset}'")
-
-    if preset == "flatbed":
-      self.set_lighting_texture(1.0, 1.0, 0.0, 8.0)
-      self.set_noise(0.0, False, 0.0, 0.0, 0.0)
-      self.set_optics(0.0, 0.0, 1.0, 0.0, 0.0, 100)
-      self.set_post_optical(0.0, 0.0)
-
-    elif preset == "smartphone":
+    
+    if preset == "smartphone":
       self.set_lighting_texture(1.15, 0.85, 0.12, 8.0)
       self.set_noise(0.02, True, 0.005, 0.015, 0.8)
       self.set_optics(0.15, 0.10, 0.8, -0.25, 0.05, 100)
@@ -364,12 +406,28 @@ class SyntheticPhotoProcessor:
 
     elif preset == "dslr_macro":
       self.set_lighting_texture(1.15, 0.90, 0.10, 6.0)
-      self.set_noise(0.005, True, 0.001, 0.010, 0.3)
-      self.set_optics(0.05, 0.05, 1.5, 0.05, 0.0, 80)
+      self.set_noise(0.005, True, 0.001, 0.010, 0.3)      
+      self.set_optics(0.05, 0.05, 1.5, 0.05, 0.0, 80)      
       self.set_post_optical(0.15, 0.05)
 
+    elif preset == "wide_lab":
+      self.set_lighting_texture(1.05, 0.95, 0.1, 0.1)
+      self.set_noise(0.01, True, 0.002, 0.01)
+      self.set_optics(0.2, 0.15, 0.6, -0.35, 0.1, 10)
+      self.set_post_optical(0.3, 0.05)
+
+    elif preset == "lowlight":
+      self.set_lighting_texture(1.15, 0.85, 0.2, 1)
+      self.set_noise(0.04, True, 0.01, 0.03, 1)
+      self.set_optics(0.1, 0.1, 1, -0.15, 0.05, 20)
+      self.set_post_optical(0.45, 0.1)
+
     else:
-      raise ValueError(f"Unknown preset '{name}'")
+      raise ValueError(f"Unknown preset '{name}'. "
+                       "Choose from: flatbed, dslr_macro, smartphone, "
+                       "wide_lab, lowlight.")
+
+    self.logger.info(f"[SyntheticPhotoProcessor] Camera preset applied: {preset}")
 
   # ===================================================================
   # Image pipeline building blocks
@@ -392,7 +450,7 @@ class SyntheticPhotoProcessor:
   # ------------------------------------------------------------------
   def add_paper_texture(self, img: np.ndarray) -> np.ndarray:
     """Multiplicative paper fiber texture (pre-optical)."""
-    if self.texture_strength <= 0:
+    if self.texture_strength <= 0 or self.texture_scale <=0:
       return img
     h, w = img.shape[:2]
     noise_field = np.random.randn(h, w).astype(np.float32)
@@ -748,4 +806,10 @@ if __name__ == "__main__":
   # Generate identical image
   result = proc_clone.process(rgba)
   cv2.imshow("Reconstructed Processor Output", result)
+
+  stages = proc.process_stages(rgba)
+
+  for name, img in stages.items():
+    cv2.imshow(name, img)  
+  
   cv2.waitKey(0)

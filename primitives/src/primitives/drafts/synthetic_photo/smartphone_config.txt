@@ -3,7 +3,7 @@ SyntheticPhotoProcessor configuration:
   top_bright        = 1.15
   bottom_dark       = 0.85
   texture_strength  = 0.12
-  texture_scale     = 8.0
+  texture_scale     = 1.0
 
   --- Noise ---
   gaussian_std      = 0.02
