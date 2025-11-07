@@ -148,17 +148,25 @@ class SyntheticPhotoProcessor:
   # ------------------------------------------------------------------
   def __init__(self,
                preset: str | None = None,
+
                # --- Lighting & Texture ---
                top_bright: float = 1.15,
                bottom_dark: float = 0.85,
                texture_strength: float = 0.12,
                texture_scale: float = 8.0,
+               lighting_strength: float = 0.3,
+               lighting_mode: str = "linear",
+               gradient_angle_deg: float = 90.0,
+               grad_cx: float = 0.0,
+               grad_cy: float = 0.0,
+
                # --- Noise ---
                gaussian_std: float = 0.02,
                poisson_noise: bool = True,
                sp_amount: float = 0.0,
                speckle_var: float = 0.0,
                blur_sigma: float = 0.8,
+
                # --- Optics ---
                tilt_x: float = 0.18,
                tilt_y: float = 0.10,
@@ -166,6 +174,7 @@ class SyntheticPhotoProcessor:
                k1: float = -0.25,
                k2: float = 0.05,
                pad_px: int = 100,
+
                # --- Post-Optical ---
                vignette_strength: float = 0.35,
                warm_strength: float = 0.10):
@@ -188,8 +197,9 @@ class SyntheticPhotoProcessor:
     if not preset is None:
       self.set_preset(preset)
     else:
-      self.set_lighting_texture(top_bright, bottom_dark,
-                                texture_strength, texture_scale)
+      self.set_lighting_texture(top_bright, bottom_dark, texture_strength,
+                                texture_scale, lighting_strength, lighting_mode,
+                                gradient_angle_deg, grad_cx, grad_cy)
       self.set_noise(gaussian_std, poisson_noise,
                      sp_amount, speckle_var, blur_sigma)
       self.set_optics(tilt_x, tilt_y, focal_scale, k1, k2, pad_px)
@@ -216,33 +226,45 @@ class SyntheticPhotoProcessor:
                            top_bright: float,
                            bottom_dark: float,
                            texture_strength: float,
-                           texture_scale: float) -> None:
-    """Configure lighting gradient and paper texture parameters.
+                           texture_scale: float,
+                           lighting_strength: float = 0.3,
+                           lighting_mode: str = "linear",
+                           gradient_angle_deg: float = 90.0,
+                           grad_cx: float = 0.0,
+                           grad_cy: float = 0.0) -> None:
+    """Configure lighting gradient, paper texture, and gradient contrast.
 
     Args:
-        top_bright: Relative top brightness multiplier (~1.0-1.3).
-        bottom_dark: Relative bottom brightness multiplier (~0.7-1.0).
-        texture_strength: Amplitude of paper texture (0-1).
-        texture_scale: Gaussian smoothing kernel for texture (>0).
-
-    Disable effects:
-        self.set_lighting_texture(1, 1, 0, 0)
+        top_bright: Gradient start factor (baseline 1.0-1.3 typical).
+        bottom_dark: Gradient end factor (baseline 0.7-1.0 typical).
+        texture_strength: 0-1, intensity of paper noise texture.
+        texture_scale: Gaussian blur scale for texture (>0).
+        lighting_strength: 0>, contrast scaling of gradient; 0 disables effect.
+        lighting_mode: 'linear', 'radial', or '' to disable.
+        gradient_angle_deg: For linear mode, 0deg=L->R, 90deg=T->B.
+        grad_cx: Radial gradient center X offset (0=center, -1=off-left, +1=off-right).
+        grad_cy: Radial gradient center Y offset (0=center, +1=below, -1=above).
     """
     tb = float(np.clip(top_bright, 0.5, 2.0))
-    self._warn_clip("top_bright", top_bright, tb, 0.5, 2.0)
-
     bd = float(np.clip(bottom_dark, 0.5, 2.0))
-    self._warn_clip("bottom_dark", bottom_dark, bd, 0.5, 2.0)
-
     ts = float(np.clip(texture_strength, 0.0, 1.0))
-    self._warn_clip("texture_strength", texture_strength, ts, 0.0, 1.0)
+    sc = float(texture_scale)
+    ls = float(lighting_strength)
 
-    sc = float(np.clip(texture_scale, 0.0, 1.0))
+    lm = (lighting_mode or "").lower().strip()
+    if lm not in {"linear", "radial", ""}:
+      self.logger.warning("\u26A0\uFE0F  Unknown lighting_mode '%s'; disabled.", lighting_mode)
+      lm = ""
 
     self.top_bright = tb
     self.bottom_dark = bd
     self.texture_strength = ts
     self.texture_scale = sc
+    self.lighting_strength = ls
+    self.lighting_mode = lm
+    self.gradient_angle = np.deg2rad(gradient_angle_deg)
+    self.grad_cx = float(np.clip(grad_cx, -2.0, 2.0))
+    self.grad_cy = float(np.clip(grad_cy, -2.0, 2.0))
 
   # ------------------------------------------------------------------
   def set_noise(self,
@@ -366,8 +388,10 @@ class SyntheticPhotoProcessor:
     
     
     """
-    #                         top_bright bottom_dark texture_strength texture_scale
-    self.set_lighting_texture(1,         1,          0,               0)
+    self.set_lighting_texture(
+    # top_bright bottom_dark texture_strength texture_scale lighting_strength lighting_mode gradient_angle_deg grad_cx grad_cy
+      1,         1,          0,               0,            0,                "",           0,                 0,      0
+    )
     #              gaussian_std poisson_noise sp_amount speckle_var blur_sigma
     self.set_noise(0,           False,        0,        0,          0)
     #               tilt_x tilt_y focal_scale k1 k2 pad_px
@@ -400,25 +424,25 @@ class SyntheticPhotoProcessor:
     self.logger.info(f"Applying preset '{preset}'")
     
     if preset == "smartphone":
-      self.set_lighting_texture(1.15, 0.85, 0.12, 8.0)
+      self.set_lighting_texture(1.15, 0.85, 0.12, 8.0, 4, "linear", 90, 0, 0)
       self.set_noise(0.02, True, 0.005, 0.015, 0.8)
       self.set_optics(0.15, 0.10, 0.8, -0.25, 0.05, 100)
       self.set_post_optical(0.35, 0.10)
 
     elif preset == "dslr_macro":
-      self.set_lighting_texture(1.15, 0.90, 0.10, 6.0)
+      self.set_lighting_texture(1.15, 0.90, 0.10, 6.0, 0.2, "linear", 90, 0, 0)
       self.set_noise(0.005, True, 0.001, 0.010, 0.3)      
       self.set_optics(0.05, 0.05, 1.5, 0.05, 0.0, 80)      
       self.set_post_optical(0.15, 0.05)
 
     elif preset == "wide_lab":
-      self.set_lighting_texture(1.05, 0.95, 0.1, 0.1)
+      self.set_lighting_texture(1.05, 0.95, 0.1, 0.1, 0.3, "linear", 90, 0, 0)
       self.set_noise(0.01, True, 0.002, 0.01)
       self.set_optics(0.2, 0.15, 0.6, -0.35, 0.1, 10)
       self.set_post_optical(0.3, 0.05)
 
     elif preset == "lowlight":
-      self.set_lighting_texture(1.15, 0.85, 0.2, 1)
+      self.set_lighting_texture(1.15, 0.85, 0.2, 1, 0.2, "linear", 90, 0, 0)
       self.set_noise(0.04, True, 0.01, 0.03, 1)
       self.set_optics(0.1, 0.1, 1, -0.15, 0.05, 20)
       self.set_post_optical(0.45, 0.1)
@@ -440,13 +464,32 @@ class SyntheticPhotoProcessor:
 
   # ------------------------------------------------------------------
   def apply_paper_lighting(self, img: np.ndarray) -> np.ndarray:
-    """Uneven lighting gradient (pre-optical)."""
+    """Apply pre-optical lighting gradient (linear or radial, normalized)."""
+    if (not self.lighting_mode) or (self.lighting_strength <= 1e-6):
+      return img
+
     h, w = img.shape[:2]
-    grad = np.linspace(self.top_bright, self.bottom_dark,
-                       h, dtype=np.float32).reshape(h, 1)
-    grad = np.repeat(grad, w, axis=1)
-    return np.clip(img.astype(np.float32) * grad[..., None],
-                   0, 255).astype(np.uint8)
+    y, x = np.indices((h, w), dtype=np.float32)
+
+    # --- Base gradient shape ---
+    if self.lighting_mode == "linear":
+      u = (np.cos(self.gradient_angle) * (x / w) +
+           np.sin(self.gradient_angle) * (y / h))
+      u = (u - u.min()) / (u.max() - u.min() + 1e-9)
+    else:  # Radial
+      cx = (0.5 + self.grad_cx) * w
+      cy = (0.5 + self.grad_cy) * h
+      r = np.sqrt((x - cx)**2 + (y - cy)**2)
+      corners = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype=np.float32)
+      r_max = np.max(np.sqrt((corners[:, 0] - cx)**2 + (corners[:, 1] - cy)**2))
+      u = np.clip(r / (r_max + 1e-9), 0.0, 1.0)
+
+    # --- Compute lighting map ---
+    grad = self.top_bright + (self.bottom_dark - self.top_bright) * u
+    grad = (grad - grad.mean()) * self.lighting_strength + 1.0  # normalize + contrast
+
+    img_f = np.clip(img.astype(np.float32) * grad[..., None], 0, 255)
+    return img_f.astype(np.uint8)
 
   # ------------------------------------------------------------------
   def add_paper_texture(self, img: np.ndarray) -> np.ndarray:
@@ -468,7 +511,6 @@ class SyntheticPhotoProcessor:
     """Apply combined sensor-domain noises and blur.
 
     Each noise model can be independently controlled.
-
     Gaussian  (gaussian_std): additive white noise [0 -> 0.05]
     Poisson   (poisson_noise): photon shot noise (bool)
     Salt&Pepper (sp_amount): impulse noise fraction [0 -> 0.05]
@@ -662,6 +704,11 @@ class SyntheticPhotoProcessor:
         "bottom_dark": self.bottom_dark,
         "texture_strength": self.texture_strength,
         "texture_scale": self.texture_scale,
+        "lighting_strength": self.lighting_strength,
+        "lighting_mode": self.lighting_mode,
+        "gradient_angle_deg": float(np.degrees(self.gradient_angle)),
+        "grad_cx": self.grad_cx,
+        "grad_cy": self.grad_cy,
       },
       "noise": {
         "gaussian_std": self.gaussian_std,
@@ -692,7 +739,7 @@ class SyntheticPhotoProcessor:
     for group, vals in p.items():
       lines.append(f"{pad}--- {group.capitalize()} ---")
       for k, v in vals.items():
-        lines.append(f"{pad}{k:18s}= {v}")
+        lines.append(f"{pad}{k:20s}= {v}")
       lines.append("")
     if sha:
       lines.append(f"{pad}hash (SHA256) = {sha}")
@@ -826,13 +873,37 @@ class SyntheticPhotoProcessor:
 if __name__ == "__main__":
   rgba = render_scene()
   proc = SyntheticPhotoProcessor(preset="smartphone")
-  img = proc.process(rgba)
 
+  proc.set_preset(name="")
+  img = proc.process(rgba)
+  
+  img = proc.apply_paper_lighting(img)
+  cv2.imshow("Gradient Only", img)
+  cv2.waitKey(0)
+
+  proc.set_preset(name="smartphone")
+  img = proc.process(rgba)
+  
   proc.save("output/final_photo.jpg", rgba)
   
   # Log configuration
   proc.describe(include_hash=True)
 
+  # Linear 45deg lighting
+  proc.set_lighting_texture(1.2, 0.8, 0.15, 6.0, 0.5,
+                            lighting_mode="linear",
+                            gradient_angle_deg=45)
+  
+  # Radial, light from top-left offscreen
+  proc.set_lighting_texture(1.3, 0.7, 0.1, 6.0, 0.5,
+                            lighting_mode="radial",
+                            grad_cx=-0.5,
+                            grad_cy=-0.5)
+  
+  img = proc.process(rgba)
+  cv2.imshow("Lighting Test", img)
+  cv2.waitKey(0)
+  
   # Retrieve JSON text
   cfg_json = proc.describe(format="json", include_hash=True, return_str=True)
 

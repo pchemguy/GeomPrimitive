@@ -789,13 +789,9 @@ class SyntheticPhotoProcessor:
 # ======================================================================
 if __name__ == "__main__":
   rgba = render_scene()
-  processor = SyntheticPhotoProcessor(preset="smartphone")
-  img = processor.process(rgba)
+  proc = SyntheticPhotoProcessor(preset="smartphone")
+  img = proc.process(rgba)
 
-  rgba = render_scene()
-  proc = SyntheticPhotoProcessor()
-  proc.set_preset("smartphone")
-  
   # Log configuration
   proc.describe(include_hash=True)
 
