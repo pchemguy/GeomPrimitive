@@ -178,7 +178,6 @@ def apply_paper_background(
     preset: str = "smooth",
     seed: Optional[int] = None,
     reuse: Optional[np.ndarray] = None,
-    pad: float = 0.05,
     alpha: float = 1.0,
 ) -> np.ndarray:
   """Render a paper texture background behind a Matplotlib Axes.
@@ -208,16 +207,15 @@ def apply_paper_background(
   # Draw the texture in axes coordinates (0�1), independent of data
   ax.imshow(
       tex,
-      extent=extent,
+      extent=(0, 1, 0, 1),
+      transform=ax.transAxes,
       zorder=-100,
       aspect="auto",
       interpolation="bilinear",
       alpha=alpha,
     )
 
-  # Prevent tight_layout from cropping it out
-  ax.set_zorder(0)
-  fig.canvas.draw_idle()
+  ax.set_facecolor("none")  # let paper show through
   return tex
 
 
