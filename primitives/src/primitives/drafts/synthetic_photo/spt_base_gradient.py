@@ -29,8 +29,8 @@ def rgb_from_bgr(bgr: ImageBGR) -> ImageRGB:
     return bgr[..., ::-1]
 
 
-def show_RGBx_grid(images: dict[str, ImageRGBx],
-                   title_style: dict = None, figsize_scale: float = 5) -> None:
+def show_RGBx_grid(images: dict[str, ImageRGBx], title_style: dict = None, 
+                   n_columns: int = None, figsize_scale: float = 5) -> None:
     """
     Display multiple images in an automatically balanced rectangular grid.
 
@@ -44,13 +44,14 @@ def show_RGBx_grid(images: dict[str, ImageRGBx],
         title_style: Optional dict for Matplotlib title styling.
         figsize_scale: Multiplier for overall figure size.
     """
-    n = len(images)
-    if n == 0:
+    images_n = len(images)
+    if images_n == 0:
         raise ValueError("No images to display.")
 
     # --- Compute balanced grid ---
-    cols = math.ceil(math.sqrt(n))
-    rows = math.ceil(n / cols)
+    
+    cols = n_columns or math.ceil(math.sqrt(images_n))
+    rows = math.ceil(images_n / cols)
 
     fig_w = cols * figsize_scale
     fig_h = rows * figsize_scale * 0.9
@@ -67,6 +68,9 @@ def show_RGBx_grid(images: dict[str, ImageRGBx],
         ax.imshow(img)
         ax.set_title(title, **style)
         ax.axis("off")
+
+    for i in range(images_n, rows * cols):
+        axes[i].axis("off")
 
     plt.tight_layout()
     plt.show()
@@ -186,26 +190,36 @@ def main():
         "img":               base_bgr,
         "top_bright":        1.1,
         "bottom_dark":       0.9,
-        "lighting_mode":     "linear",
+        "lighting_mode":     "",
         "lighting_strength": 1,
         "gradient_angle":    90,
         "grad_cx":           0,
         "grad_cy":           0,
     }
-    
-    demos = {
+
+    default_props["lighting_mode"] = "linear"
+    linear_demos = {
         "Linear 90deg x 0": {"lighting_strength": 0, "gradient_angle": 90},
         "Linear 90deg x 1": {"lighting_strength": 1, "gradient_angle": 90},
         "Linear 90deg x 5": {"lighting_strength": 5, "gradient_angle": 90},
         "Linear 45deg x 5": {"lighting_strength": 5, "gradient_angle": 45},
     }
-
-    for (title, custom_props) in demos.items():
-        demos[title] = rgb_from_bgr(
+    for (title, custom_props) in linear_demos.items():
+        linear_demos[title] = rgb_from_bgr(
             apply_lighting_gradient(**{**default_props, **custom_props})
         )
 
-    show_RGBx_grid(demos)
+    default_props["lighting_mode"] = "radial"
+    radial_demos = {
+        "Radial 0x0 x 1":   {"lighting_strength": 1, "grad_cx": 0, "grad_cy": 0},
+        "Radial 0x0 x 5":   {"lighting_strength": 5, "grad_cx": 0, "grad_cy": 0},
+    }
+    for (title, custom_props) in radial_demos.items():
+        radial_demos[title] = rgb_from_bgr(
+            apply_lighting_gradient(**{**default_props, **custom_props})
+        )
+
+    show_RGBx_grid({**linear_demos, **radial_demos})
 
 
 if __name__ == "__main__":
