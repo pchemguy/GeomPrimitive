@@ -8,35 +8,12 @@ from __future__ import annotations
 import os
 import sys
 import math
-from typing import TypeAlias, Sequence, Union
+from typing import Union
 import numpy as np
-from numpy.typing import NDArray
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spt_base import *
-
-ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
-ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
-ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
-
-
-import numpy as np
-import math
-from typing import Literal
-
-ImageBGR = np.ndarray
-
-
-import numpy as np
-import math
-from typing import Literal
-
-ImageBGR = np.ndarray
-
 
 def apply_lighting_gradient(img: ImageBGR,
                             top_bright: float = 0.0,
@@ -71,8 +48,6 @@ def apply_lighting_gradient(img: ImageBGR,
     `brightness` adjustment (with identical [-1, 1] semantics) is applied
     afterward to uniformly shift the overall exposure without altering the
     gradient contrast.
-
-
 
     Args:
         img: Input image (uint8, RGB or BGR).
