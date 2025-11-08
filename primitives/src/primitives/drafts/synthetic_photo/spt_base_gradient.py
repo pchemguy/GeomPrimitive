@@ -9,6 +9,10 @@ import os
 import sys
 import math
 import numpy as np
+import matplotlib as mpl
+if not __name__ == "__main__":
+    # Use a non-interactive backend (safe for multiprocessing workers)
+    mpl.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,7 +111,7 @@ def apply_lighting_gradient(img: ImageBGR,
 
 
 def main():
-        # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
     grad_bgr:  ImageBGR  = apply_lighting_gradient(

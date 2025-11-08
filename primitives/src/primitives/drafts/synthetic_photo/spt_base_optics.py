@@ -9,160 +9,147 @@ import os
 import sys
 import math
 import numpy as np
+import cv2
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from spt_base import *
 
-def apply_lighting_gradient(img: ImageBGR,
-                            top_bright: float = 0.0,
-                            bottom_dark: float = 0.0,
-                            lighting_mode: str = "linear",
-                            gradient_angle: float = 90.0,
-                            grad_cx: float = 0.0,
-                            grad_cy: float = 0.0,
-                            brightness: float = 0.0,
-                           ) -> ImageBGR:
-    """Apply lighting gradient and global brightness, both symmetric in [-1, 1].
-  
-    Each parameter uses identical semantics:
-        b = -1 -> full black
-        b =  0 -> no change
-        b = +1  full white
 
-    The gradient linearly interpolates between bottom_dark and top_bright.
-    The final global brightness is then applied as a post-bias.
-
-    The algorithm constructs a continuous per-pixel brightness field based on a
-    normalized gradient coordinate `u in [0, 1]`, where `u = 0` corresponds to the
-    bottom (dark) side and `u = 1` to the top (bright) side of the specified
-    lighting direction or radial field. Each endpoint, `bottom_dark` and
-    `top_bright`, defines a local brightness bias in the range [-1, 1], interpreted
-    symmetrically: negative values darken by scaling the pixel intensity by
-    (1 + b), and positive values brighten by linearly reducing the distance to
-    white as `I' = I + b * (255 - I)`. The effective local brightness coefficient
-    at every pixel is obtained by linear interpolation between these two endpoint
-    values, producing a smooth gradient of brightness bias. This field is then
-    applied to the input image on a per-pixel basis, and an optional global
-    `brightness` adjustment (with identical [-1, 1] semantics) is applied
-    afterward to uniformly shift the overall exposure without altering the
-    gradient contrast.
+def apply_camera_effects(img: ImageBGR,
+                         tilt_x: float = 0.18,
+                         tilt_y: float = 0.10,
+                         focal_scale: float = 1.0,
+                         k1: float = -0.25,
+                         k2: float = 0.05,
+                         pad_px: int = 100,
+                        ) -> ImageBGR:
+    """Apply focal scaling, perspective tilt, and radial lens distortion.
 
     Args:
-        img: Input image (uint8, RGB or BGR).
-        top_bright: Brightness-style adjustment at gradient top ([-1, 1]).
-        bottom_dark: Brightness-style adjustment at gradient bottom ([-1, 1]).
-        lighting_mode: "linear" or "radial" gradient pattern.
-        gradient_angle: For linear mode, direction in degrees.
-        grad_cx, grad_cy: Center offsets (for radial mode).
-        brightness: Global brightness adjustment in [-1, 1].
-  """
+        img: Input BGR uint8 image (pre-optical domain).
+
+    Returns:
+        np.ndarray: Distorted image simulating optical projection.
+    """
+    # Padding
+    if pad_px > 0:
+      img = cv2.copyMakeBorder(img, pad_px, pad_px, pad_px, pad_px,
+                               borderType=cv2.BORDER_CONSTANT,
+                               value=(255, 255, 255))
     h, w = img.shape[:2]
-    y, x = np.indices((h, w), dtype=np.float32)
-    angle_rad = math.radians(gradient_angle)
 
-    # --- Base gradient field u in [0, 1] ---
-    if lighting_mode == "linear":
-        # "bottom-to-top" convention
-        u = (-np.cos(angle_rad) * (x / w) + np.sin(angle_rad) * (y / h))
-        u = (u - u.min()) / (u.max() - u.min() + 1e-9)
-    else:  # radial
-        cx = (0.5 + grad_cx) * w
-        cy = (0.5 - grad_cy) * h
-        r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-        corners = np.array(
-            [[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32
-        )
-        r_max = np.max(
-            np.sqrt((corners[:, 0] - cx) ** 2 + (corners[:, 1] - cy) ** 2)
-        )
-        u = np.clip(r / (r_max + 1e-9), 0.0, 1.0)
+    # ===============================================================
+    # 1. FOCAL LENGTH (Field of View)
+    # ---------------------------------------------------------------
+    # focal_scale = 1.0 -> baseline FOV
+    # focal_scale > 1 -> telephoto (zoom-in, narrower)
+    # focal_scale < 1 -> wide angle (zoom-out, wider)
+    # ===============================================================
+    if focal_scale != 1.0:
+        f = focal_scale
+        new_w = int(round(w / f))
+        new_h = int(round(h / f))
+        cx, cy = w // 2, h // 2
+        x1 = max(cx - new_w // 2, 0)
+        x2 = min(cx + new_w // 2, w)
+        y1 = max(cy - new_h // 2, 0)
+        y2 = min(cy + new_h // 2, h)
+        cropped = img[y1:y2, x1:x2]
+        img = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
-    # --- Interpolated local brightness adjustment in [-1, 1] ---
-    local_brightness = bottom_dark + (top_bright - bottom_dark) * (1 - u)
+    # ===============================================================
+    # 2. CAMERA TILT (Perspective)
+    # ---------------------------------------------------------------
+    # tilt_x, tilt_y are normalized fractions of width/height.
+    # 0 = no tilt; 0.3 = strong skew.
+    # ===============================================================
+    dx = tilt_x * w
+    dy = tilt_y * h
+    src = np.float32([[0, 0],   [w, 0],           [w, h], [0, h]])
+    dst = np.float32([[dx, dy], [w - dx, dy / 2], [w, h], [0, h - dy]])
+    H = cv2.getPerspectiveTransform(src, dst)
+    persp = cv2.warpPerspective(img, H, (w, h),
+                                flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=(255, 255, 255))
 
-    img_f = img.astype(np.float32)
+    # ===============================================================
+    # 3. RADIAL LENS DISTORTION
+    # ---------------------------------------------------------------
+    # k1 < 0 -> barrel (wide angle)
+    # k1 > 0 -> pincushion (telephoto)
+    # k2 refines curvature falloff
+    # ===============================================================
+    cx, cy = w / 2.0, h / 2.0
+    r_norm = max(cx, cy)
+    xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
+                         np.arange(h, dtype=np.float32))
+    x_d = (xx - cx) / r_norm
+    y_d = (yy - cy) / r_norm
+    r2 = x_d * x_d + y_d * y_d
+    factor = 1.0 + k1 * r2 + k2 * (r2**2)
+    factor = np.where(factor == 0.0, 1.0, factor)
+    x_u = x_d / factor
+    y_u = y_d / factor
+    map_x = (x_u * r_norm + cx).astype(np.float32)
+    map_y = (y_u * r_norm + cy).astype(np.float32)
 
-    # --- Apply per-pixel brightness (same rule as global brightness) ---
-    out = img_f.copy()
-    neg_mask = local_brightness < 0
-    pos_mask = local_brightness >= 0
-
-    if np.any(neg_mask):
-        b_neg = (1.0 + local_brightness[neg_mask])[..., None]
-        out[neg_mask] = img_f[neg_mask] * b_neg
-
-    if np.any(pos_mask):
-        b_pos = local_brightness[pos_mask][..., None]
-        out[pos_mask] = img_f[pos_mask] + b_pos * (255.0 - img_f[pos_mask])
-
-    # --- Global brightness applied after gradient ---
-    b = float(np.clip(brightness, -1.0, 1.0))
-    if b > 0.0:
-        out = out + b * (255.0 - out)
-    elif b < 0.0:
-        out = out * (1.0 + b)
-
-    return np.clip(out, 0.0, 255.0).astype(np.uint8)
+    distorted = cv2.remap(persp, map_x, map_y,
+                          interpolation=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_CONSTANT,
+                          borderValue=(255, 255, 255))
+    return distorted
 
 
 def main():
-        # ----------------------------------------------------------------------
+    # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    grad_bgr:  ImageBGR  = apply_lighting_gradient(
+    grad_bgr:  ImageBGR  = apply_camera_effects(
                                img=base_bgr,
-                               top_bright=1.1,
-                               bottom_dark=0.9,
-                               lighting_mode="linear",
-                               gradient_angle=90,
-                               grad_cx=0,
-                               grad_cy=0,
+                               tilt_x=0.18,
+                               tilt_y=0.10,
+                               focal_scale=1.0,
+                               k1=-0.25,
+                               k2=0.05,
+                               pad_px=10,
                            )
-    demos = {}
+
     default_props = {
         "img":            base_bgr,
-        "top_bright":     0.0,
-        "bottom_dark":    0.0,
-        "lighting_mode":  "",
-        "gradient_angle": 90,
-        "grad_cx":        0,
-        "grad_cy":        0,
-        "brightness":     0,
+        "tilt_x":         0,
+        "tilt_y":         0,
+        "focal_scale":    1,
+        "k1":             0,
+        "k2":             0,
+        "pad_px":         10,
+    }
+    demos = {
+        "Baseline": rgb_from_bgr(apply_camera_effects(**default_props))
     }
 
-    default_props["lighting_mode"] = "linear"    
     demo_set = [
-        {"top_bright": +0.0, "bottom_dark": +0.0, "gradient_angle": 90, "brightness": 0.75},
-        {"top_bright": +0.1, "bottom_dark": -0.1, "gradient_angle": 90},
-        {"top_bright": +0.3, "bottom_dark": -0.7, "gradient_angle": 90},
-        {"top_bright": +0.3, "bottom_dark": -0.7, "gradient_angle": 45},
+        {"tilt_x": 0.05, "tilt_y": 0.01},
+        {"tilt_x": 0.10, "tilt_y": 0.01},
+        {"tilt_x": 0.15, "tilt_y": 0.01},
+        {"tilt_x": 0.05, "tilt_y": 0.05},
+        {"tilt_x": 0.05, "tilt_y": 0.10},
+        {"tilt_x": 0.30, "tilt_y": 0.30},
+        {"focal_scale": 1.0,  "k1": 0.01, "k2": 0.01},
+        {"focal_scale": 1.2,  "k1": 0.01, "k2": 0.01},
+        {"focal_scale": 1.05, "k1": 0.10, "k2": 0.10},
+        {"focal_scale": 1.1,  "k1": 0.01, "k2": 0.01},
+        {"focal_scale": 1.05, "k1": -0.2, "k2": -0.1},
     ]
     for custom_props in demo_set:
-        title = (
-            f"Linear {int(custom_props['gradient_angle'])}deg x "
-            f"{float(custom_props['top_bright']):.1f}x{float(custom_props['bottom_dark']):.1f}"
-        )
+        title = ["Optics "]
+        for key, val in custom_props.items():
+            title.append(f"key: '{key}': val '{val}'")
+        title = "".join(title)
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
-        )
-
-    default_props["lighting_mode"] = "radial"
-    demo_set = [
-        {"top_bright": +0.0, "bottom_dark": +0.0, "grad_cx": 0,   "grad_cy": 0, "brightness": -0.75},
-        {"top_bright": +0.5, "bottom_dark": -0.5, "grad_cx": 0,   "grad_cy": 0},
-        {"top_bright": +0.5, "bottom_dark": -0.5, "grad_cx": 0.5, "grad_cy": 0.5},
-        {"top_bright": +0.5, "bottom_dark": -0.5, "grad_cx": 1,   "grad_cy": 1},
-    ]
-    for custom_props in demo_set:
-        title = (
-            f"Radial {float(custom_props['grad_cx']):.1f}x{float(custom_props['grad_cy']):.1f} x "
-            f"{float(custom_props['top_bright']):.1f}x{float(custom_props['bottom_dark']):.1f}"
-        )
-        print(title)
-        demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
+            apply_camera_effects(**{**default_props, **custom_props})
         )
 
     show_RGBx_grid(demos, n_columns=4)

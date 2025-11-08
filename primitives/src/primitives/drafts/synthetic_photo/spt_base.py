@@ -18,6 +18,10 @@ from typing import TypeAlias, Sequence, Union
 import numpy as np
 from numpy.typing import NDArray
 import matplotlib as mpl
+if not __name__ == "__main__":
+    ""
+    # Use a non-interactive backend (safe for multiprocessing workers)
+    # mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
@@ -184,6 +188,7 @@ def render_scene(width_mm: float = 100,
     # Primitives: square, circle, triangle
 
     ax.add_patch(plt.Rectangle((30, 30), 20, 20, edgecolor="red", fill=False, lw=2))
+    ax.add_patch(plt.Rectangle((10, 50), 20, 20, edgecolor="cyan", fill=False, lw=2))
     ax.add_patch(plt.Circle((70, 40), 10, edgecolor="blue", fill=False, lw=2))
     tri = np.array([[10, 10], [20, 10], [15, 25]])
     ax.fill(tri[:, 0], tri[:, 1], edgecolor="green", fill=False, lw=2)
