@@ -24,28 +24,64 @@ def apply_camera_effects(img: ImageBGR,
                          k2: float = 0.05,
                          pad_px: int = 100,
                         ) -> ImageBGR:
-    """Apply focal scaling, perspective tilt, and radial lens distortion.
-
-    Args:
-        img: Input BGR uint8 image (pre-optical domain).
-
-    Returns:
-        np.ndarray: Distorted image simulating optical projection.
     """
-    # Padding
+    Apply synthetic camera projection effects: focal scaling, perspective tilt,
+    and radial lens distortion.
+  
+    The algorithm models three optical transformations that approximate a
+    simplified pinhole camera pipeline:
+  
+    1. **Focal scaling (zoom):**
+       The image is cropped and resampled to simulate changes in focal length.
+       `focal_scale > 1` produces a telephoto (zoom-in, narrower FOV),
+       while `focal_scale < 1` simulates a wide-angle (zoom-out, wider FOV)
+       projection.
+  
+    2. **Perspective tilt:**
+       A 2D projective transform skews the image around its center using
+       normalized offsets `tilt_x` and `tilt_y`, expressed as fractions of the
+       image width and height. This emulates off-axis perspective or lens-plane
+       tilt typical of real optical systems.
+  
+    3. **Radial lens distortion:**
+       Each pixel's radius from the optical center is adjusted according to the
+       radial polynomial:
+           r' = r * (1 + k1 * r^2 + k2 * r^4)
+       Negative `k1` values yield barrel (wide-angle) distortion,
+       while positive values yield pincushion (telephoto) distortion.
+       `k2` provides higher-order curvature refinement.
+  
+    The image is padded before transformations to avoid border cropping and
+    remapped with bilinear interpolation and white constant borders.
+  
+    Args:
+        img: Input image in uint8 BGR format.
+        tilt_x: Horizontal perspective skew fraction (0 - no tilt).
+        tilt_y: Vertical perspective skew fraction (0 - no tilt).
+        focal_scale: Relative focal length scaling (1 - baseline FOV).
+        k1: Primary radial distortion coefficient.
+        k2: Secondary distortion curvature coefficient.
+        pad_px: White padding border size in pixels to preserve content.
+  
+    Returns:
+        ImageBGR: Distorted image simulating optical projection.
+    """
+    # -------------------------------------------------------------
+    # 0. Optional white padding (prevents crop loss)
+    # -------------------------------------------------------------
     if pad_px > 0:
-      img = cv2.copyMakeBorder(img, pad_px, pad_px, pad_px, pad_px,
-                               borderType=cv2.BORDER_CONSTANT,
-                               value=(255, 255, 255))
+        img = cv2.copyMakeBorder(
+            img,
+            pad_px, pad_px, pad_px, pad_px,
+            borderType=cv2.BORDER_CONSTANT,
+            value=(255, 255, 255),
+        )
+
     h, w = img.shape[:2]
 
-    # ===============================================================
-    # 1. FOCAL LENGTH (Field of View)
-    # ---------------------------------------------------------------
-    # focal_scale = 1.0 -> baseline FOV
-    # focal_scale > 1 -> telephoto (zoom-in, narrower)
-    # focal_scale < 1 -> wide angle (zoom-out, wider)
-    # ===============================================================
+    # -------------------------------------------------------------
+    # 1. FOCAL SCALING (zoom simulation)
+    # -------------------------------------------------------------
     if focal_scale != 1.0:
         f = focal_scale
         new_w = int(round(w / f))
@@ -58,47 +94,46 @@ def apply_camera_effects(img: ImageBGR,
         cropped = img[y1:y2, x1:x2]
         img = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
-    # ===============================================================
-    # 2. CAMERA TILT (Perspective)
-    # ---------------------------------------------------------------
-    # tilt_x, tilt_y are normalized fractions of width/height.
-    # 0 = no tilt; 0.3 = strong skew.
-    # ===============================================================
+    # -------------------------------------------------------------
+    # 2. PERSPECTIVE TILT (off-axis projection)
+    # -------------------------------------------------------------
     dx = tilt_x * w
     dy = tilt_y * h
-    src = np.float32([[0, 0],   [w, 0],           [w, h], [0, h]])
+    src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
     dst = np.float32([[dx, dy], [w - dx, dy / 2], [w, h], [0, h - dy]])
     H = cv2.getPerspectiveTransform(src, dst)
     persp = cv2.warpPerspective(img, H, (w, h),
-                                flags=cv2.INTER_LINEAR,
-                                borderMode=cv2.BORDER_CONSTANT,
-                                borderValue=(255, 255, 255))
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
 
-    # ===============================================================
+    # -------------------------------------------------------------
     # 3. RADIAL LENS DISTORTION
-    # ---------------------------------------------------------------
-    # k1 < 0 -> barrel (wide angle)
-    # k1 > 0 -> pincushion (telephoto)
-    # k2 refines curvature falloff
-    # ===============================================================
+    # -------------------------------------------------------------
     cx, cy = w / 2.0, h / 2.0
     r_norm = max(cx, cy)
     xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
-                         np.arange(h, dtype=np.float32))
+                       np.arange(h, dtype=np.float32))
     x_d = (xx - cx) / r_norm
     y_d = (yy - cy) / r_norm
     r2 = x_d * x_d + y_d * y_d
-    factor = 1.0 + k1 * r2 + k2 * (r2**2)
-    factor = np.where(factor == 0.0, 1.0, factor)
+    factor = 1.0 + k1 * r2 + k2 * (r2 ** 2)
+    factor = np.where(factor == 0.0, 1.0, factor)  # avoid division by zero
     x_u = x_d / factor
     y_u = y_d / factor
+
     map_x = (x_u * r_norm + cx).astype(np.float32)
     map_y = (y_u * r_norm + cy).astype(np.float32)
 
-    distorted = cv2.remap(persp, map_x, map_y,
-                          interpolation=cv2.INTER_LINEAR,
-                          borderMode=cv2.BORDER_CONSTANT,
-                          borderValue=(255, 255, 255))
+    distorted = cv2.remap(
+        persp,
+        map_x, map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(255, 255, 255),
+    )
+
     return distorted
 
 
