@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import sys
 import math
-from typing import Union
 import numpy as np
 import matplotlib.pyplot as plt
 

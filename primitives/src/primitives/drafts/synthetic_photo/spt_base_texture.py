@@ -5,198 +5,102 @@ spt_base_gradient.py
 
 from __future__ import annotations
 
+import os
+import sys
 import math
-from typing import TypeAlias, Sequence, Union
 import numpy as np
-from numpy.typing import NDArray
-import matplotlib as mpl
 import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
+import cv2
 
-ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
-ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
-ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from spt_base import *
 
 
-def bgr_from_rgba(rgba: ImageRGBA) -> ImageBGR:
-    """Convert RGBA (Matplotlib) to BGR (OpenCV)."""
-    return rgba[..., :3][..., ::-1]
-
-
-def rgb_from_bgr(bgr: ImageBGR) -> ImageRGB:
-    """Convert BGR (OpenCV) to RGB (Matplotlib)."""
-    return bgr[..., ::-1]
-
-
-def show_RGBx_grid(images: dict[str, ImageRGBx], title_style: dict = None, 
-                   n_columns: int = None, figsize_scale: float = 5) -> None:
+def apply_texture(img: ImageBGR,
+                  texture_strength: float = 0.12,
+                  texture_scale: float = 8.0,
+                 ) -> ImageBGR:
     """
-    Display multiple images in an automatically balanced rectangular grid.
-
-    Layout rule:
-        cols = ceil(sqrt(N))
-        rows = ceil(N / cols)
-    (Keeps the layout close to square, with longer side horizontal.)
-
-    Args:
-        images: Dictionary of <Title>:<Image>; Image - NumPy array (RGB or RGBA).
-        title_style: Optional dict for Matplotlib title styling.
-        figsize_scale: Multiplier for overall figure size.
-    """
-    images_n = len(images)
-    if images_n == 0:
-        raise ValueError("No images to display.")
-
-    # --- Compute balanced grid ---
+    Apply multiplicative paper-fiber texture modulation before optical effects.
     
-    cols = n_columns or math.ceil(math.sqrt(images_n))
-    rows = math.ceil(images_n / cols)
-
-    fig_w = cols * figsize_scale
-    fig_h = rows * figsize_scale * 0.9
-    fig, axes = plt.subplots(rows, cols, figsize=(fig_w, fig_h))
-    axes = np.array(axes).reshape(-1)  # flatten axes array
-
-    # --- Title style defaults ---
-    style = dict(fontsize=16, fontweight="bold", color="green")
-    if title_style:
-        style.update(title_style)
-
-    # --- Draw each image ---
-    for (title, img), ax in zip(images.items(), axes):
-        ax.imshow(img)
-        ax.set_title(title, **style)
-        ax.axis("off")
-
-    for i in range(images_n, rows * cols):
-        axes[i].axis("off")
-
-    plt.tight_layout()
-    plt.show()
-
-
-def add_grid(ax, width_mm=100, height_mm=80) -> None:
-    """Add fine (1 mm) and major (10 mm) gridlines using LineCollection."""
-    # Fine grid every 1 mm
-    x_fine = np.arange(0, width_mm + 1, 1)
-    y_fine = np.arange(0, height_mm + 1, 1)
-    lines_fine = (
-        [((x, 0), (x, height_mm)) for x in x_fine] +
-        [((0, y), (width_mm, y)) for y in y_fine]
-    )
-    lc_fine = LineCollection(lines_fine, colors="gray", linewidths=0.2, alpha=0.5)
-    ax.add_collection(lc_fine)
-
-    # Major grid every 10 mm
-    x_major = np.arange(0, width_mm + 1, 10)
-    y_major = np.arange(0, height_mm + 1, 10)
-    lines_major = (
-        [((x, 0), (x, height_mm)) for x in x_major] +
-        [((0, y), (width_mm, y)) for y in y_major]
-    )
-    lc_major = LineCollection(lines_major, colors="gray", linewidths=0.6, alpha=0.7)
-    ax.add_collection(lc_major)
-
-
-def render_scene(width_mm: float = 100, 
-                 height_mm: float = 80,
-                 dpi: int = 200) -> ImageRGBA:
-    """Render an ideal grid + primitives scene via Matplotlib.
-
+    The algorithm generates a smooth random field `N(x, y)` from normally
+    distributed noise filtered with a Gaussian kernel of standard deviation
+    `texture_scale`. The field is then normalized to [0, 1] and remapped into a
+    multiplicative modulation mask:
+    
+        T(x, y) = 1 + texture_strength * (N(x, y) - 0.5)
+    
+    where `texture_strength` controls the amplitude of contrast variation and
+    `texture_scale` defines the spatial correlation length (fiber coarseness).
+    The resulting texture field `T` is applied to the input image
+    multiplicatively per pixel and per channel. Values are clipped to the
+    [0, 255] range and returned as uint8.
+    
+    Args:
+        img: Input image in uint8 BGR format.
+        texture_strength: Amplitude of multiplicative modulation (typ. 0.05-0.3).
+        texture_scale: Gaussian blur sigma controlling feature size in pixels.
+    
     Returns:
-        RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
+        ImageBGR: Texture-modulated image, same shape as input.
     """
-    fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4), dpi=dpi)
-    ax.set_xlim(0, width_mm)
-    ax.set_ylim(0, height_mm)
-    ax.set_aspect("equal")
-    ax.axis("off")
+    if texture_strength <= 0 or texture_scale <= 0:
+        return img
 
-    # Grid (1mm + 10mm thicker lines)
-
-    add_grid(ax, width_mm=100, height_mm=80)
-
-    # Primitives: square, circle, triangle
-
-    ax.add_patch(plt.Rectangle((30, 30), 20, 20, edgecolor="red", fill=False, lw=2))
-    ax.add_patch(plt.Circle((70, 40), 10, edgecolor="blue", fill=False, lw=2))
-    tri = np.array([[10, 10], [20, 10], [15, 25]])
-    ax.fill(tri[:, 0], tri[:, 1], edgecolor="green", fill=False, lw=2)
-
-    fig.canvas.draw()
-    rgba = np.asarray(fig.canvas.renderer.buffer_rgba())
-    plt.close(fig)
-
-    return rgba
-
-
-  def apply_texture(img: ImageBGR) -> ImageBGR:
-    """Multiplicative paper fiber texture (pre-optical)."""
-    if self.texture_strength <= 0 or self.texture_scale <=0:
-      return img
     h, w = img.shape[:2]
+
+    # --- Generate correlated noise field ---
     noise_field = np.random.randn(h, w).astype(np.float32)
-    noise_field = cv2.GaussianBlur(noise_field, (0, 0), self.texture_scale)
-    nf_min = float(noise_field.min())
-    nf_ptp = float(np.ptp(noise_field)) + 1e-9
-    noise_norm = (noise_field - nf_min) / nf_ptp
-    texture = 1.0 + self.texture_strength * (noise_norm - 0.5)
-    return np.clip(img.astype(np.float32) * texture[..., None],
-                   0, 255).astype(np.uint8)
+    noise_field = cv2.GaussianBlur(noise_field, (0, 0), texture_scale)
+
+    # --- Normalize to [0, 1] ---
+    nf_min, nf_max = float(noise_field.min()), float(noise_field.max())
+    noise_norm = (noise_field - nf_min) / (nf_max - nf_min + 1e-9)
+
+    # --- Construct multiplicative texture mask ---
+    texture = 1.0 + texture_strength * (noise_norm - 0.5)
+
+    # --- Apply and return ---
+    img_f = img.astype(np.float32)
+    out = np.clip(img_f * texture[..., None], 0, 255).astype(np.uint8)
+    return out
 
 
 def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    grad_bgr:  ImageBGR  = apply_lighting_gradient(
+    grad_bgr:  ImageBGR  = apply_texture(
                                img=base_bgr,
-                               top_bright=1.1,
-                               bottom_dark=0.9,
-                               lighting_mode="linear",
-                               lighting_strength=4,
-                               gradient_angle=90,
-                               grad_cx=0,
-                               grad_cy=0,
+                               texture_strength=0.12,
+                               texture_scale=8.0,
                            )
-    default_props = {
-        "img":               base_bgr,
-        "top_bright":        1.1,
-        "bottom_dark":       0.9,
-        "lighting_mode":     "",
-        "lighting_strength": 1,
-        "gradient_angle":    90,
-        "grad_cx":           0,
-        "grad_cy":           0,
-    }
 
-    default_props["lighting_mode"] = "linear"
-    linear_demos = {
-        "Linear 90deg x 0": {"lighting_strength": 0, "gradient_angle": 90},
-        "Linear 90deg x 1": {"lighting_strength": 1, "gradient_angle": 90},
-        "Linear 90deg x 5": {"lighting_strength": 5, "gradient_angle": 90},
-        "Linear 45deg x 5": {"lighting_strength": 5, "gradient_angle": 45},
-    }
-    for (title, custom_props) in linear_demos.items():
-        linear_demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
+    demos = {}
+    default_props = {"img": base_bgr,}
+    demo_set = [
+        {"texture_strength": 0.1, "texture_scale": 8},
+        {"texture_strength": 0.2, "texture_scale": 8},
+        {"texture_strength": 0.4, "texture_scale": 8},
+        {"texture_strength": 0.8, "texture_scale": 8},
+        {"texture_strength": 0.2, "texture_scale": 0.5},
+        {"texture_strength": 0.2, "texture_scale": 1},
+        {"texture_strength": 0.2, "texture_scale": 2},
+        {"texture_strength": 0.2, "texture_scale": 4},
+    ]
+    for custom_props in demo_set:
+        title = (
+            f"Texture strength x scale: {float(custom_props['texture_strength']):.1f} x "
+            f"{float(custom_props['texture_scale']):.1f}"
+        )
+        print(title)
+        demos[title] = rgb_from_bgr(
+            apply_texture(**{**default_props, **custom_props})
         )
 
-    default_props["lighting_mode"] = "radial"
-    radial_demos = {
-        "Radial 0x0 x 1":       {"lighting_strength": 1, "grad_cx": 0,   "grad_cy": 0},
-        "Radial 0x0 x 5":       {"lighting_strength": 5, "grad_cx": 0,   "grad_cy": 0},
-        "Radial 0.5x0.5 x 5":   {"lighting_strength": 5, "grad_cx": 0.5, "grad_cy": 0.5},
-        "Radial 1x1 x 5":       {"lighting_strength": 5, "grad_cx": 1,   "grad_cy": 1},
-    }
-    for (title, custom_props) in radial_demos.items():
-        radial_demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
-        )
-
-    show_RGBx_grid({**linear_demos, **radial_demos}, n_columns=4)
+    show_RGBx_grid(demos, n_columns=4)
 
 
 if __name__ == "__main__":
     main()
+
