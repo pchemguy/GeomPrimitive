@@ -5,6 +5,8 @@ spt_base_gradient.py
 
 from __future__ import annotations
 
+import os
+import sys
 import math
 from typing import TypeAlias, Sequence, Union
 import numpy as np
@@ -14,6 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from spt_base import *
 
 ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
 ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order

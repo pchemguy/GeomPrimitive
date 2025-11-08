@@ -4,7 +4,12 @@ spt_base.py
 """
 
 from __future__ import annotations
+__all__ = ["bgr_from_rgba", "rgb_from_bgr", "show_RGBx_grid", "render_scene"]
 
+import os
+import sys
+import time
+import random
 import math
 from typing import TypeAlias, Sequence, Union
 import numpy as np
@@ -19,6 +24,35 @@ ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
 ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
 ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
 ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
+
+PAPER_COLORS = [
+    "none", "white", "cornsilk", "ivory", "oldlace", "floralwhite", "whitesmoke"
+] # X11/CSS4
+
+# Plot background color settings
+#
+# Global settings:
+#   plt.rcParams["figure.facecolor"] = "white" # Canvas
+#   plt.rcParams["axes.facecolor"] = "white"   # Plot area
+#
+# Object:
+#   fig.patch.set_facecolor("white")           # Canvas
+#   ax.set_facecolor("white")                  # Plot area
+#
+# Object - Transparent:                        # Canvas   
+#   fig.patch.set_alpha(0.0)                   # Plot area
+#   ax.set_facecolor("none")
+
+# Plot padding trimming (numbers are fractions of canvas size)
+#
+# Global:
+#   fig.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+#   plt.tight_layout() # Reduces margins to reasonable minimum.
+#       IMPORTANT: must be executed AFTER ax.axis("off")
+#
+# Object:
+#   ax.set_position([0, 0, 1, 1])
+#   ax.margins(x=0, y=0)
 
 
 def bgr_from_rgba(rgba: ImageRGBA) -> ImageBGR:
@@ -61,7 +95,7 @@ def show_RGBx_grid(images: dict[str, ImageRGBx], title_style: dict = None,
     axes = np.array(axes).reshape(-1)  # flatten axes array
 
     # --- Title style defaults ---
-    style = dict(fontsize=16, fontweight="bold", color="green")
+    style = dict(fontsize=14, fontweight="bold", color="green")
     if title_style:
         style.update(title_style)
 
@@ -103,18 +137,43 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
 
 def render_scene(width_mm: float = 100, 
                  height_mm: float = 80,
-                 dpi: int = 200) -> ImageRGBA:
+                 dpi: int = 200,
+                 canvas_bg_idx: int = None,
+                 plot_bg_idx: int = None) -> ImageRGBA:
     """Render an ideal grid + primitives scene via Matplotlib.
 
     Returns:
         RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
     """
+    rng = random.Random(os.getpid() ^ int(time.time()))
+
     fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4), dpi=dpi)
+
+    bg_n = len(PAPER_COLORS)
+
+    if not canvas_bg_idx is None:
+        if (not isinstance(canvas_bg_idx, int)
+            or canvas_bg_idx >= bg_n or canvas_bg_idx < 0 ):
+            canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
+        if canvas_bg_idx == 0:
+            fig.patch.set_alpha(0.0)
+        else:
+            fig.patch.set_facecolor(PAPER_COLORS[canvas_bg_idx])
+
+    if not plot_bg_idx is None:
+        if (not isinstance(plot_bg_idx, int)
+            or plot_bg_idx >= bg_n or plot_bg_idx < 0):
+            plot_bg_idx = rng.randrange(len(PAPER_COLORS))
+        ax.set_facecolor(PAPER_COLORS[plot_bg_idx])
+
     ax.set_xlim(0, width_mm)
     ax.set_ylim(0, height_mm)
     ax.set_aspect("equal")
     ax.axis("off")
-
+    plt.tight_layout()
+    #ax.set_position([0, 0, 1, 1])
+    #ax.margins(x=0, y=0)
+    
     # Grid (1mm + 10mm thicker lines)
 
     add_grid(ax, width_mm=100, height_mm=80)
@@ -135,15 +194,48 @@ def render_scene(width_mm: float = 100,
 
 def main():
     # ----------------------------------------------------------------------
+    rng = random.Random(os.getpid() ^ int(time.time()))
+
     rgba: ImageRGBA = render_scene()
     bgr:  ImageBGR  = bgr_from_rgba(rgba)
     rgb:  ImageRGB  = rgb_from_bgr(bgr)
     
-    show_RGBx_grid({
+    demos = {
         "Matplotlib RGBA":               rgba,
         "Roundtrip: RGBA -> BGR -> RGB": rgb,
-    })
+    }
 
+    canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
+    plot_bg_idx = rng.randrange(len(PAPER_COLORS))
+    demos[
+        f"\nRandom: "
+        f"Canvas: '{PAPER_COLORS[canvas_bg_idx]}'. Plot - '{PAPER_COLORS[plot_bg_idx]}'"
+    ] = render_scene(canvas_bg_idx=canvas_bg_idx, plot_bg_idx=plot_bg_idx)
+
+    for color_idx in range(len(PAPER_COLORS)):
+        demos[
+            f"Canvas: '{PAPER_COLORS[color_idx]}'. Plot - '{PAPER_COLORS[color_idx]}'"
+        ] = render_scene(canvas_bg_idx=color_idx, plot_bg_idx=color_idx)
+
+    show_RGBx_grid(demos)
 
 if __name__ == "__main__":
     main()
+
+
+
+"""
+    default_props["lighting_mode"] = "radial"
+    radial_demos = {
+        "Radial 0x0 x 1":       {"lighting_strength": 1, "grad_cx": 0,   "grad_cy": 0},
+        "Radial 0x0 x 5":       {"lighting_strength": 5, "grad_cx": 0,   "grad_cy": 0},
+        "Radial 0.5x0.5 x 5":   {"lighting_strength": 5, "grad_cx": 0.5, "grad_cy": 0.5},
+        "Radial 1x1 x 5":       {"lighting_strength": 5, "grad_cx": 1,   "grad_cy": 1},
+    }
+    for (title, custom_props) in radial_demos.items():
+        radial_demos[title] = rgb_from_bgr(
+            apply_lighting_gradient(**{**default_props, **custom_props})
+        )
+
+    show_RGBx_grid({**linear_demos, **radial_demos}, n_columns=4)
+"""
