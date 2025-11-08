@@ -13,6 +13,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
 ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
 ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
@@ -156,7 +158,7 @@ def apply_lighting_gradient(img: ImageBGR,
         u = (u - u.min()) / (u.max() - u.min() + 1e-9)
     else:  # Radial
         cx = (0.5 + grad_cx) * w
-        cy = (0.5 + grad_cy) * h
+        cy = (0.5 - grad_cy) * h # Use minus to direct vertical axis bottom to top
         r = np.sqrt((x - cx)**2 + (y - cy)**2)
         corners = np.array([[0, 0], [w-1, 0], [w-1, h-1], [0, h-1]], dtype=np.float32)
         r_max = np.max(np.sqrt((corners[:, 0] - cx)**2 + (corners[:, 1] - cy)**2))
@@ -211,15 +213,17 @@ def main():
 
     default_props["lighting_mode"] = "radial"
     radial_demos = {
-        "Radial 0x0 x 1":   {"lighting_strength": 1, "grad_cx": 0, "grad_cy": 0},
-        "Radial 0x0 x 5":   {"lighting_strength": 5, "grad_cx": 0, "grad_cy": 0},
+        "Radial 0x0 x 1":       {"lighting_strength": 1, "grad_cx": 0,   "grad_cy": 0},
+        "Radial 0x0 x 5":       {"lighting_strength": 5, "grad_cx": 0,   "grad_cy": 0},
+        "Radial 0.5x0.5 x 5":   {"lighting_strength": 5, "grad_cx": 0.5, "grad_cy": 0.5},
+        "Radial 1x1 x 5":       {"lighting_strength": 5, "grad_cx": 1,   "grad_cy": 1},
     }
     for (title, custom_props) in radial_demos.items():
         radial_demos[title] = rgb_from_bgr(
             apply_lighting_gradient(**{**default_props, **custom_props})
         )
 
-    show_RGBx_grid({**linear_demos, **radial_demos})
+    show_RGBx_grid({**linear_demos, **radial_demos}, n_columns=4)
 
 
 if __name__ == "__main__":
