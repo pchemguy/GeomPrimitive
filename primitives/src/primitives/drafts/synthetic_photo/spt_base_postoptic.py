@@ -20,10 +20,43 @@ def apply_vignette_and_color_shift(img: ImageBGR,
                                    vignette_strength: float = 0.35,
                                    warm_strength: float = 0.10,
                                   ) -> ImageBGR:
-    """Apply post-lens vignetting and chromatic imbalance."""
+    """
+    Apply post-lens vignetting and chromatic channel imbalance.
+    
+    The algorithm constructs a normalized radial field `r in [0, 1]` measured
+    from the optical center and applies two coupled effects:
+    
+    1. **Vignetting:** A quadratic radial attenuation of luminance simulating
+       the optical fall-off toward the image corners. The attenuation mask is
+    
+           V(r) = 1 - vignette_strength * r^2
+    
+       where `vignette_strength` controls corner darkening amplitude.
+    
+    2. **Chromatic warming:** A mild wavelength-dependent gain imbalance that
+       increases red-channel intensity and slightly decreases blue toward the
+       periphery, approximating lens coatings and sensor color-response drift.
+       Channel-specific scaling masks are defined as
+    
+           warm_mask(r) = 1 + warm_strength * r^1.2   (R channel)
+           cool_mask(r) = 1 - 0.5 * warm_strength * r^1.2   (B channel)
+    
+    These masks are applied multiplicatively to the float32 image in BGR order,
+    preserving relative color balance near the center while inducing subtle
+    warmth and fall-off toward edges. The result is clipped to [0, 255] and
+    quantized back to uint8.
+    
+    Args:
+        img: Input image (uint8, BGR order).
+        vignette_strength: Radial brightness fall-off magnitude (0-1).
+        warm_strength: Peripheral color warming intensity (0-1).
+    
+    Returns:
+        ImageBGR: Image with vignette and color-shift applied.
+    """
     if vignette_strength <= 0 and warm_strength <= 0:
-      return img
-
+        return img
+    
     h, w = img.shape[:2]
     cx, cy = w / 2.0, h / 2.0
     xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
@@ -32,16 +65,18 @@ def apply_vignette_and_color_shift(img: ImageBGR,
     ry = (yy - cy) / cy
     r = np.sqrt(rx * rx + ry * ry)
     r_norm = np.clip(r / (r.max() + 1e-9), 0.0, 1.0)
-
-    vignette_mask = 1.0 - vignette_strength * (r_norm**2)
-    warm_mask = 1.0 + warm_strength * (r_norm**1.2)
-    cool_mask = 1.0 - 0.5 * warm_strength * (r_norm**1.2)
-
+    
+    # --- Radial masks ---
+    vignette_mask = 1.0 - vignette_strength * (r_norm ** 2)
+    warm_mask = 1.0 + warm_strength * (r_norm ** 1.2)
+    cool_mask = 1.0 - 0.5 * warm_strength * (r_norm ** 1.2)
+    
+    # --- Apply modulation ---
     img_f = img.astype(np.float32)
     img_f *= vignette_mask[..., None]
-    img_f[..., 0] *= cool_mask   # B
-    img_f[..., 2] *= warm_mask   # R
-
+    img_f[..., 0] *= cool_mask   # B channel
+    img_f[..., 2] *= warm_mask   # R channel
+    
     return np.clip(img_f, 0, 255).astype(np.uint8)
 
 
