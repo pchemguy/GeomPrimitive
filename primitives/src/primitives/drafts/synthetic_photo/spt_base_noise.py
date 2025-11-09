@@ -9,12 +9,21 @@ import os
 import sys
 import math
 import numpy as np
-import matplotlib.pyplot as plt
 from skimage import util, exposure, filters
 from skimage.util import random_noise
 import cv2
 
+import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import spt_config
+if __name__ == "__main__":
+    spt_config.BATCH_MODE = False
+else:
+    if spt_config.BATCH_MODE:
+        # Use a non-interactive backend (safe for multiprocessing workers)
+        mpl.use("Agg")
+import matplotlib.pyplot as plt
+
 from spt_base import *
 
 
@@ -58,7 +67,7 @@ def apply_noise(img: ImageBGR,
         ImageBGR: Noisy and blurred image, same shape as input.
     """
     img_f = util.img_as_float(img)
-  
+    
     # Sequential noise composition
     if poisson:
         img_f = random_noise(img_f, mode="poisson")
@@ -78,7 +87,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    grad_bgr:  ImageBGR  = apply_noise(
+    proc_bgr:  ImageBGR  = apply_noise(
                                img=base_bgr,
                                gaussian = 0.2,
                                poisson = True,

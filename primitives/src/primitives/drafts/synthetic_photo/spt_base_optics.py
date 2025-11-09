@@ -12,7 +12,17 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
+import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import spt_config
+if __name__ == "__main__":
+    spt_config.BATCH_MODE = False
+else:
+    if spt_config.BATCH_MODE:
+        # Use a non-interactive backend (safe for multiprocessing workers)
+        mpl.use("Agg")
+import matplotlib.pyplot as plt
+
 from spt_base import *
 
 
@@ -141,7 +151,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    grad_bgr:  ImageBGR  = apply_camera_effects(
+    proc_bgr:  ImageBGR  = apply_camera_effects(
                                img=base_bgr,
                                tilt_x=0.18,
                                tilt_y=0.10,
