@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_texture.py
 -----------
 """
 
@@ -27,10 +27,10 @@ import matplotlib.pyplot as plt
 from spt_base import *
 
 
-def apply_texture(img: ImageBGR,
-                  texture_strength: float = 0.12,
-                  texture_scale: float = 8.0,
-                 ) -> ImageBGR:
+def spt_texture(img: ImageBGR,
+                texture_strength: float = 0.12,
+                texture_scale: float = 8.0,
+               ) -> ImageBGR:
     """
     Apply multiplicative paper-fiber texture modulation before optical effects.
     
@@ -81,7 +81,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    proc_bgr:  ImageBGR  = apply_texture(
+    proc_bgr:  ImageBGR  = spt_texture(
                                img=base_bgr,
                                texture_strength=0.12,
                                texture_scale=8.0,
@@ -98,7 +98,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(apply_texture(**random_props)),
+        "RANDOM":   rgb_from_bgr(spt_texture(**random_props)),
     }
 
     default_props = {"img": base_bgr,}
@@ -119,7 +119,7 @@ def main():
         )
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_texture(**{**default_props, **custom_props})
+            spt_texture(**{**default_props, **custom_props})
         )
 
     show_RGBx_grid(demos, n_columns=4)

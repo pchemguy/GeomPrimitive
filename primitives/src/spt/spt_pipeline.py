@@ -1,5 +1,5 @@
 """
-spt_base_pipeline.py
+spt_pipeline.py
 -----------
 """
 
@@ -21,12 +21,12 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base           import *
-from spt_base_gradient  import apply_lighting_gradient
-from spt_base_texture   import apply_texture
-from spt_base_noise     import apply_noise
-from spt_base_optics    import apply_camera_effects
-from spt_base_postoptic import apply_vignette_and_color_shift
+from spt_base     import *
+from spt_lighting import spt_lighting
+from spt_texture  import spt_texture
+from spt_noise    import spt_noise
+from spt_geometry import spt_geometry
+from spt_color    import spt_vignette_and_color
 
 
 def main():
@@ -53,9 +53,8 @@ def main():
     grad_cy           = clamped_normal(0.4, 1.5)
     brightness        = clamped_normal(0.2, 0.5 * delta)
                       
-    stage1_lighting   = apply_lighting_gradient(stage0_mpl, top_bright, bottom_dark,
-                                                lighting_mode, gradient_angle,
-                                                grad_cx, grad_cy, brightness)
+    stage1_lighting   = spt_lighting(stage0_mpl, top_bright, bottom_dark, lighting_mode,
+                                     gradient_angle, grad_cx, grad_cy, brightness)
 
     # ----------------------------------------------------------------------
     # Stage 2. Texture
@@ -63,7 +62,7 @@ def main():
     texture_strength  = abs(clamped_normal(0.5, 2))
     texture_scale     = abs(clamped_normal(1.0, 8))
                       
-    stage2_texture    = apply_texture(stage1_lighting, texture_strength, texture_scale)
+    stage2_texture    = spt_texture(stage1_lighting, texture_strength, texture_scale)
 
     # ----------------------------------------------------------------------
     # Stage 3. Noise
@@ -74,8 +73,8 @@ def main():
     speckle_var       = abs(clamped_normal(0.2))
     blur_sigma        = abs(clamped_normal(0.2))
                     
-    stage3_noise      = apply_noise(stage2_texture, poisson, gaussian,
-                                    sp_amount, speckle_var, blur_sigma)
+    stage3_noise      = spt_noise(stage2_texture, poisson, gaussian,
+                                  sp_amount, speckle_var, blur_sigma)
 
     # ----------------------------------------------------------------------
     # Stage 4. Geometry
@@ -85,7 +84,7 @@ def main():
     k1                = clamped_normal(0.25)
     k2                = clamped_normal(0.25)
                      
-    stage4_geometry   = apply_camera_effects(stage3_noise, tilt_x, tilt_y, k1, k2)
+    stage4_geometry   = spt_geometry(stage3_noise, tilt_x, tilt_y, k1, k2)
 
     # ----------------------------------------------------------------------
     # Stage 5. Color
@@ -93,8 +92,8 @@ def main():
     vignette_strength = abs(clamped_normal(0.1, 0.5))
     warm_strength     = abs(clamped_normal(0.1, 0.5))
 
-    stage5_color      = apply_vignette_and_color_shift(stage4_geometry,
-                                                       vignette_strength, warm_strength)
+    stage5_color      = spt_vignette_and_color(stage4_geometry, vignette_strength,
+                                               warm_strength)
 
     demos = {
         "0 - Matplotlib": rgb_from_bgr(stage0_mpl),

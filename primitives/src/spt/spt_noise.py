@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_noise.py
 -----------
 """
 
@@ -28,13 +28,13 @@ import matplotlib.pyplot as plt
 from spt_base import *
 
 
-def apply_noise(img: ImageBGR,
-                poisson: bool = True,      # apply Poisson photon noise
-                gaussian: float = 0.2,     # normalized [0-1], - var=(sigma*0.1)^2
-                sp_amount: float = 0.0,    # normalized [0-1], - amount=x*0.1
-                speckle_var: float = 0.0,  # normalized [0-1], - var=x*0.1
-                blur_sigma: float = 0.8,   # normalized [0-1], - sigma=x*10 px
-               ) -> ImageBGR:
+def spt_noise(img: ImageBGR,
+              poisson: bool = True,      # apply Poisson photon noise
+              gaussian: float = 0.2,     # normalized [0-1], - var=(sigma*0.1)^2
+              sp_amount: float = 0.0,    # normalized [0-1], - amount=x*0.1
+              speckle_var: float = 0.0,  # normalized [0-1], - var=x*0.1
+              blur_sigma: float = 0.8,   # normalized [0-1], - sigma=x*10 px
+             ) -> ImageBGR:
     """
     Apply combined sensor-domain noise and optical blur models.
     
@@ -88,7 +88,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    proc_bgr:  ImageBGR  = apply_noise(
+    proc_bgr:  ImageBGR  = spt_noise(
                                img=base_bgr,
                                poisson = True,
                                gaussian = 0.2,
@@ -111,7 +111,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(apply_noise(**random_props)),
+        "RANDOM":   rgb_from_bgr(spt_noise(**random_props)),
     }
 
     noise_off = {
@@ -148,10 +148,10 @@ def main():
     }
     demos = {
         **demos,
-        "Noise OFF": rgb_from_bgr(apply_noise(**noise_off)),
-        "Basic": rgb_from_bgr(apply_noise(**default_props)),
-        "dx2": rgb_from_bgr(apply_noise(**dx2)),
-        "dx5": rgb_from_bgr(apply_noise(**dx5)),
+        "Noise OFF": rgb_from_bgr(spt_noise(**noise_off)),
+        "Basic": rgb_from_bgr(spt_noise(**default_props)),
+        "dx2": rgb_from_bgr(spt_noise(**dx2)),
+        "dx5": rgb_from_bgr(spt_noise(**dx5)),
     }
 
 

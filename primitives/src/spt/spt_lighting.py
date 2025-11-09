@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_lighting.py
 -----------
 """
 
@@ -25,15 +25,10 @@ import matplotlib.pyplot as plt
 
 from spt_base import *
 
-def apply_lighting_gradient(img: ImageBGR,
-                            top_bright: float = 0.0,
-                            bottom_dark: float = 0.0,
-                            lighting_mode: str = "linear",
-                            gradient_angle: float = 90.0,
-                            grad_cx: float = 0.0,
-                            grad_cy: float = 0.0,
-                            brightness: float = 0.0,
-                           ) -> ImageBGR:
+
+def spt_lighting(img: ImageBGR, top_bright: float = 0.0, bottom_dark: float = 0.0,
+                 lighting_mode: str = "linear", gradient_angle: float = 90.0,
+                 grad_cx: float = 0.0, grad_cy: float = 0.0, brightness: float = 0.0) -> ImageBGR:
     """Apply lighting gradient and global brightness, both symmetric in [-1, 1].
   
     Each parameter uses identical semantics:
@@ -121,7 +116,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    proc_bgr:  ImageBGR  = apply_lighting_gradient(
+    proc_bgr:  ImageBGR  = spt_lighting(
                                img=base_bgr,
                                top_bright=1.1,
                                bottom_dark=0.9,
@@ -148,7 +143,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(apply_lighting_gradient(**random_props)),
+        "RANDOM":   rgb_from_bgr(spt_lighting(**random_props)),
     }
 
     default_props = {
@@ -176,7 +171,7 @@ def main():
         )
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
+            spt_lighting(**{**default_props, **custom_props})
         )
 
     default_props["lighting_mode"] = "radial"
@@ -193,7 +188,7 @@ def main():
         )
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
+            spt_lighting(**{**default_props, **custom_props})
         )
 
     show_RGBx_grid(demos, n_columns=4)

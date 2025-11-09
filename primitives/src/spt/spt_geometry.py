@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_geometry.py
 -----------
 """
 
@@ -28,9 +28,8 @@ import matplotlib.pyplot as plt
 from spt_base import *
 
 
-def apply_camera_effects(img: ImageBGR,
-                         tilt_x: float = 0.18, tilt_y: float = 0.10,
-                         k1: float = -0.25, k2: float = 0.05) -> ImageBGR:
+def spt_geometry(img: ImageBGR, tilt_x: float = 0.18, tilt_y: float = 0.10,
+                 k1: float = -0.25, k2: float = 0.05) -> ImageBGR:
     """
     Apply synthetic camera projection effects: perspective tilt and radial
     lens distortion.
@@ -107,7 +106,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    proc_bgr:  ImageBGR  = apply_camera_effects(
+    proc_bgr:  ImageBGR  = spt_geometry(
                                img=base_bgr,
                                tilt_x=0.18,
                                tilt_y=0.10,
@@ -128,7 +127,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(apply_camera_effects(**random_props)),
+        "RANDOM":   rgb_from_bgr(spt_geometry(**random_props)),
     }
 
     default_props = {
@@ -160,7 +159,7 @@ def main():
         title = "".join(title)
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_camera_effects(**{**default_props, **custom_props})
+            spt_geometry(**{**default_props, **custom_props})
         )
 
     show_RGBx_grid(demos, n_columns=4)

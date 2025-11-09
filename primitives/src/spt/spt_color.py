@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_color.py
 -----------
 """
 
@@ -28,10 +28,8 @@ import matplotlib.pyplot as plt
 from spt_base import *
 
 
-def apply_vignette_and_color_shift(img: ImageBGR,
-                                   vignette_strength: float = 0.35,
-                                   warm_strength: float = 0.10,
-                                  ) -> ImageBGR:
+def spt_vignette_and_color(img: ImageBGR, vignette_strength: float = 0.35,
+                           warm_strength: float = 0.10) -> ImageBGR:
     """
     Apply post-lens vignetting and chromatic channel imbalance.
     
@@ -96,7 +94,7 @@ def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
-    proc_bgr:  ImageBGR  = apply_vignette_and_color_shift(
+    proc_bgr:  ImageBGR  = spt_vignette_and_color(
                                img=base_bgr,
                                vignette_strength=0.35,
                                warm_strength=0.10
@@ -113,7 +111,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(apply_vignette_and_color_shift(**random_props)),
+        "RANDOM":   rgb_from_bgr(spt_vignette_and_color(**random_props)),
     }
 
     default_props = {"img": base_bgr,}
@@ -133,7 +131,7 @@ def main():
         )
         print(title)
         demos[title] = rgb_from_bgr(
-            apply_vignette_and_color_shift(**{**default_props, **custom_props})
+            spt_vignette_and_color(**{**default_props, **custom_props})
         )
 
     show_RGBx_grid(demos, n_columns=4)
