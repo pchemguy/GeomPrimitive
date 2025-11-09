@@ -129,10 +129,10 @@ def main():
         "blur_sigma": 0.5,
     }
     demos = {
-        "Noise OFF": apply_noise(**noise_off),
-        "Basic": apply_noise(**default_props),
-        "dx2": apply_noise(**dx2),
-        "dx5": apply_noise(**dx5),
+        "Noise OFF": rgb_from_bgr(apply_noise(**noise_off)),
+        "Basic": rgb_from_bgr(apply_noise(**default_props)),
+        "dx2": rgb_from_bgr(apply_noise(**dx2)),
+        "dx5": rgb_from_bgr(apply_noise(**dx5)),
     }
 
 
