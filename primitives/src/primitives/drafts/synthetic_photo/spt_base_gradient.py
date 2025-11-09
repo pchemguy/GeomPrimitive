@@ -129,6 +129,7 @@ def main():
                                gradient_angle=90,
                                grad_cx=0,
                                grad_cy=0,
+                               brightness=0,
                            )
     rng = random.Random(os.getpid() ^ int(time.time()))
     delta = 1 + max(-1, min(1, 0.25 * rng.normalvariate(0, 1)))
