@@ -104,10 +104,10 @@ def main():
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
         "poisson":        rng.choice([False, True]),
-        "gaussian":       abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
-        "sp_amount":      abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
-        "speckle_var":    abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
-        "blur_sigma":     abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
+        "gaussian":       abs(max(-1, min(1, rng.normalvariate(0, 0.2)))),
+        "sp_amount":      abs(max(-1, min(1, rng.normalvariate(0, 0.2)))),
+        "speckle_var":    abs(max(-1, min(1, rng.normalvariate(0, 0.2)))),
+        "blur_sigma":     abs(max(-1, min(1, rng.normalvariate(0, 0.2)))),
     }
     demos = {
         "BASELINE": base_rgba,
