@@ -13,7 +13,6 @@ import math
 import numpy as np
 from skimage import util, exposure, filters
 from skimage.util import random_noise
-import cv2
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
