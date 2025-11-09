@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import random
 import math
 import numpy as np
 import matplotlib.pyplot as plt
@@ -100,7 +102,20 @@ def main():
                                warm_strength=0.10
                            )
 
-    demos = {}
+    rng = random.Random(os.getpid() ^ int(time.time()))
+    random_props = {
+        "img":            bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
+        "vignette_strength":  abs(max(-0.5, min(0.5, 0.1 * rng.normalvariate(0, 1)))),
+        "warm_strength":      abs(max(-0.5, min(0.5, 0.1 * rng.normalvariate(0, 1)))),
+    }
+    demos = {
+        "BASELINE": base_rgba,
+        "RANDOM": rgb_from_bgr(apply_vignette_and_color_shift(**random_props)),
+    }
+
     default_props = {"img": base_bgr,}
     demo_set = [
         {"vignette_strength": 0.00, "warm_strength": 0.00},
