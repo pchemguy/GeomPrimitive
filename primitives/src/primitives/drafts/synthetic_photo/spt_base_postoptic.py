@@ -113,7 +113,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM": rgb_from_bgr(apply_vignette_and_color_shift(**random_props)),
+        "RANDOM":   rgb_from_bgr(apply_vignette_and_color_shift(**random_props)),
     }
 
     default_props = {"img": base_bgr,}

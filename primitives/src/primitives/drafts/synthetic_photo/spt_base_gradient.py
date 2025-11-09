@@ -147,7 +147,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM": rgb_from_bgr(apply_lighting_gradient(**random_props)),
+        "RANDOM":   rgb_from_bgr(apply_lighting_gradient(**random_props)),
     }
 
     default_props = {

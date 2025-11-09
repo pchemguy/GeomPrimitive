@@ -112,7 +112,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM": rgb_from_bgr(apply_noise(**random_props)),
+        "RANDOM":   rgb_from_bgr(apply_noise(**random_props)),
     }
 
     noise_off = {

@@ -178,7 +178,7 @@ def main():
     }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM": rgb_from_bgr(apply_camera_effects(**random_props)),
+        "RANDOM":   rgb_from_bgr(apply_camera_effects(**random_props)),
     }
 
     default_props = {
