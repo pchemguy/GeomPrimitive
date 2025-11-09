@@ -30,6 +30,7 @@ from spt_base_postoptic import apply_vignette_and_color_shift
 
 
 def main():
+    clamped_normal = lambda sigma=1, amp=1: max(-amp, min(amp, rng.normalvariate(0, sigma)))
     # ----------------------------------------------------------------------
     # Stage 0. Matplotlob and Background Color
     # ----------------------------------------------------------------------
@@ -43,14 +44,14 @@ def main():
     # ----------------------------------------------------------------------
     # Stage 1. Lighting
     # ----------------------------------------------------------------------
-    delta             = 1 + max(-1, min(1, 0.25 * rng.normalvariate(0, 1)))
+    delta             = 1 + clamped_normal(0.25)
     top_bright        = 0.5 * delta
     bottom_dark       = -0.5 * delta
     lighting_mode     = rng.choice(["linear", "radial"])
     gradient_angle    = rng.randint(-180, 180)
-    grad_cx           = max(-1.5, min(1.5, 0.4 * rng.normalvariate(0, 1)))
-    grad_cy           = max(-1.5, min(1.5, 0.4 * rng.normalvariate(0, 1)))
-    brightness        = max(-0.5 * delta, min(0.5 * delta, rng.normalvariate(0, 0.2)))
+    grad_cx           = clamped_normal(0.4, 1.5)
+    grad_cy           = clamped_normal(0.4, 1.5)
+    brightness        = clamped_normal(0.2, 0.5 * delta)
                       
     stage1_lighting   = apply_lighting_gradient(stage0_mpl, top_bright, bottom_dark,
                                                 lighting_mode, gradient_angle,
@@ -59,8 +60,8 @@ def main():
     # ----------------------------------------------------------------------
     # Stage 2. Texture
     # ----------------------------------------------------------------------
-    texture_strength  = abs(max(-0.5, min(0.5, rng.normalvariate(0, 0.1))))
-    texture_scale     = abs(max(-5, min(5, rng.normalvariate(0, 1))))
+    texture_strength  = abs(clamped_normal(0.5, 2))
+    texture_scale     = abs(clamped_normal(1.0, 5))
                       
     stage2_texture    = apply_texture(stage1_lighting, texture_strength, texture_scale)
 
@@ -68,10 +69,10 @@ def main():
     # Stage 3. Noise
     # ----------------------------------------------------------------------
     poisson           = rng.choice([False, True])
-    gaussian          = abs(max(-1, min(1, rng.normalvariate(0, 0.2))))
-    sp_amount         = abs(max(-1, min(1, rng.normalvariate(0, 0.2))))
-    speckle_var       = abs(max(-1, min(1, rng.normalvariate(0, 0.2))))
-    blur_sigma        = abs(max(-1, min(1, rng.normalvariate(0, 0.2))))
+    gaussian          = abs(clamped_normal(0.2))
+    sp_amount         = abs(clamped_normal(0.2))
+    speckle_var       = abs(clamped_normal(0.2))
+    blur_sigma        = abs(clamped_normal(0.2))
                     
     stage3_noise      = apply_noise(stage2_texture, poisson, gaussian,
                                     sp_amount, speckle_var, blur_sigma)
@@ -79,18 +80,18 @@ def main():
     # ----------------------------------------------------------------------
     # Stage 4. Geometry
     # ----------------------------------------------------------------------
-    tilt_x            = max(-1, min(1, rng.normalvariate(0, 0.25)))
-    tilt_y            = max(-1, min(1, rng.normalvariate(0, 0.25)))
-    k1                = max(-1, min(1, rng.normalvariate(0, 0.25)))
-    k2                = max(-1, min(1, rng.normalvariate(0, 0.25)))
+    tilt_x            = clamped_normal(0.25)
+    tilt_y            = clamped_normal(0.25)
+    k1                = clamped_normal(0.25)
+    k2                = clamped_normal(0.25)
                      
     stage4_geometry   = apply_camera_effects(stage3_noise, tilt_x, tilt_y, k1, k2)
 
     # ----------------------------------------------------------------------
     # Stage 5. Color
     # ----------------------------------------------------------------------
-    vignette_strength = abs(max(-0.5, min(0.5, rng.normalvariate(0, 0.1))))
-    warm_strength     = abs(max(-0.5, min(0.5, rng.normalvariate(0, 0.1))))
+    vignette_strength = abs(clamped_normal(0.1, 0.5))
+    warm_strength     = abs(clamped_normal(0.1, 0.5))
 
     stage5_color      = apply_vignette_and_color_shift(stage4_geometry,
                                                        vignette_strength, warm_strength)
