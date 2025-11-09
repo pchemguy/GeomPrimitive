@@ -43,10 +43,6 @@ from spt_geometry import spt_geometry
 from spt_color    import spt_vignette_and_color
 
 
-def clamped_normal(self, sigma=1, amp=1):
-    return max(-amp, min(amp, self.rng.normalvariate(0, sigma)))
-
-
 class SPTPipeline:
     """High-level orchestrator for synthetic photo tool pipeline."""
 
@@ -70,33 +66,52 @@ class SPTPipeline:
         """Re-seed the internal RNG (for deterministic replay)."""
         cls.rng.seed(seed)
 
+    def clamped_normal(self, sigma=1, amp=1):
+        return max(-amp, min(amp, self.rng.normalvariate(0, sigma)))
+
     # ---- Stages ----
 
-    def stage0_scene(self):
-        canvas_idx = self.rng.randrange(len(PAPER_COLORS))
-        plot_idx   = self.rng.randrange(len(PAPER_COLORS))
-        rgba = render_scene(canvas_bg_idx=canvas_idx, plot_bg_idx=plot_idx)
-        return bgr_from_rgba(rgba)
+    def stage0_scene(self) -> ImageBGR:
+        if not self.mpl_renderer:
+            self.logger.warning(f"MPLRenderer is not set. Running a dummy renderer.")
+            rng: RNG = self.__class__.rng
+            scene: ImageRGBA = render_scene(
+                                   canvas_bg_idx=rng.randrange(len(PAPER_COLORS)),
+                                   plot_bg_idx=rng.randrange(len(PAPER_COLORS)),
+                               )
+        else:
+            scene: ImageRGBA = self.mpl_renderer.render_scene()
+        return bgr_from_rgba(scene)
 
-    def stage1_lighting(self, img):
-        delta = max(0.5, min(1.5, 1 + self.clamped_normal(0.25)))
-        return apply_lighting_gradient(
-            img,
-            top_bright=0.5 * delta,
-            bottom_dark=-0.5 * delta,
-            lighting_mode=self.rng.choice(["linear", "radial"]),
-            gradient_angle=self.rng.randint(-180, 180),
-            grad_cx=self.clamped_normal(0.4, 1.5),
-            grad_cy=self.clamped_normal(0.4, 1.5),
-            brightness=self.clamped_normal(0.2, 0.5 * delta),
-        )
+    def stage1_lighting(self, img: ImageBGR, **kwargs) -> ImageBGR:
+         """Applies lighting gradient"""
+        rng: RNG = self.__class__.rng                
 
-    def stage2_texture(self, img):
-        return apply_texture(
-            img,
-            texture_strength=abs(self.clamped_normal(0.5, 2)),
-            texture_scale=abs(self.clamped_normal(0.5, 8)),
-        )
+        delta = 1 + self.clamped_normal(0.25)
+        meta: dict = {
+            "top_bright":     kwargs.get("top_bright", 0.5 * delta),
+            "bottom_dark":    kwargs.get("bottom_dark", -0.5 * delta),
+            "lighting_mode":  kwargs.get("lighting_mode",
+                                          self.rng.choice(["linear", "radial"])),
+            "gradient_angle": kwargs.get("gradient_angle", self.rng.randint(-180, 180)),
+            "grad_cx":        kwargs.get("grad_cx", self.clamped_normal(0.4, 1.5)),
+            "grad_cy":        kwargs.get("grad_cy", self.clamped_normal(0.4, 1.5)),
+            "brightness":     kwargs.get("brightness",
+                                          self.clamped_normal(0.2, 0.5 * delta)),
+        }
+        return apply_lighting_gradient(img, **meta)
+
+    def stage2_texture(self, img: ImageBGR, **kwargs) -> ImageBGR:
+        """Applies paper texture"""
+        rng: RNG = self.__class__.rng                
+        meta: dict = {
+            "texture_strength": kwargs.get("texture_strength",
+                                            abs(self.clamped_normal(0.5, 2))),
+            "texture_scale":    kwargs.get("texture_scale",
+                                            abs(self.clamped_normal(1, 8))),
+        }
+
+        return apply_texture(img, **meta)
 
     def stage3_noise(self, img):
         return apply_noise(

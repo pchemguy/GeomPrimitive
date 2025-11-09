@@ -23,9 +23,11 @@ import matplotlib.pyplot as plt
 
 from rng import RNG, get_rng
 from logging_utils import configure_logging
-from common_definitions import (
+from mpl_utils import (
     # Conversion helpers
     bgr_from_rgba, rgb_from_bgr,
+    # Rendering helpers
+    show_RGBx_grid, render_scene,
     # Type aliases
     ImageBGR, ImageRGB, ImageRGBA, ImageRGBx,
     # Constants
@@ -69,4 +71,13 @@ class MPLRenderer:
 
     def render_scene() -> ImageRGBA:
         """Renders Matplotlib scene as RGBA"""
-        pass
+        # Dummy stub
+        return self.render_dummy_scene()
+
+    def render_dummy_scene() -> ImageRGBA:
+        """Renders dummy Matplotlib scene as RGBA"""
+        rng: RNG = self.__class__.rng
+        return render_scene(
+                   canvas_bg_idx=rng.randrange(len(PAPER_COLORS)),
+                   plot_bg_idx=rng.randrange(len(PAPER_COLORS)),
+               )
