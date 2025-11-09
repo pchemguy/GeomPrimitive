@@ -133,7 +133,10 @@ def main():
     rng = random.Random(os.getpid() ^ int(time.time()))
     delta = 1 + max(-1, min(1, 0.25 * rng.normalvariate(0, 1)))
     random_props = {
-        "img":            base_bgr,
+        "img":            bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
         "top_bright":     0.5 * delta,
         "bottom_dark":    -0.5 * delta,
         "lighting_mode":  rng.choice(["linear", "radial"]),

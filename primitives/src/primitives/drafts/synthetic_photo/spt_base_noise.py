@@ -100,7 +100,10 @@ def main():
 
     rng = random.Random(os.getpid() ^ int(time.time()))
     random_props = {
-        "img":            base_bgr,
+        "img":            bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
         "poisson":        rng.choice([False, True]),
         "gaussian":       abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
         "sp_amount":      abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),

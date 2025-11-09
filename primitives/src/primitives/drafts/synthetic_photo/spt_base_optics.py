@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import random
 import math
 import numpy as np
 import cv2
@@ -63,7 +65,7 @@ def apply_camera_effects(img: ImageBGR,
   
     The image is padded before transformations to avoid border cropping and
     remapped with bilinear interpolation and white constant borders.
-  
+
     Args:
         img: Input image in uint8 BGR format.
         tilt_x: Horizontal perspective skew fraction (0 - no tilt).
@@ -161,6 +163,24 @@ def main():
                                pad_px=10,
                            )
 
+    rng = random.Random(os.getpid() ^ int(time.time()))
+    random_props = {
+        "img":            bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
+        "tilt_x":         0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "tilt_y":         0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "focal_scale":    1 + 0.2 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "k1":             0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "k2":             0.1 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "pad_px":         10,
+    }
+    demos = {
+        "BASELINE": base_rgba,
+        "RANDOM": rgb_from_bgr(apply_camera_effects(**random_props)),
+    }
+
     default_props = {
         "img":            base_bgr,
         "tilt_x":         0,
@@ -169,9 +189,6 @@ def main():
         "k1":             0,
         "k2":             0,
         "pad_px":         10,
-    }
-    demos = {
-        "Baseline": rgb_from_bgr(apply_camera_effects(**default_props))
     }
 
     demo_set = [
