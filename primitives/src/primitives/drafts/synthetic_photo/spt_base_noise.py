@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import random
 import math
 import numpy as np
 from skimage import util, exposure, filters
@@ -89,12 +91,26 @@ def main():
     base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
     proc_bgr:  ImageBGR  = apply_noise(
                                img=base_bgr,
-                               gaussian = 0.2,
                                poisson = True,
+                               gaussian = 0.2,
                                sp_amount = 0.0,
                                speckle_var = 0.0,
                                blur_sigma = 0.8,
                            )
+
+    rng = random.Random(os.getpid() ^ int(time.time()))
+    random_props = {
+        "img":            base_bgr,
+        "poisson":        rng.choice([False, True]),
+        "gaussian":       abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
+        "sp_amount":      abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
+        "speckle_var":    abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
+        "blur_sigma":     abs(max(-1, min(1, 0.2 * rng.normalvariate(0, 1)))),
+    }
+    demos = {
+        "BASELINE": base_rgba,
+        "RANDOM": rgb_from_bgr(apply_noise(**random_props)),
+    }
 
     noise_off = {
         "img": base_bgr,
@@ -129,6 +145,7 @@ def main():
         "blur_sigma": 0.5,
     }
     demos = {
+        **demos,
         "Noise OFF": rgb_from_bgr(apply_noise(**noise_off)),
         "Basic": rgb_from_bgr(apply_noise(**default_props)),
         "dx2": rgb_from_bgr(apply_noise(**dx2)),
