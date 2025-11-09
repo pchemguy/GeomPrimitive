@@ -1,5 +1,5 @@
 """
-spt_base_gradient.py
+spt_base_pipeline.py
 -----------
 """
 
@@ -32,7 +32,7 @@ from spt_base_postoptic import apply_vignette_and_color_shift
 def main():
     clamped_normal = lambda sigma=1, amp=1: max(-amp, min(amp, rng.normalvariate(0, sigma)))
     # ----------------------------------------------------------------------
-    # Stage 0. Matplotlob and Background Color
+    # Stage 0. Matplotlib and Background Color
     # ----------------------------------------------------------------------
     rng = random.Random(os.getpid() ^ int(time.time()))
     canvas_bg_idx     = rng.randrange(len(PAPER_COLORS))
@@ -61,7 +61,7 @@ def main():
     # Stage 2. Texture
     # ----------------------------------------------------------------------
     texture_strength  = abs(clamped_normal(0.5, 2))
-    texture_scale     = abs(clamped_normal(1.0, 5))
+    texture_scale     = abs(clamped_normal(1.0, 8))
                       
     stage2_texture    = apply_texture(stage1_lighting, texture_strength, texture_scale)
 
