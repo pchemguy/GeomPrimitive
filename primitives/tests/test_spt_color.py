@@ -7,7 +7,7 @@ Unit tests for spt_vignette_and_color().
 import numpy as np
 import pytest
 from spt.spt_color import spt_vignette_and_color
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # ---------------------------------------------------------------------------

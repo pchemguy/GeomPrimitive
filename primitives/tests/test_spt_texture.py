@@ -9,7 +9,7 @@ import pytest
 from numpy.fft import rfft2, rfftfreq
 
 from spt.spt_texture import spt_texture
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import random
+import logging
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,21 +23,24 @@ else:
 import matplotlib.pyplot as plt
 
 from rng import RNG, get_rng
+from logging_utils import configure_logging
 
-from spt_base import (
+from mpl_utils import (
     # Conversion helpers
-    bgr_from_rgba, rgb_from_bgr, show_RGBx_grid, render_scene,
+    bgr_from_rgba, rgb_from_bgr,
+    # Rendering helpers
+    show_RGBx_grid, render_scene,
     # Type aliases
     ImageBGR, ImageRGB, ImageRGBA, ImageRGBx,
     # Constants
     PAPER_COLORS,
 )
+from mpl_renderer import MPLRenderer
 from spt_lighting import spt_lighting
 from spt_texture  import spt_texture
 from spt_noise    import spt_noise
 from spt_geometry import spt_geometry
 from spt_color    import spt_vignette_and_color
-
 
 
 def clamped_normal(self, sigma=1, amp=1):
@@ -48,8 +52,18 @@ class SPTPipeline:
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 
-    def __init__(self):
-        pass
+    def __init__(self, mpl_renderer: MPLRenderer = None):
+        self.pid = os.getpid()
+        self.logger = logging.getLogger(self.__class__.__name__)
+        if not self.logger.handlers:
+            log_path = configure_logging(
+                level=logging.DEBUG,
+                name=self.__class__.__name__,
+                run_prefix=f"{self.__class__.__name__}_{self.pid}"
+            )
+        self.mpl_renderer: MPLRenderer = None
+        if isinstance(mpl_renderer, MPLRenderer): self.mpl_renderer = mpl_renderer 
+            
 
     @classmethod
     def reseed(cls, seed: int = None) -> None:
@@ -57,6 +71,7 @@ class SPTPipeline:
         cls.rng.seed(seed)
 
     # ---- Stages ----
+
     def stage0_scene(self):
         canvas_idx = self.rng.randrange(len(PAPER_COLORS))
         plot_idx   = self.rng.randrange(len(PAPER_COLORS))

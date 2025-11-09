@@ -7,7 +7,7 @@ Tests for spt_lighting.py
 import numpy as np
 import pytest
 from spt.spt_lighting import spt_lighting
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # ---------------------------------------------------------------------------

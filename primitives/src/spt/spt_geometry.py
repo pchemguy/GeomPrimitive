@@ -25,7 +25,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base import *
+from mpl_utils import *
 
 
 def spt_geometry(img: ImageBGR, tilt_x: float = 0.18, tilt_y: float = 0.10,

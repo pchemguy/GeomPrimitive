@@ -9,7 +9,7 @@ import pytest
 from skimage import filters
 
 from spt.spt_noise import spt_noise
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base import *
+from mpl_utils import *
 
 
 def spt_lighting(img: ImageBGR, top_bright: float = 0.0, bottom_dark: float = 0.0,

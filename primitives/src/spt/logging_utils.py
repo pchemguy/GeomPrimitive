@@ -16,18 +16,19 @@ from colorama import Fore, Style, init as colorama_init
 PathLike = Union[str, os.PathLike]
 
 
+"""Colorized console formatter."""
+COLORS = {
+    "DEBUG":    Fore.CYAN,
+    "INFO":     Fore.GREEN,
+    "WARNING":  Fore.YELLOW,
+    "ERROR":    Fore.RED,
+    "CRITICAL": Fore.RED + Style.BRIGHT,
+}
+
+
 class ColorFormatter(logging.Formatter):
-    """Colorized console formatter."""
-    COLORS = {
-        "DEBUG":    Fore.CYAN,
-        "INFO":     Fore.GREEN,
-        "WARNING":  Fore.YELLOW,
-        "ERROR":    Fore.RED,
-        "CRITICAL": Fore.RED + Style.BRIGHT,
-    }
-    
     def format(self, record: logging.LogRecord) -> str:
-        color = self.COLORS.get(record.levelname, "")
+        color = COLORS.get(record.levelname, "")
         reset = Style.RESET_ALL
         record.process_str = f"{record.process:5d}"
         record.level_str = f"{record.levelname:<5s}"

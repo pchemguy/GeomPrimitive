@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from spt.spt_geometry import spt_geometry
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # ---------------------------------------------------------------------------

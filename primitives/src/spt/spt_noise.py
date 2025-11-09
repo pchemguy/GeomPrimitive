@@ -25,7 +25,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base import *
+from mpl_utils import *
 
 
 def spt_noise(img: ImageBGR,

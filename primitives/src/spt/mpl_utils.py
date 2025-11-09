@@ -4,6 +4,7 @@ spt_base.py
 """
 
 from __future__ import annotations
+
 __all__ = [
     "bgr_from_rgba", "rgb_from_bgr", "show_RGBx_grid", "render_scene",
     "ImageBGR", "ImageRGB", "ImageRGBA", "ImageRGBx", "PAPER_COLORS",

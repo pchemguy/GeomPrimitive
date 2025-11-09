@@ -11,7 +11,7 @@ import matplotlib
 matplotlib.use("Agg")  # ensure headless backend for CI and multiprocessing
 import matplotlib.pyplot as plt
 
-from spt.spt_base import ImageBGR
+from spt.mpl_utils import ImageBGR
 
 
 # -----------------------------------------------------------------------------

@@ -21,7 +21,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base     import *
+from mpl_utils import *
 from spt_lighting import spt_lighting
 from spt_texture  import spt_texture
 from spt_noise    import spt_noise
