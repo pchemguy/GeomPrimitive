@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import sys
+import time
+import random
 import math
 import numpy as np
 
@@ -128,7 +130,23 @@ def main():
                                grad_cx=0,
                                grad_cy=0,
                            )
-    demos = {}
+    rng = random.Random(os.getpid() ^ int(time.time()))
+    delta = 1 + max(-1, min(1, 0.25 * rng.normalvariate(0, 1)))
+    random_props = {
+        "img":            base_bgr,
+        "top_bright":     0.5 * delta,
+        "bottom_dark":    -0.5 * delta,
+        "lighting_mode":  rng.choice(["linear", "radial"]),
+        "gradient_angle": rng.randint(-180, 180),
+        "grad_cx":        max(-1.5, min(1.5, 0.4 * rng.normalvariate(0, 1))),
+        "grad_cy":        max(-1.5, min(1.5, 0.4 * rng.normalvariate(0, 1))),
+        "brightness":     max(-0.4 * delta, min(0.4 * delta, 0.2 * rng.normalvariate(0, 1))),
+    }
+    demos = {
+        "BASELINE": base_rgba,
+        "RANDOM": rgb_from_bgr(apply_lighting_gradient(**random_props)),
+    }
+
     default_props = {
         "img":            base_bgr,
         "top_bright":     0.0,
