@@ -54,7 +54,7 @@ def apply_camera_effects(img: ImageBGR,
        values yield pincushion (telephoto) distortion, and `k2` refines the
        curvature roll-off.  
        The normalization ensures that coefficients drawn from a zero-mean normal
-       distribution with 3*sigma = 1 produce realistic variation magnitudes.
+       distribution with sigma = 0.25 produce realistic variation magnitudes.
   
     Args:
         img:    Input image (uint8, BGR order).

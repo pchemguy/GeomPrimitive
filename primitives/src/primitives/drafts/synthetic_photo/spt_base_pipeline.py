@@ -9,9 +9,6 @@ import os
 import sys
 import time
 import random
-import math
-import numpy as np
-import cv2
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,7 +21,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from spt_base import *
+from spt_base           import *
 from spt_base_gradient  import apply_lighting_gradient
 from spt_base_texture   import apply_texture
 from spt_base_noise     import apply_noise
@@ -55,9 +52,9 @@ def main():
     grad_cy           = max(-1.5, min(1.5, 0.4 * rng.normalvariate(0, 1)))
     brightness        = max(-0.5 * delta, min(0.5 * delta, rng.normalvariate(0, 0.2)))
                       
-    stage1_lighting   = apply_lighting_gradient(base_bgr, top_bright, bottom_dark,
-                                               lighting_mode, gradient_angle,
-                                               grad_cx, grad_cy, brightness)
+    stage1_lighting   = apply_lighting_gradient(stage0_mpl, top_bright, bottom_dark,
+                                                lighting_mode, gradient_angle,
+                                                grad_cx, grad_cy, brightness)
 
     # ----------------------------------------------------------------------
     # Stage 2. Texture
@@ -82,10 +79,10 @@ def main():
     # ----------------------------------------------------------------------
     # Stage 4. Geometry
     # ----------------------------------------------------------------------
-    tilt_x            = max(-1, min(1, rng.normalvariate(0, 1/3)))
-    tilt_y            = max(-1, min(1, rng.normalvariate(0, 1/3)))
-    k1                = max(-1, min(1, rng.normalvariate(0, 1/3)))
-    k2                = max(-1, min(1, rng.normalvariate(0, 1/3)))
+    tilt_x            = max(-1, min(1, rng.normalvariate(0, 0.25)))
+    tilt_y            = max(-1, min(1, rng.normalvariate(0, 0.25)))
+    k1                = max(-1, min(1, rng.normalvariate(0, 0.25)))
+    k2                = max(-1, min(1, rng.normalvariate(0, 0.25)))
                      
     stage4_geometry   = apply_camera_effects(stage3_noise, tilt_x, tilt_y, k1, k2)
 
@@ -99,12 +96,12 @@ def main():
                                                        vignette_strength, warm_strength)
 
     demos = {
-        "0 - Matplotlib": stage0_mpl,
-        "1 - Lighting":   stage1_lighting,
-        "2 - Texture":    stage2_texture,
-        "3 - Noise":      stage3_noise,
-        "4 - Geometry":   stage4_geometry,
-        "5 - Color":      stage5_color,
+        "0 - Matplotlib": rgb_from_bgr(stage0_mpl),
+        "1 - Lighting":   rgb_from_bgr(stage1_lighting),
+        "2 - Texture":    rgb_from_bgr(stage2_texture),
+        "3 - Noise":      rgb_from_bgr(stage3_noise),
+        "4 - Geometry":   rgb_from_bgr(stage4_geometry),
+        "5 - Color":      rgb_from_bgr(stage5_color),
     }
 
     show_RGBx_grid(demos, n_columns=3)
