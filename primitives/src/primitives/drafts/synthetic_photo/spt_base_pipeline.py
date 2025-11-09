@@ -60,7 +60,7 @@ def main():
     # Stage 2. Texture
     # ----------------------------------------------------------------------
     texture_strength  = abs(max(-0.5, min(0.5, rng.normalvariate(0, 0.1))))
-    texture_scale     = abs(max(5, min(5, rng.normalvariate(0, 1))))
+    texture_scale     = abs(max(-5, min(5, rng.normalvariate(0, 1))))
                       
     stage2_texture    = apply_texture(stage1_lighting, texture_strength, texture_scale)
 

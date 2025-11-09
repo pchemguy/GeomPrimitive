@@ -93,8 +93,8 @@ def main():
                               canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
-        "texture_strength":   abs(max(-0.5, min(0.5, 0.1 * rng.normalvariate(0, 1)))),
-        "texture_scale":      abs(max(5, min(5, rng.normalvariate(0, 1)))),
+        "texture_strength":   abs(max(-2, min(2, rng.normalvariate(0, 0.5)))),
+        "texture_scale":      abs(max(-5, min(5, rng.normalvariate(0, 1)))),
     }
     demos = {
         "BASELINE": base_rgba,
