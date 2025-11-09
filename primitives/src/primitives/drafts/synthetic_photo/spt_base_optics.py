@@ -29,81 +29,76 @@ from spt_base import *
 
 
 def apply_camera_effects(img: ImageBGR,
-                         tilt_x: float = 0.18,
-                         tilt_y: float = 0.10,
-                         k1: float = -0.25,
-                         k2: float = 0.05,
-                        ) -> ImageBGR:
+                         tilt_x: float = 0.18, tilt_y: float = 0.10,
+                         k1: float = -0.25, k2: float = 0.05) -> ImageBGR:
     """
-    Apply camera effects: perspective tilt, and radial lens distortion.
+    Apply synthetic camera projection effects: perspective tilt and radial
+    lens distortion.
   
-    The algorithm models two optical transformations that approximate a
-    simplified pinhole camera pipeline:
+    The algorithm simulates two geometric distortions typical of optical imaging
+    systems in a simplified pinhole-camera approximation:
   
-    1. **Perspective tilt:**
-       A 2D projective transform skews the image around its center using
-       normalized offsets `tilt_x` and `tilt_y`, expressed as fractions of the
-       image width and height. This emulates off-axis perspective or lens-plane
-       tilt typical of real optical systems.
+    1. **Perspective tilt:**  
+       A planar projective transform skews the image about its center using
+       normalized offsets `tilt_x` and `tilt_y` (fractions of image width and
+       height). This emulates off-axis projection or lens-plane tilt, producing
+       perspective convergence similar to a tilted camera sensor.
   
-    2. **Radial lens distortion:**
-       Each pixel's radius from the optical center is adjusted according to the
-       radial polynomial:
+    2. **Radial lens distortion:**  
+       Each pixel is remapped according to a radial polynomial of normalized
+       radius `r` from the optical center:
+  
            r' = r * (1 + k1 * r^2 + k2 * r^4)
-       Negative `k1` values yield barrel (wide-angle) distortion,
-       while positive values yield pincushion (telephoto) distortion.
-       `k2` provides higher-order curvature refinement.
-
-    Parameters are normalized such that normal distribution with 3 * sigma = 1
-    would provide adequate result.
+  
+       where negative `k1` values yield barrel (wide-angle) distortion, positive
+       values yield pincushion (telephoto) distortion, and `k2` refines the
+       curvature roll-off.  
+       The normalization ensures that coefficients drawn from a zero-mean normal
+       distribution with 3*sigma = 1 produce realistic variation magnitudes.
   
     Args:
-        img: Input image in uint8 BGR format.
+        img:    Input image (uint8, BGR order).
         tilt_x: Horizontal perspective skew fraction (0 - no tilt).
         tilt_y: Vertical perspective skew fraction (0 - no tilt).
-        k1: Primary radial distortion coefficient.
-        k2: Secondary distortion curvature coefficient.
+        k1:     Primary radial distortion coefficient.
+        k2:     Secondary radial distortion coefficient.
   
     Returns:
-        ImageBGR: Distorted image simulating optical projection.
+        ImageBGR: Image with perspective and lens distortion applied.
     """
     h, w = img.shape[:2]
 
     # -------------------------------------------------------------
-    # 1. PERSPECTIVE TILT (off-axis projection)
+    # 1. Perspective tilt (off-axis projection)
     # -------------------------------------------------------------
     dx, dy = 0.25 * tilt_x * w, 0.25 * tilt_y * h
     src = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
     dst = np.float32([[dx, dy], [w - dx, dy / 2], [w, h], [0, h - dy]])
     H = cv2.getPerspectiveTransform(src, dst)
-    persp = cv2.warpPerspective(
-        img, H, (w, h),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(255, 255, 255),
-    )
+    persp = cv2.warpPerspective(img, H, (w, h),
+                                flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT,
+                                borderValue=(255, 255, 255))
 
     # -------------------------------------------------------------
-    # 2. RADIAL LENS DISTORTION
+    # 2. Radial lens distortion
     # -------------------------------------------------------------
-    r_norm = max(w, h)
     cx, cy = w / 2.0, h / 2.0
+    r_norm = max(w, h)
     xx, yy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
     x_d, y_d = (xx - cx) / r_norm, (yy - cy) / r_norm
     r2 = x_d * x_d + y_d * y_d
     factor = 1.0 + k1 * r2 + k2 * (r2 ** 2)
-    factor = np.where(factor == 0.0, 1.0, factor)  # avoid division by zero
-    x_u, y_u = x_d / factor, y_d / factor
+    factor = np.where(factor == 0.0, 1.0, factor)  # safety
+    x_u, y_u = x_d / factor,  y_d / factor
 
     map_x = (x_u * r_norm + cx).astype(np.float32)
     map_y = (y_u * r_norm + cy).astype(np.float32)
 
-    distorted = cv2.remap(
-        persp, map_x, map_y,
-        interpolation=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(255, 255, 255),
-    )
+    distorted = cv2.remap(persp, map_x, map_y,
+                          interpolation=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_CONSTANT,
+                          borderValue=(255, 255, 255))
 
     return distorted
 
@@ -126,10 +121,10 @@ def main():
                               canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
-        "tilt_x":         0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
-        "tilt_y":         0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
-        "k1":             0.25 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
-        "k2":             0.1 * max(-1, min(1, 0.25 * rng.normalvariate(0, 1))),
+        "tilt_x":         max(-1, min(1, rng.normalvariate(0, 1/3))),
+        "tilt_y":         max(-1, min(1, rng.normalvariate(0, 1/3))),
+        "k1":             max(-1, min(1, rng.normalvariate(0, 1/3))),
+        "k2":             max(-1, min(1, rng.normalvariate(0, 1/3))),
     }
     demos = {
         "BASELINE": base_rgba,
