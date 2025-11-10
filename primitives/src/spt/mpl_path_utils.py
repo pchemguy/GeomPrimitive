@@ -170,60 +170,77 @@ def random_srt_path(shape: mplPath,
     if rng is None:
         rng = get_rng(thread_safe=True)
 
+    # --- Canvas geometry ---------------------------------------------------
+    cxmin, cxmax = map(float, canvas_x1x2)
+    cymin, cymax = map(float, canvas_y1y2)
+
+    cw, ch = cxmax - cxmin, cymax - cymin
+    if cw <= 0 or ch <= 0:
+        raise ValueError(f"Canvas width/height must be positive; got ({cw}, {ch}).")
+
+    cx0, cy0 = (cxmax + cxmin) / 2, (cymax + cymin) / 2
+
+    # --- Vertical compression ----------------------------------------------
     if not isinstance(y_compress, (int, float)):
         y_compress = rng.uniform(0.5, 1.0)
-    y_compress = max(0.2, float(y_compress))
-
-    cxmin, cxmax = canvas_x1x2
-    cymin, cymax = canvas_y1y2
-    cx0, cy0 = (cxmax + cxmin) / 2, (cymax + cymin) / 2
-    cw, ch = cxmax - cxmin, cymax - cymin
-
+    y_compress = max(0.2, float(y_compress))    
+    
+    # --- Angle with jitter -------------------------------------------------
     if not isinstance(angle_deg, (int, float)):
         angle_deg = rng.randrange(360)
     elif angle_deg != 0:
-        angle_deg = round(angle_deg) + JITTER_ANGLE_DEG * max(-3, min(3, rng.normalvariate(0, 1))) / 3
-    else:
-        pass
-    angle_deg = ((angle_deg + 180) % 360) - 180
+        jitter = JITTER_ANGLE_DEG * max(-1.0, min(1.0, rng.normalvariate(0.0, 1/3)))
+        angle_deg = float(round(angle_deg) + jitter)
+    # Normalize to [-180, 180)
+    angle_deg = ((angle_deg + 180.0) % 360.0) - 180.0
     angle_rad = math.radians(angle_deg)
 
+    # --- Original path bbox -----------------------------------------------
     bbox = shape.get_extents()
     bxmin, bymin, bxmax, bymax = bbox.x0, bbox.y0, bbox.x1, bbox.y1
     bx0, by0 = (bxmax + bxmin) / 2, (bymax + bymin) / 2
     bw, bh = bbox.width, bbox.height
+
+    # --- Rotated unscaled bounding dimensions (approximate) ---------------
     bwsize = max(1e-6, abs(bw * math.cos(angle_rad)) + abs(bh * math.sin(angle_rad)))
     bhsize = max(1e-6, abs(bh * math.cos(angle_rad)) + abs(bw * math.sin(angle_rad)))
+    
 
+    # --- Scaling to fit canvas --------------------------------------------
+    # Base uniform scale in X chosen to fit rotated bbox into canvas
     sfx = rng.uniform(0.2, 1) * min(cw / bwsize, ch / bhsize)
-    sfy = sf * y_compress
+    sfy = sfx * y_compress
 
+    # --- Translation jitter ------------------------------------------------
     tx_range = (cw - bwsize * sfx) / 2
     ty_range = (ch - bhsize * sfy) / 2
 
     tx = cx0 - bx0 * sfx + tx_range * rng.uniform(-1, 1)
-    ty = cy0 - by0 * sfy + ty_range * rng.uniform(-1, 1)    
-
-    if not origin:
+    ty = cy0 - by0 * sfy + ty_range * rng.uniform(-1, 1)
+    
+    # --- Rotation origin ---------------------------------------------------
+    if origin is None:
         origin = (bx0, by0)
 
+
+    # --- Affine transform: scale -> rotate_around -> translate ------------
     trans: Affine2D = (
         Affine2D()
         .scale(sfx, sfy)
-        .rotate_around(*origin, angle_rad)
+        .rotate_around(origin[0], origin[1], angle_rad)
         .translate(tx, ty)
     )
 
     verts_array = trans.transform(shape.vertices)
-
+    
     meta: dict = {
-        "scale_x": sfx,
-        "scale_y": sfy,
-        "rot_x":   origin[0],
-        "rot_y":   origin[1],
-        "rot_deg": angle_deg,
-        "trans_x": tx,
-        "trans_y": ty,
+        "scale_x": float(sfx),
+        "scale_y": float(sfy),
+        "rot_x":   float(origin[0]),
+        "rot_y":   float(origin[1]),
+        "rot_deg": float(angle_deg),
+        "trans_x": float(tx),
+        "trans_y": float(ty),
     }
     
     return mplPath(verts_array, shape.codes), meta
