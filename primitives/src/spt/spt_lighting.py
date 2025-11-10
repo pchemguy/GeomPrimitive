@@ -5,6 +5,8 @@ spt_lighting.py
 
 from __future__ import annotations
 
+__all__ = ["spt_lighting",]
+
 import os
 import sys
 import time

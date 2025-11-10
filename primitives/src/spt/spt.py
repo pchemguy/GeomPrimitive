@@ -5,6 +5,8 @@ spt.py
 
 from __future__ import annotations
 
+__all__ = ["SPTPipeline",]
+
 import os
 import sys
 import json

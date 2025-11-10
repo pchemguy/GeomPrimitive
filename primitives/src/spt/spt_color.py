@@ -5,6 +5,8 @@ spt_color.py
 
 from __future__ import annotations
 
+__all__ = ["spt_vignette_and_color",]
+
 import os
 import sys
 import time

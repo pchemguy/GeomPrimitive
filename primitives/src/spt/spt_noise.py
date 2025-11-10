@@ -5,6 +5,8 @@ spt_noise.py
 
 from __future__ import annotations
 
+__all__ = ["spt_noise",]
+
 import os
 import sys
 import time
@@ -114,8 +116,6 @@ def profile_noise(img: ImageBGR):
     print(f"Blur:     {round((t6 - t5) * 1000, 3):6.3f} ms")
 
 
-
-
 def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
@@ -187,7 +187,6 @@ def main():
         "dx2": rgb_from_bgr(spt_noise(**dx2)),
         "dx5": rgb_from_bgr(spt_noise(**dx5)),
     }
-
 
     show_RGBx_grid(demos, n_columns=4)
 

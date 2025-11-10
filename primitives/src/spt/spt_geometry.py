@@ -5,6 +5,8 @@ spt_geometry.py
 
 from __future__ import annotations
 
+__all__ = ["spt_geometry",]
+
 import os
 import sys
 import time

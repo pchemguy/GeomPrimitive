@@ -6,6 +6,10 @@ hidden axes, tight layout, and immediate display.
 """
 
 from __future__ import annotations
+
+__all__ = ["preview_mpl_artist",]
+
+
 import matplotlib.pyplot as plt
 from matplotlib.path import Path as mplPath
 from matplotlib.lines import Line2D

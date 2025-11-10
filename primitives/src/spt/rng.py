@@ -9,6 +9,10 @@ Provides:
 - get_rng(): returns a shared or thread-local RNG instance
 """
 
+from __future__ import annotations
+
+__all__ = ["RNG", "get_rng",]
+
 import os
 import time
 import random

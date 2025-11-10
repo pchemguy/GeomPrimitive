@@ -5,6 +5,8 @@ spt_texture.py
 
 from __future__ import annotations
 
+__all__ = ["spt_texture",]
+
 import os
 import sys
 import time

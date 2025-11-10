@@ -27,6 +27,8 @@ lines for each group.
 
 from __future__ import annotations
 
+__all__ = ["GridJitterConfig", "generate_grid_collections",]
+
 import math
 from dataclasses import dataclass
 from typing import Optional, Union
