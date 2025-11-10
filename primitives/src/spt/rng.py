@@ -50,6 +50,10 @@ class RNG:
         with self._lock:
             return self._rng.randint(*a, **kw)
 
+    def randrange(self, *a, **kw) -> int:
+        with self._lock:
+            return self._rng.randrange(*a, **kw)
+
     def uniform(self, *a, **kw) -> float:
         with self._lock:
             return self._rng.uniform(*a, **kw)

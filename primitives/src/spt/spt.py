@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import time
 import random
 import logging
@@ -25,7 +26,6 @@ import matplotlib.pyplot as plt
 from rng import RNG, get_rng
 from logging_utils import configure_logging
 
-import spt_config
 from mpl_utils import (
     # Conversion helpers
     bgr_from_rgba, rgb_from_bgr,
@@ -71,6 +71,7 @@ class SPTPipeline:
     def stage1_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies lighting gradient"""
         rng: RNG = self.__class__.rng                
+        self.logger.debug(f"Running stage 1: Lighting.")
         delta = 1 + self.clamped_normal(0.25)
         meta: dict = {
             "top_bright":     kwargs.get("top_bright", 0.5 * delta),
@@ -88,6 +89,7 @@ class SPTPipeline:
     def stage2_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies paper texture"""
         rng: RNG = self.__class__.rng                
+        self.logger.debug(f"Running stage 2: Texture.")
         meta: dict = {
             "texture_strength": kwargs.get("texture_strength",
                                             abs(self.clamped_normal(0.5, 2))),
@@ -99,6 +101,7 @@ class SPTPipeline:
     def stage3_noise(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies noise"""
         rng: RNG = self.__class__.rng                
+        self.logger.debug(f"Running stage 3: Noise.")
         meta: dict = {
             "poisson":     kwargs.get("poisson", self.rng.choice([False, True])),
             "gaussian":    kwargs.get("gaussian", abs(self.clamped_normal(0.2))),
@@ -111,6 +114,7 @@ class SPTPipeline:
     def stage4_geometry(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies geometric effects."""
         rng: RNG = self.__class__.rng                
+        self.logger.debug(f"Running stage 4: Geometry.")
         meta: dict = {
             "tilt_x": kwargs.get("tilt_x", self.clamped_normal(0.25)),
             "tilt_y": kwargs.get("tilt_y", self.clamped_normal(0.25)),
@@ -122,6 +126,7 @@ class SPTPipeline:
     def stage5_color(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies color effects."""
         rng: RNG = self.__class__.rng                
+        self.logger.debug(f"Running stage 5: Geometry.")
         meta: dict = {
             "vignette_strength": kwargs.get("vignette_strength", 
                                              abs(self.clamped_normal(0.1, 0.5))),
@@ -131,36 +136,72 @@ class SPTPipeline:
         return meta, spt_vignette_and_color(img, **meta)
 
     # ---- Pipeline ----
-    def run(self, img: ImageBGR, **kwargs):
+    def run(self, img: ImageBGR = None, **kwargs):
         meta = {}
-        meta["1 - Lighting"], img1 = self.stage1_lighting(img, **kwargs)
-        meta["2 - Texture"],  img2 = self.stage2_texture(img1, **kwargs)
-        meta["3 - Noise"],    img3 = self.stage3_noise(img2, **kwargs)
-        meta["4 - Geometry"], img4 = self.stage4_geometry(img3, **kwargs)
-        meta["5 - Color"],    img5 = self.stage5_color(img4, **kwargs)
+        runtime = {}
+        images = {}
+        stages = [
+            ("1 - Lighting", self.stage1_lighting),
+            ("2 - Texture",  self.stage2_texture),
+            ("3 - Noise",    self.stage3_noise),
+            ("4 - Geometry", self.stage4_geometry),
+            ("5 - Color",    self.stage5_color),
+        ]        
+
+        total = 0
+        name = "0 - Matplotlib"
+        if not img:
+            self.logger.warning(f"No Matplotlib RGBA image is provided. Using a dummy generator.")
+            t0 = time.perf_counter()
+            canvas_bg_idx = self.rng.randrange(len(PAPER_COLORS))
+            plot_bg_idx = self.rng.randrange(len(PAPER_COLORS))
+            base_rgba = render_scene(canvas_bg_idx=canvas_bg_idx, plot_bg_idx=plot_bg_idx)
+            stage0_mpl = bgr_from_rgba(base_rgba)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            runtime[name] = round(elapsed_ms, 2)
+            total += runtime[name]
+            out_img = stage0_mpl
+        else:
+            out_img = img
+
+        images[name] = rgb_from_bgr(out_img)
+
+        for name, stage_fn in stages:
+            t0 = time.perf_counter()
+            stage_meta, out_img = stage_fn(out_img, **kwargs)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+            # Record metadata + timing
+            images[name] = rgb_from_bgr(out_img)
+            runtime[name] = round(elapsed_ms, 2)
+            meta[name] = stage_meta
+            total += runtime[name]
+
+        runtime["Total"] = total
         
         if not spt_config.BATCH_MODE:
-            stages = {
-                "0 - Matplotlib": rgb_from_bgr(img),
-                "1 - Lighting":   rgb_from_bgr(img1),
-                "2 - Texture":    rgb_from_bgr(img2),
-                "3 - Noise":      rgb_from_bgr(img3),
-                "4 - Geometry":   rgb_from_bgr(img4),
-                "5 - Color":      rgb_from_bgr(img5),
-            }
-            show_RGBx_grid(stages, n_columns=3)
-        return img5
+            summary = ["", "=" * 80]
+            key_width = 20
+            name = "Performance Summary"
+            summary.append(f"---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+            for k, v in runtime.items():
+                summary.append(f"  {k:<{key_width}}: {v} ms")
+
+            for name, stage_meta in meta.items():
+                summary.append(
+                    f"---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+                for k, v in stage_meta.items():
+                    val = v if not isinstance(v, float) else round(v, 3)
+                    summary.append(f"  {k:<{key_width}}: {val}")
+            self.logger.debug('\n'.join(summary))
+            show_RGBx_grid(images, n_columns=3)
+        
+        return out_img, meta
 
 
 def main():
-    rng = random.Random(os.getpid() ^ int(time.time()))
-    canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
-    plot_bg_idx = rng.randrange(len(PAPER_COLORS))
-    base_rgba = render_scene(canvas_bg_idx=canvas_bg_idx, plot_bg_idx=plot_bg_idx)
-    stage0_mpl = bgr_from_rgba(base_rgba)
-
     pipeline: SPTPipeline = SPTPipeline()
-    pipeline.run(stage0_mpl)
+    pipeline.run()
 
 
 if __name__ == "__main__":
