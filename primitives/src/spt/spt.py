@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 from rng import RNG, get_rng
 from logging_utils import configure_logging
 
+import spt_config
 from mpl_utils import (
     # Conversion helpers
     bgr_from_rgba, rgb_from_bgr,
@@ -35,7 +36,6 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
-from mpl_renderer import MPLRenderer
 from spt_lighting import spt_lighting
 from spt_texture  import spt_texture
 from spt_noise    import spt_noise
@@ -68,8 +68,8 @@ class SPTPipeline:
 
     # ---- Stages ----
 
-    def stage1_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR):
-         """Applies lighting gradient"""
+    def stage1_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+        """Applies lighting gradient"""
         rng: RNG = self.__class__.rng                
         delta = 1 + self.clamped_normal(0.25)
         meta: dict = {
@@ -83,9 +83,9 @@ class SPTPipeline:
             "brightness":     kwargs.get("brightness",
                                           self.clamped_normal(0.2, 0.5 * delta)),
         }
-        return meta, apply_lighting_gradient(img, **meta)
+        return meta, spt_lighting(img, **meta)
 
-    def stage2_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR):
+    def stage2_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies paper texture"""
         rng: RNG = self.__class__.rng                
         meta: dict = {
@@ -94,10 +94,10 @@ class SPTPipeline:
             "texture_scale":    kwargs.get("texture_scale",
                                             abs(self.clamped_normal(1, 8))),
         }
-        return meta, apply_texture(img, **meta)
+        return meta, spt_texture(img, **meta)
 
-    def stage3_noise(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR):
-         """Applies noise"""
+    def stage3_noise(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+        """Applies noise"""
         rng: RNG = self.__class__.rng                
         meta: dict = {
             "poisson":     kwargs.get("poisson", self.rng.choice([False, True])),
@@ -106,10 +106,10 @@ class SPTPipeline:
             "speckle_var": kwargs.get("speckle_var", abs(self.clamped_normal(0.2))),
             "blur_sigma":  kwargs.get("blur_sigma", abs(self.clamped_normal(0.2))),
         }
-        return meta, apply_noise(img, **meta)
+        return meta, spt_noise(img, **meta)
 
-    def stage4_geometry(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR):
-         """Applies geometric effects."""
+    def stage4_geometry(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+        """Applies geometric effects."""
         rng: RNG = self.__class__.rng                
         meta: dict = {
             "tilt_x": kwargs.get("tilt_x", self.clamped_normal(0.25)),
@@ -117,16 +117,18 @@ class SPTPipeline:
             "k1":     kwargs.get("k1",     self.clamped_normal(0.25)),
             "k2":     kwargs.get("k2",     self.clamped_normal(0.25)),
         }
-        return meta, apply_camera_effects(img, **meta)
+        return meta, spt_geometry(img, **meta)
 
-    def stage5_color(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR):
-         """Applies color effects."""
+    def stage5_color(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+        """Applies color effects."""
         rng: RNG = self.__class__.rng                
         meta: dict = {
-            "vignette_strength": kwargs.get("vignette_strength", abs(clamped_normal(0.1, 0.5))),
-            "warm_strength":     kwargs.get("warm_strength", abs(clamped_normal(0.1, 0.5))),
+            "vignette_strength": kwargs.get("vignette_strength", 
+                                             abs(self.clamped_normal(0.1, 0.5))),
+            "warm_strength":     kwargs.get("warm_strength",
+                                             abs(self.clamped_normal(0.1, 0.5))),
         }
-        return meta, apply_vignette_and_color_shift(img, **meta)
+        return meta, spt_vignette_and_color(img, **meta)
 
     # ---- Pipeline ----
     def run(self, img: ImageBGR, **kwargs):
@@ -139,18 +141,27 @@ class SPTPipeline:
         
         if not spt_config.BATCH_MODE:
             stages = {
-                "1 - Lighting": rgb_from_bgr(img1),
-                "2 - Texture":  rgb_from_bgr(img2),
-                "3 - Noise":    rgb_from_bgr(img3),
-                "4 - Geometry": rgb_from_bgr(img4),
-                "5 - Color":    rgb_from_bgr(img5),
+                "0 - Matplotlib": rgb_from_bgr(img),
+                "1 - Lighting":   rgb_from_bgr(img1),
+                "2 - Texture":    rgb_from_bgr(img2),
+                "3 - Noise":      rgb_from_bgr(img3),
+                "4 - Geometry":   rgb_from_bgr(img4),
+                "5 - Color":      rgb_from_bgr(img5),
             }
             show_RGBx_grid(stages, n_columns=3)
         return img5
 
 
 def main():
+    rng = random.Random(os.getpid() ^ int(time.time()))
+    canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
+    plot_bg_idx = rng.randrange(len(PAPER_COLORS))
+    base_rgba = render_scene(canvas_bg_idx=canvas_bg_idx, plot_bg_idx=plot_bg_idx)
+    stage0_mpl = bgr_from_rgba(base_rgba)
+
     pipeline: SPTPipeline = SPTPipeline()
+    pipeline.run(stage0_mpl)
+
 
 if __name__ == "__main__":
     main()

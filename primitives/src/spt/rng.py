@@ -67,6 +67,10 @@ class RNG:
         with self._lock:
             return self._rng.normalvariate(mu, sigma)
 
+    def normalvariate(self, mu: float, sigma: float) -> float:
+        with self._lock:
+            return self._rng.normalvariate(mu, sigma)
+
     def paretovariate(self, alpha: Optional[float] = 1) -> float:
         with self._lock:
             return self._rng.paretovariate(alpha)
