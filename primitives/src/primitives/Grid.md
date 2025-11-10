@@ -747,3 +747,13 @@ k1 = -1e-6 … -5e-6
 
 to tune curvature realism.
 
+Let's work on a flexible Matplotlib grid generator utility.
+Output:
+    Four line collections - x_major_lc, x_minor_lc, y_major_lc, y_minor_lc
+The arguments:
+- bounding box (bottom-left and top-tight coners)
+- grid angle (alpha=90 - for ordinary Cartesian coords, 90>alpha>0 for generic grids
+- theta in [0, 90) - rotation of the grid in CCW
+- x_major, x_minor, y_major, y_minor - respective sub-grid spacings
+
+I want to be able to jitter both alpha and theta symmetrically (normal distribution with 3sigma = 5 deg). Further, I want to jitter shift of individual lines symmetrically about exact positions with 3sigma = 0.4\*step (minor for minor lines and major for major lines.) I also want to jitter angles of individual lines symmetrically with 3sigma = 3 deg. Not all lines should be affected by jitter however. I want select a random fraction for each of the four types (selected fraction normally distributed with mu=0% and sigma=25%). I also want to randomly drop a fraction (mu=0%, sigma=5%) lines for each group.

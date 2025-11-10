@@ -45,16 +45,23 @@ def print_locals(local_vars: dict) -> None:
 
 def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
     """
-    Joins a list of Matplotlib paths into a single Path.
-
+    Join multiple Matplotlib ``Path`` objects into a single composite path.
+    
     Args:
-        paths: List of Path objects.
-        preserve_moveto: If False (default), skip the initial MOVETO of each subsequent
-            path so that all segments form one continuous path.
-            If True, keep every MOVETO, preserving disjoint subpaths.
-
+        paths (list[matplotlib.path.Path]):
+            Input list of path objects to join.
+        preserve_moveto (bool, optional):
+            Whether to keep the initial ``MOVETO`` command for each path.
+            If ``False`` (default), subsequent paths are joined seamlessly
+            into one continuous path.
+    
     Returns:
-        Combined Path object.
+        matplotlib.path.Path:
+            The concatenated composite path.
+    
+    Raises:
+        ValueError: If ``paths`` is empty.
+        TypeError: If any element of ``paths`` is not a ``Path`` instance.
     """
     if not paths:
         raise ValueError("Expected a non-empty list of Matplotlib paths.")
