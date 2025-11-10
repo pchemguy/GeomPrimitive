@@ -136,7 +136,7 @@ def test_randomness_affects_output(gray_image):
 # 4. Performance sanity (optional)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skip(reason="Benchmark plugin optional")
+@pytest.mark.benchmark
 def test_runtime_under_threshold(gray_image, benchmark):
   """Should run < 100 ms for 512x512 image."""
   big = np.tile(gray_image, (5, 5, 1))

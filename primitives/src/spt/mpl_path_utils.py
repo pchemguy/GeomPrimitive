@@ -50,14 +50,14 @@ else:
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Ellipse, Arc
 from matplotlib.path import Path as mplPath
+from matplotlib.transforms import Affine2D
 
 from mpl_utils import *
-
+from rng import RNGBackend, RNG, get_rng
 
 numeric: TypeAlias = Union[int, float]
 PointXY: TypeAlias = tuple[numeric, numeric]
 CoordRange: TypeAlias = tuple[numeric, numeric]
-RNGType: TypeAlias = Union[random.Random, np.random.Generator, "RNG"]
 
 JITTER_ANGLE_DEG = 5
 
@@ -113,8 +113,8 @@ def random_srt_path(shape: mplPath,
                     y_compress: float = None,
                     angle_deg: numeric = None,
                     origin: PointXY = None,
-                    rng: RNGType = None,
-                   ) -> mplPath:
+                    rng: RNGBackend = None,
+                   ) -> tuple[mplPath, dict]:
     if not isinstance(shape, mplPath):
         raise TypeError(f"Expected a Matplotlib path. Received {type(shape).__name__}.")
     if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
@@ -128,8 +128,10 @@ def random_srt_path(shape: mplPath,
             f"If provided, origin should be tuple[float, float].\n"
             f"Received: {type(origin).__name__}"
         )
+    if not rng:
+        rng: RNGBackend = get_rng(thread_safe=True)
     if not isinstance(y_compress, (int, float)):
-        y_compress = random.uniform(0.5, 1.0)
+        y_compress = rng.uniform(0.5, 1.0)
     y_compress = max(0.2, float(y_compress))
 
     cxmin, cxmax = canvas_x1x2
@@ -138,14 +140,14 @@ def random_srt_path(shape: mplPath,
     cw, ch = cxmax - cxmin, cymax - cymin
 
     if not isinstance(angle_deg, (int, float)):
-        angle_deg = random.randrange(360)
+        angle_deg = rng.randrange(360)
     elif angle_deg != 0:
-        angle_deg = round(angle_deg) + JITTER_ANGLE_DEG * max(-3, min(3, random.normalvariate(0, 1))) / 3
+        angle_deg = round(angle_deg) + JITTER_ANGLE_DEG * max(-3, min(3, rng.normalvariate(0, 1))) / 3
     else:
         pass
     angle_deg = ((angle_deg + 180) % 360) - 180
-
     angle_rad = math.radians(angle_deg)
+
     bbox = shape.get_extents()
     bxmin, bymin, bxmax, bymax = bbox.x0, bbox.y0, bbox.x1, bbox.y1
     bx0, by0 = (bxmax + bxmin) / 2, (bymax + bymin) / 2
@@ -153,27 +155,38 @@ def random_srt_path(shape: mplPath,
     bwsize = max(1e-6, abs(bw * math.cos(angle_rad)) + abs(bh * math.sin(angle_rad)))
     bhsize = max(1e-6, abs(bh * math.cos(angle_rad)) + abs(bw * math.sin(angle_rad)))
 
-    sf = random.uniform(0.2, 1) * min(cw / bwsize, ch / bhsize)
+    sfx = rng.uniform(0.2, 1) * min(cw / bwsize, ch / bhsize)
+    sfy = sf * y_compress
 
-    tx_range = (cw - bwsize * sf) / 2
-    ty_range = (ch - bhsize * sf * y_compress) / 2
+    tx_range = (cw - bwsize * sfx) / 2
+    ty_range = (ch - bhsize * sfy) / 2
 
-    tx = cx0 - bx0 * sf + tx_range * random.uniform(-1, 1)
-    ty = cy0 - by0 * sf * y_compress + ty_range * random.uniform(-1, 1)    
+    tx = cx0 - bx0 * sfx + tx_range * rng.uniform(-1, 1)
+    ty = cy0 - by0 * sfy + ty_range * rng.uniform(-1, 1)    
 
     if not origin:
         origin = (bx0, by0)
 
     trans: Affine2D = (
         Affine2D()
-        .scale(sf, sf * y_compress)
+        .scale(sfx, sfy)
         .rotate_around(*origin, angle_rad)
         .translate(tx, ty)
     )
 
     verts_array = trans.transform(shape.vertices)
+
+    meta: dict = {
+        "scale_x": sfx,
+        "scale_y": sfy,
+        "rot_x":   origin[0],
+        "rot_y":   origin[1],
+        "rot_deg": angle_deg,
+        "trans_x": tx,
+        "trans_y": ty,
+    }
     
-    return mplPath(verts_array, shape.codes)
+    return mplPath(verts_array, shape.codes), meta
 
 
 # ---------------------------------------------------------------------------

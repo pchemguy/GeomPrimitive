@@ -9,7 +9,7 @@ import pytest
 from matplotlib.path import Path as mplPath
 from matplotlib.patches import Circle, Ellipse, Arc
 
-from mpl_path_utils import join_paths, ellipse_or_arc_path
+from spt.mpl_path_utils import join_paths, ellipse_or_arc_path
 
 
 # ---------------------------------------------------------------------------

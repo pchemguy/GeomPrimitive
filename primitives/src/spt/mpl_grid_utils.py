@@ -29,6 +29,8 @@ from __future__ import annotations
 
 __all__ = ["GridJitterConfig", "generate_grid_collections",]
 
+import os
+import sys
 import math
 from dataclasses import dataclass
 from typing import Optional, Union
@@ -37,6 +39,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from numpy.typing import NDArray
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rng import RNGBackend
 
 numeric = Union[int, float]
 PointXY = tuple[numeric, numeric]
@@ -71,7 +76,7 @@ def generate_grid_collections(bbox: BBox,
                               x_major: float, x_minor: float,
                               y_major: float, y_minor: float,
                               jitter: GridJitterConfig = None,
-                              rng: np.random.Generator = None,
+                              rng: RNGBackend = None,
     ) -> tuple[LineCollection, LineCollection, LineCollection, LineCollection]:
     """Generate 4 LineCollections for an oblique, optionally jittered grid.
 
@@ -246,7 +251,7 @@ def _parse_bbox(bbox: BBox) -> BBoxBounds:
     return x_min, y_min, x_max, y_max
 
 
-def _sample_fraction(rng: np.random.Generator, sigma: float) -> float:
+def _sample_fraction(rng: RNGBackend, sigma: float) -> float:
     """Sample a [0, 1] fraction from |N(0, sigma)|, clipped."""
     if sigma <= 0:
         return 0.0
@@ -256,7 +261,7 @@ def _sample_fraction(rng: np.random.Generator, sigma: float) -> float:
 
 def _build_line_family(coord_min: float, coord_max: float, step: float,
                        fixed_vec: NDArray, dir_vec: NDArray, bbox: BBoxBounds,
-                       rng: np.random.Generator, jitter: GridJitterConfig,
+                       rng: RNGBackend, jitter: GridJitterConfig,
                        base_offset_step: float, line_angle_sigma_rad: float,) -> NDArray:
     """Generate clipped line segments for one family (major/minor X or Y).
 

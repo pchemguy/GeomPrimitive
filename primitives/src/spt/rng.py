@@ -50,7 +50,9 @@ class RNG:
 
     def __init__(self, seed: int = None, use_numpy: bool = False):
         self._lock = threading.Lock()
-        seed_val = seed or (os.getpid() ^ int(time.time()))
+        seed_val = (seed or (os.getpid()
+                   ^ (time.time_ns() & 0xFFFFFFFF)
+                   ^ random.getrandbits(32)))
 
         if use_numpy and np is not None:
             self._rng: RNGBackend = np.random.default_rng(seed_val)
@@ -65,7 +67,10 @@ class RNG:
     def seed(self, seed: int = None) -> None:
         """Reinitialize the RNG in place (preserves object identity)."""
         with self._lock:
-            seed_val = seed or (os.getpid() ^ int(time.time()))
+            seed_val = (seed or (os.getpid()
+                       ^ (time.time_ns() & 0xFFFFFFFF)
+                       ^ random.getrandbits(32)))
+
             if self._use_numpy and np is not None:
                 self._rng = np.random.default_rng(seed_val)
             else:
@@ -116,6 +121,14 @@ class RNG:
                 return float(self._rng.normal(mu, sigma))
             return self._rng.normalvariate(mu, sigma)
 
+    def shuffle(self, seq: list[Any]) -> list[Any]:
+        with self._lock:
+            if self._use_numpy and hasattr(self._rng, "permutation"):
+                arr = self._rng.permutation(seq)
+                return list(arr)
+            self._rng.shuffle(seq)
+            return seq
+    
     # -----------------------------------------------------------------
     # Utility & Introspection
     # -----------------------------------------------------------------
