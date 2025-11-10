@@ -216,14 +216,9 @@ def main():
     bgr:  ImageBGR  = bgr_from_rgba(rgba)
     rgb:  ImageRGB  = rgb_from_bgr(bgr)
     
-    bgr_f = util.img_as_float(bgr)
-    bgr_via_f = util.img_as_ubyte(exposure.rescale_intensity(bgr_f))
-    rgb_via_f = rgb_from_bgr(bgr_via_f)
-
     demos = {
         "Matplotlib RGBA":               rgba,
         "Roundtrip: RGBA -> BGR -> RGB": rgb,
-        "Roundtrip: SKIMAGE AS UBYTE": rgb_via_f,
     }
     
     canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
@@ -242,4 +237,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
