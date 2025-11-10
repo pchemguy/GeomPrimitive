@@ -149,19 +149,23 @@ def random_srt_path(shape: mplPath,
             new_path: transformed Path
             meta: dict with scale, rotation, and translation parameters.
     """
+    # --- Type checks --------------------------------------------------------
     if not isinstance(shape, mplPath):
-        raise TypeError(f"Expected a Matplotlib path. Received {type(shape).__name__}.")
+        raise TypeError(f"Expected a Matplotlib Path, got {type(shape).__name__}.")
+
     if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
         raise TypeError(
             f"canvas_x1x2: {type(canvas_x1x2).__name__}\n"
             f"canvas_y1y2: {type(canvas_y1y2).__name__}\n"
-            f"Both must be tuple[float, float]."
+            "Both must be tuple[float, float]."
         )
-    if origin and not isinstance(origin, tuple):
+
+    if origin is not None and not isinstance(origin, tuple):
         raise TypeError(
-            f"If provided, origin should be tuple[float, float].\n"
+            "If provided, origin should be tuple[float, float]. "
             f"Received: {type(origin).__name__}"
         )
+
     if not rng:
         rng: RNGBackend = get_rng(thread_safe=True)
     if not isinstance(y_compress, (int, float)):
