@@ -173,26 +173,38 @@ class SPTPipeline:
 
             # Record metadata + timing
             images[name] = rgb_from_bgr(out_img)
-            runtime[name] = round(elapsed_ms, 2)
+            runtime[name] = round(elapsed_ms, 3)
             meta[name] = stage_meta
             total += runtime[name]
 
-        runtime["Total"] = total
+        runtime["Total"] = round(total, 3)
         
         if not spt_config.BATCH_MODE:
-            summary = ["", "=" * 80]
+            summary = [""]
+            summary.append("=" * 80)
+            summary.append("PIPELINE PERFORMANCE SUMMARY")
+            summary.append("=" * 80)
+
             key_width = 20
+
             name = "Performance Summary"
             summary.append(f"---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+
             for k, v in runtime.items():
-                summary.append(f"  {k:<{key_width}}: {v} ms")
+                summary.append(f"  {k:<{key_width}}: {v:10.3f} ms")
 
             for name, stage_meta in meta.items():
                 summary.append(
-                    f"---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+                    f"\n---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
                 for k, v in stage_meta.items():
-                    val = v if not isinstance(v, float) else round(v, 3)
+                    if isinstance(v, int):
+                        val = f"{v:>6}    "
+                    elif isinstance(v, float):
+                        val = f"{v:10.3f}    "
+                    else:
+                        val = v
                     summary.append(f"  {k:<{key_width}}: {val}")
+            summary.append("=" * 80)
             self.logger.debug('\n'.join(summary))
             show_RGBx_grid(images, n_columns=3)
         
