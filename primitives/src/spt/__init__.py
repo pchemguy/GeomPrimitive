@@ -1,4 +1,5 @@
 from .mpl_utils import *
+from .spt import SPTPipeline
 from .spt_lighting import spt_lighting
 from .spt_texture import spt_texture
 from .spt_noise import spt_noise
