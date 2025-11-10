@@ -115,6 +115,40 @@ def random_srt_path(shape: mplPath,
                     origin: PointXY = None,
                     rng: RNGBackend = None,
                    ) -> tuple[mplPath, dict]:
+    """
+    Apply a random Scale–Rotate–Translate (SRT) transform to a Path so it fits
+    inside a given canvas box with some jitter.
+
+    The shape is:
+        1) scaled uniformly in X and Y, plus by `y_compress` in Y,
+        2) rotated around `origin` (default: path bbox center),
+        3) translated into the canvas with small random offsets.
+
+    Args:
+        shape:
+            Input Matplotlib Path.
+        canvas_x1x2:
+            (xmin, xmax) of the target canvas.
+        canvas_y1y2:
+            (ymin, ymax) of the target canvas.
+        y_compress:
+            Optional vertical compression factor. If None, sampled in [0.5, 1.0].
+        angle_deg:
+            Base rotation in degrees. If None, sampled uniformly in [0, 360).
+            If non-zero, a small ±JITTER_ANGLE_DEG jitter is added.
+            Note, for non-zero angle, the value is rounded. To have jitter with
+            0 deg, set it to abs() < 0.5 deg, such as 0.1.
+        origin:
+            Optional rotation center (x, y) in path coordinates. If None, uses
+            the path bounding-box center.
+        rng:
+            Optional RNG backend. If None, uses get_rng(thread_safe=True).
+
+    Returns:
+        (new_path, meta) where:
+            new_path: transformed Path
+            meta: dict with scale, rotation, and translation parameters.
+    """
     if not isinstance(shape, mplPath):
         raise TypeError(f"Expected a Matplotlib path. Received {type(shape).__name__}.")
     if not isinstance(canvas_x1x2, tuple) or not isinstance(canvas_y1y2, tuple):
