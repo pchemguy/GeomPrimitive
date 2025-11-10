@@ -166,8 +166,10 @@ def random_srt_path(shape: mplPath,
             f"Received: {type(origin).__name__}"
         )
 
-    if not rng:
-        rng: RNGBackend = get_rng(thread_safe=True)
+    # --- RNG ---------------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+
     if not isinstance(y_compress, (int, float)):
         y_compress = rng.uniform(0.5, 1.0)
     y_compress = max(0.2, float(y_compress))
