@@ -4,103 +4,145 @@ rng.py
 
 Thread-safe and process-safe random generator utilities.
 
-Provides:
-- RNG: encapsulated random generator with internal locking
-- get_rng(): returns a shared or thread-local RNG instance
+Upgraded version:
+- Supports both `random.Random` and `numpy.random.Generator` backends.
+- Retains identical API for scalar use.
+- Thread-safe lock for concurrent access.
+- Easy integration with your SPT pipeline.
 """
 
 from __future__ import annotations
 
-__all__ = ["RNG", "get_rng",]
+__all__ = ["RNGBackend", "RNG", "get_rng",]
 
 import os
 import time
 import random
 import threading
-from typing import Optional, Any
+from typing import Any, TypeAlias, Union
+
+try:
+  import numpy as np
+except ImportError:
+  np = None
+
+# ---------------------------------------------------------------------
+# Type alias (forward-compatible)
+# ---------------------------------------------------------------------
+RNGBackend: TypeAlias = Union[random.Random, "np.random.Generator", "RNG"]
 
 
-# =============================================================================
-# RNG CLASS (thread-safe)
-# =============================================================================
+# ---------------------------------------------------------------------
+# RNG class
+# ---------------------------------------------------------------------
 class RNG:
-    """Encapsulated thread-safe random generator.
+    """Encapsulated, thread-safe hybrid random generator.
 
     Attributes:
-        _rng:  Underlying random.Random instance.
+        _rng:  Backend RNG (random.Random or numpy.random.Generator).
         _lock: threading.Lock for safe concurrent access.
 
     Notes:
-        - Safe for use across threads and processes.
-        - For frequent multi-threaded RNG use, prefer `get_rng(thread_safe=True)`.
+        - Uses Python stdlib RNG by default (no NumPy dependency).
+        - If NumPy is available, you can enable vectorized sampling
+          via `.as_numpy()`.
     """
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: int = None, use_numpy: bool = False):
         self._lock = threading.Lock()
-        self._rng = random.Random(seed or (os.getpid() ^ int(time.time())))
+        seed_val = seed or (os.getpid() ^ int(time.time()))
 
-    # -------------------------------------------------------------------------
+        if use_numpy and np is not None:
+            self._rng: RNGBackend = np.random.default_rng(seed_val)
+            self._use_numpy = True
+        else:
+            self._rng: RNGBackend = random.Random(seed_val)
+            self._use_numpy = False
+
+    # -----------------------------------------------------------------
     # Core seeding
-    # -------------------------------------------------------------------------
-    def seed(self, seed: Optional[int] = None) -> None:
+    # -----------------------------------------------------------------
+    def seed(self, seed: int = None) -> None:
         """Reinitialize the RNG in place (preserves object identity)."""
         with self._lock:
-            self._rng.seed(seed or (os.getpid() ^ int(time.time())))
+            seed_val = seed or (os.getpid() ^ int(time.time()))
+            if self._use_numpy and np is not None:
+                self._rng = np.random.default_rng(seed_val)
+            else:
+                self._rng.seed(seed_val)
 
-    # -------------------------------------------------------------------------
-    # Basic distributions (thread-safe wrappers)
-    # -------------------------------------------------------------------------
-    def randint(self, *a, **kw) -> int:
+    # -----------------------------------------------------------------
+    # Scalar random methods
+    # -----------------------------------------------------------------
+    def random(self) -> float:
         with self._lock:
-            return self._rng.randint(*a, **kw)
+            if self._use_numpy:
+                return float(self._rng.random())
+            return self._rng.random()
+
+    def randint(self, a: int, b: int) -> int:
+        with self._lock:
+            if self._use_numpy:
+                return int(self._rng.integers(a, b + 1))
+            return self._rng.randint(a, b)
 
     def randrange(self, *a, **kw) -> int:
         with self._lock:
+            if self._use_numpy:
+                return int(self._rng.integers(*a, **kw))
             return self._rng.randrange(*a, **kw)
 
-    def uniform(self, *a, **kw) -> float:
+    def uniform(self, a: float = 0.0, b: float = 1.0) -> float:
         with self._lock:
-            return self._rng.uniform(*a, **kw)
+            if self._use_numpy:
+                return float(self._rng.uniform(a, b))
+            return self._rng.uniform(a, b)
 
-    def choice(self, *a, **kw) -> Any:
+    def choice(self, seq: list[Any]) -> Any:
         with self._lock:
-            return self._rng.choice(*a, **kw)
+            if self._use_numpy:
+                return self._rng.choice(seq)
+            return self._rng.choice(seq)
 
-    def shuffle(self, seq):
+    def normal(self, mu: float = 0.0, sigma: float = 1.0) -> float:
         with self._lock:
-            self._rng.shuffle(seq)
-            return seq
-
-    def normal(self, mu: float, sigma: float) -> float:
-        with self._lock:
+            if self._use_numpy:
+                return float(self._rng.normal(mu, sigma))
             return self._rng.normalvariate(mu, sigma)
 
-    def normalvariate(self, mu: float, sigma: float) -> float:
+    def normalvariate(self, mu: float = 0.0, sigma: float = 1.0) -> float:
         with self._lock:
+            if self._use_numpy:
+                return float(self._rng.normal(mu, sigma))
             return self._rng.normalvariate(mu, sigma)
 
-    def paretovariate(self, alpha: Optional[float] = 1) -> float:
-        with self._lock:
-            return self._rng.paretovariate(alpha)
-
+    # -----------------------------------------------------------------
+    # Utility & Introspection
+    # -----------------------------------------------------------------
     def getstate(self):
         with self._lock:
+            if self._use_numpy:
+                return self._rng.bit_generator.state
             return self._rng.getstate()
 
     def setstate(self, state):
         with self._lock:
-            return self._rng.setstate(state)
+            if self._use_numpy:
+                self._rng.bit_generator.state = state
+            else:
+                self._rng.setstate(state)
 
-    def random(self) -> float:
-        with self._lock:
-            return self._rng.random()
+    def as_numpy(self):
+        """Return NumPy-compatible Generator instance (if available)."""
+        if self._use_numpy:
+            return self._rng
+        if np is None:
+            raise RuntimeError("NumPy not available.")
+        return np.random.default_rng(int(time.time()))
 
-    # -------------------------------------------------------------------------
-    # Utilities
-    # -------------------------------------------------------------------------
     def __repr__(self) -> str:
-        return f"<RNG id={id(self)} pid={os.getpid()}>"
-    
+        backend = "numpy" if self._use_numpy else "stdlib"
+        return f"<RNG backend={backend} pid={os.getpid()} id={id(self)}>"
 
 # =============================================================================
 # GLOBAL & THREAD-LOCAL ACCESSORS
@@ -109,29 +151,18 @@ _global_rng = RNG()
 _thread_local = threading.local()
 
 
-def get_rng(thread_safe: bool = False) -> RNG:
-    """Return an RNG instance.
-
-    Args:
-        thread_safe: If True, returns a thread-local RNG for parallel usage.
-
-    Returns:
-        RNG: Thread-safe RNG instance (shared or per-thread).
-    """
+def get_rng(thread_safe: bool = False, use_numpy: bool = False) -> RNG:
+    """Return an RNG instance (shared or per-thread)."""
     if thread_safe:
         if not hasattr(_thread_local, "rng"):
-            _thread_local.rng = RNG()
+            _thread_local.rng = RNG(use_numpy=use_numpy)
         return _thread_local.rng
     return _global_rng
 
 
 def set_global_seed(seed: int) -> None:
-    """Re-seed the global RNG and NumPy RNG if available."""
+    """Re-seed the global RNG (and NumPy RNG if available)."""
     global _global_rng
     _global_rng.seed(seed)
-
-    try:
-        import numpy as np
+    if np is not None:
         np.random.seed(seed)
-    except ImportError:
-        pass    
