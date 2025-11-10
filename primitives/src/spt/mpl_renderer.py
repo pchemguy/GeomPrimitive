@@ -10,6 +10,9 @@ import sys
 import time
 import random
 import logging
+from enum import Enum, auto
+from typing import Optional, Union
+from collections.abc import Iterable
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +23,9 @@ else:
         # Use a non-interactive backend (safe for multiprocessing workers)
         mpl.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import PathPatch
+from matplotlib.path import Path as mplPath
+from matplotlib.transforms import Affine2D
 
 from rng import RNG, get_rng
 from logging_utils import configure_logging
@@ -33,6 +39,10 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
+
+numeric = Union[int, float]
+PointXY = tuple[numeric, numeric]
+CoordRange = tuple[numeric, numeric]
 
 
 def clamped_normal(self, sigma=1, amp=1):

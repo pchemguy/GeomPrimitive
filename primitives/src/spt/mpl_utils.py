@@ -1,13 +1,15 @@
 """
-spt_base.py
+mpl_utils.py
 -----------
 """
 
 from __future__ import annotations
 
 __all__ = [
-    "bgr_from_rgba", "rgb_from_bgr", "show_RGBx_grid", "render_scene",
-    "ImageBGR", "ImageRGB", "ImageRGBA", "ImageRGBx", "PAPER_COLORS",
+    "bgr_from_rgba", "rgb_from_bgr",
+    "show_RGBx_grid", "render_scene",
+    "ImageBGR", "ImageRGB", "ImageRGBA", "ImageRGBx",
+    "PAPER_COLORS", "DEFAULT_LINEWIDTHS",
 ]
 
 import os
@@ -37,6 +39,7 @@ ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
 ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
 ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
+DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)
 PAPER_COLORS = [
     "none", "white", "cornsilk", "ivory", "oldlace", "floralwhite", "whitesmoke"
 ] # X11/CSS4
@@ -240,20 +243,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-
-"""
-    default_props["lighting_mode"] = "radial"
-    radial_demos = {
-        "Radial 0x0 x 1":       {"lighting_strength": 1, "grad_cx": 0,   "grad_cy": 0},
-        "Radial 0x0 x 5":       {"lighting_strength": 5, "grad_cx": 0,   "grad_cy": 0},
-        "Radial 0.5x0.5 x 5":   {"lighting_strength": 5, "grad_cx": 0.5, "grad_cy": 0.5},
-        "Radial 1x1 x 5":       {"lighting_strength": 5, "grad_cx": 1,   "grad_cy": 1},
-    }
-    for (title, custom_props) in radial_demos.items():
-        radial_demos[title] = rgb_from_bgr(
-            apply_lighting_gradient(**{**default_props, **custom_props})
-        )
-
-    show_RGBx_grid({**linear_demos, **radial_demos}, n_columns=4)
-"""

@@ -64,7 +64,7 @@ class SPTPipeline:
         cls.rng.seed(seed)
 
     def clamped_normal(self, sigma=1, amp=1):
-        return max(-amp, min(amp, self.rng.normalvariate(0, sigma)))
+        return max(-amp, min(amp, self.__class__.rng.normalvariate(0, sigma)))
 
     # ---- Stages ----
 
@@ -88,7 +88,6 @@ class SPTPipeline:
 
     def stage2_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies paper texture"""
-        rng: RNG = self.__class__.rng                
         self.logger.debug(f"Running stage 2: Texture.")
         meta: dict = {
             "texture_strength": kwargs.get("texture_strength",
@@ -113,7 +112,6 @@ class SPTPipeline:
 
     def stage4_geometry(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies geometric effects."""
-        rng: RNG = self.__class__.rng                
         self.logger.debug(f"Running stage 4: Geometry.")
         meta: dict = {
             "tilt_x": kwargs.get("tilt_x", self.clamped_normal(0.25)),
@@ -125,8 +123,7 @@ class SPTPipeline:
 
     def stage5_color(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies color effects."""
-        rng: RNG = self.__class__.rng                
-        self.logger.debug(f"Running stage 5: Geometry.")
+        self.logger.debug(f"Running stage 5: Color.")
         meta: dict = {
             "vignette_strength": kwargs.get("vignette_strength", 
                                              abs(self.clamped_normal(0.1, 0.5))),
@@ -182,20 +179,19 @@ class SPTPipeline:
         if not spt_config.BATCH_MODE:
             summary = [""]
             summary.append("=" * 80)
-            summary.append("PIPELINE PERFORMANCE SUMMARY")
-            summary.append("=" * 80)
+            summary.append(f"{'PIPELINE PERFORMANCE SUMMARY':^40}")
+            summary.append("=" * 40)
 
             key_width = 20
 
-            name = "Performance Summary"
-            summary.append(f"---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+            summary.append(f"{'Performance Summary':-^35}")
 
             for k, v in runtime.items():
                 summary.append(f"  {k:<{key_width}}: {v:10.3f} ms")
 
             for name, stage_meta in meta.items():
                 summary.append(
-                    f"\n---------- {name} {'-' * (40 - 10 - 2 - len(name))}")
+                    f"\n{name:-^35}")
                 for k, v in stage_meta.items():
                     if isinstance(v, int):
                         val = f"{v:>6}    "
