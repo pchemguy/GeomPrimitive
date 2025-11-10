@@ -132,16 +132,25 @@ class SPTPipeline:
     def run(self, img: ImageBGR, **kwargs):
         meta = {}
         meta["1 - Lighting"], img1 = self.stage1_lighting(img, **kwargs)
-        meta["2 - Texture"], img2 = self.stage2_texture(img1, **kwargs)
-        meta["3 - Noise"], img3 = self.stage3_noise(img2, **kwargs)
+        meta["2 - Texture"],  img2 = self.stage2_texture(img1, **kwargs)
+        meta["3 - Noise"],    img3 = self.stage3_noise(img2, **kwargs)
         meta["4 - Geometry"], img4 = self.stage4_geometry(img3, **kwargs)
-        meta["5 - Color"], img5 = self.stage5_color(img4, **kwargs)
-
+        meta["5 - Color"],    img5 = self.stage5_color(img4, **kwargs)
+        
+        if not spt_config.BATCH_MODE:
+            stages = {
+                "1 - Lighting": rgb_from_bgr(img1),
+                "2 - Texture":  rgb_from_bgr(img2),
+                "3 - Noise":    rgb_from_bgr(img3),
+                "4 - Geometry": rgb_from_bgr(img4),
+                "5 - Color":    rgb_from_bgr(img5),
+            }
+            show_RGBx_grid(stages, n_columns=3)
         return img5
 
 
 def main():
-    pass
+    pipeline: SPTPipeline = SPTPipeline()
 
 if __name__ == "__main__":
     main()
