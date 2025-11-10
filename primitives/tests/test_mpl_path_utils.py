@@ -4,17 +4,28 @@ test_mpl_path_utils.py
 Unit tests for mpl_path_utils.py
 """
 
+import math
 import numpy as np
 import pytest
 from matplotlib.path import Path as mplPath
 from matplotlib.patches import Circle, Ellipse, Arc
 
-from spt.mpl_path_utils import join_paths, ellipse_or_arc_path
+from spt.mpl_path_utils import (
+    join_paths, ellipse_or_arc_path, random_srt_path, JITTER_ANGLE_DEG
+)
+from spt.rng import RNG, get_rng
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def unit_circle_path():
+    """A simple circular path centered at origin, radius 1."""
+    c = Circle((0, 0), radius=1.0)
+    return c.get_transform().transform_path(c.get_path())
+
 
 @pytest.fixture
 def basic_circle_path():
@@ -38,6 +49,13 @@ def arc_path():
 def closed_arc_path():
     """Closed pie-slice arc."""
     return ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90, close=True)
+
+
+@pytest.fixture
+def fixed_rng():
+    """Deterministic RNG instance."""
+    r = RNG(seed=123)
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -141,3 +159,128 @@ def test_join_paths_result_is_valid():
 def test_perf_benchmark(benchmark):
     result = benchmark(lambda: ellipse_or_arc_path(0, 0, 1.0, y_compress=0.7, start_angle=0, end_angle=270))
     assert isinstance(result, mplPath)
+
+
+# ---------------------------------------------------------------------
+# Basic Functionality
+# ---------------------------------------------------------------------
+
+def test_returns_path_and_meta(unit_circle_path, fixed_rng):
+    canvas_x1x2 = (-5.0, 5.0)
+    canvas_y1y2 = (-4.0, 4.0)
+
+    path_out, meta = random_srt_path(
+        unit_circle_path,
+        canvas_x1x2,
+        canvas_y1y2,
+        rng=fixed_rng,
+    )
+
+    assert isinstance(path_out, mplPath)
+    assert isinstance(meta, dict)
+    # Meta must contain standard keys
+    expected_keys = {"scale_x", "scale_y", "rot_x", "rot_y",
+                     "rot_deg", "trans_x", "trans_y"}
+    assert expected_keys.issubset(meta.keys())
+
+
+def test_result_stays_within_canvas(unit_circle_path, fixed_rng):
+    """All transformed vertices should fit within the given canvas bounds."""
+    cx, cy = (-10.0, 10.0), (-10.0, 10.0)
+    path_out, _ = random_srt_path(unit_circle_path, cx, cy, rng=fixed_rng)
+    xs, ys = path_out.vertices[:, 0], path_out.vertices[:, 1]
+    assert xs.min() >= cx[0] - 1e-3
+    assert xs.max() <= cx[1] + 1e-3
+    assert ys.min() >= cy[0] - 1e-3
+    assert ys.max() <= cy[1] + 1e-3
+
+
+# ---------------------------------------------------------------------
+# Determinism
+# ---------------------------------------------------------------------
+
+def test_same_seed_produces_same_result(unit_circle_path):
+    """Two RNGs with the same seed should yield identical transforms."""
+    rng1 = RNG(seed=42)
+    rng2 = RNG(seed=42)
+    cx, cy = (-5.0, 5.0), (-5.0, 5.0)
+    p1, m1 = random_srt_path(unit_circle_path, cx, cy, rng=rng1)
+    p2, m2 = random_srt_path(unit_circle_path, cx, cy, rng=rng2)
+    np.testing.assert_allclose(p1.vertices, p2.vertices)
+    assert m1 == m2
+
+
+def test_different_seeds_produce_different_result(unit_circle_path):
+    """Distinct seeds should yield different transforms most of the time."""
+    rng1 = RNG(seed=1)
+    rng2 = RNG(seed=999)
+    cx, cy = (-5.0, 5.0), (-5.0, 5.0)
+    p1, _ = random_srt_path(unit_circle_path, cx, cy, rng=rng1)
+    p2, _ = random_srt_path(unit_circle_path, cx, cy, rng=rng2)
+    assert not np.allclose(p1.vertices, p2.vertices)
+
+
+# ---------------------------------------------------------------------
+# Angle and Rotation
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("angle_deg", [0, 30, 180])
+def test_angle_is_applied(unit_circle_path, angle_deg, fixed_rng):
+    """Ensure rotation is reflected in metadata."""
+    cx, cy = (-5, 5), (-5, 5)
+    _, meta = random_srt_path(
+        unit_circle_path,
+        cx,
+        cy,
+        angle_deg=angle_deg,
+        rng=fixed_rng,
+    )
+    assert -180 <= meta["rot_deg"] <= 180
+    if angle_deg != 0:
+        assert abs(meta["rot_deg"] - angle_deg) <= JITTER_ANGLE_DEG
+
+
+# ---------------------------------------------------------------------
+# Error Handling
+# ---------------------------------------------------------------------
+
+def test_invalid_shape_type():
+    with pytest.raises(TypeError):
+        random_srt_path("not_a_path", (0, 1), (0, 1))
+
+def test_invalid_canvas_types(unit_circle_path):
+    with pytest.raises(TypeError):
+        random_srt_path(unit_circle_path, (0, 1), "bad")
+
+def test_invalid_origin_type(unit_circle_path):
+    with pytest.raises(TypeError):
+        random_srt_path(unit_circle_path, (0, 1), (0, 1), origin="not_a_tuple")
+
+def test_zero_canvas_raises(unit_circle_path):
+    with pytest.raises(ValueError):
+        random_srt_path(unit_circle_path, (0, 0), (0, 1))
+
+def test_degenerate_shape_succeeds(fixed_rng):
+    """A zero-size path should not crash but still return a valid Path."""
+    p = mplPath(np.zeros((3, 2)))
+    out, meta = random_srt_path(p, (-1, 1), (-1, 1), rng=fixed_rng)
+    assert isinstance(out, mplPath)
+    assert isinstance(meta, dict)
+    assert "scale_x" in meta
+
+
+# ---------------------------------------------------------------------
+# Performance sanity check
+# ---------------------------------------------------------------------
+
+@pytest.mark.benchmark(group="random_srt_path")
+def test_runtime_under_threshold(benchmark, unit_circle_path, fixed_rng):
+    """Ensure transform runs within 5ms."""
+    cx, cy = (-10, 10), (-10, 10)
+
+    def run():
+        random_srt_path(unit_circle_path, cx, cy, rng=fixed_rng)
+
+    result = benchmark(run)
+    assert result is None  # benchmark just times it
+

@@ -116,7 +116,7 @@ def random_srt_path(shape: mplPath,
                     rng: RNGBackend = None,
                    ) -> tuple[mplPath, dict]:
     """
-    Apply a random Scale–Rotate–Translate (SRT) transform to a Path so it fits
+    Apply a random Scale-Rotate-Translate (SRT) transform to a Path so it fits
     inside a given canvas box with some jitter.
 
     The shape is:
@@ -135,7 +135,7 @@ def random_srt_path(shape: mplPath,
             Optional vertical compression factor. If None, sampled in [0.5, 1.0].
         angle_deg:
             Base rotation in degrees. If None, sampled uniformly in [0, 360).
-            If non-zero, a small ±JITTER_ANGLE_DEG jitter is added.
+            If non-zero, a small +/-JITTER_ANGLE_DEG jitter is added.
             Note, for non-zero angle, the value is rounded. To have jitter with
             0 deg, set it to abs() < 0.5 deg, such as 0.1.
         origin:
