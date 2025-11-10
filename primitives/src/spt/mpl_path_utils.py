@@ -1,13 +1,31 @@
 """
 mpl_path_utils.py
 -----------
+
+Core API:
+
+    join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath
+
+        Joins muptiple paths into a single continous or disjoint matplotlib.path.Path
+        object.
+    
+    ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
+                        start_angle: float = 0.0, end_angle: float = 360.0,
+                        angle_offset: float = 0.0, close: bool = False) -> mplPath:
+
+        This routine creates basic primitives using Matplotlib Circle, Ellipse, and Arc
+        patches. For these patches, Matplotlib internally creates an associated path
+        that is extracted after the appropriate patch object is created. The primary
+        purpose of this routine is satisfy potential needs of testing or basic demos.
+        Flexible generation of primary elliptical arcs objects is performed via separate
+        routines.
 """
 
 from __future__ import annotations
 
 """
 __all__ = [
-    "join_paths",
+    "join_paths", "ellipse_or_arc_path",
     "JITTER_ANGLE_DEG",
 ]
 """
@@ -36,6 +54,9 @@ from matplotlib.path import Path as mplPath
 from mpl_utils import *
 
 
+numeric = Union[int, float]
+PointXY = tuple[numeric, numeric]
+CoordRange = tuple[numeric, numeric]
 JITTER_ANGLE_DEG = 5
 
 
@@ -82,17 +103,17 @@ def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
 
 
 # ---------------------------------------------------------------------------
-# Ellipse / Arc path generator
+# Basic Ellipse / Arc path generator
 # ---------------------------------------------------------------------------
 def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
                         angle_offset: float = 0.0, close: bool = False) -> mplPath:
     """
-    Create a Matplotlib Path representing a circle, ellipse, or elliptical arc.
+    Create a basic Matplotlib Path representing a circle, ellipse, or elliptical arc.
   
     Supports anisotropic vertical scaling via ``y_compress`` and rotation via
     ``angle_offset``. Optionally closes the arc to form a filled sector (pie slice).
-  
+
     Args:
         x0: Center X-coordinate.
         y0: Center Y-coordinate.

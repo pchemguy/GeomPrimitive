@@ -164,12 +164,14 @@ def random_srt_path(shape: mplPath,
 
     if not origin:
         origin = (bx0, by0)
-    trans = (
+
+    trans: Affine2D = (
         Affine2D()
         .scale(sf, sf * y_compress)
         .rotate_around(*origin, angle_rad)
         .translate(tx, ty)
     )
+
     verts_array = trans.transform(shape.vertices)
     
     return mplPath(verts_array, shape.codes)
