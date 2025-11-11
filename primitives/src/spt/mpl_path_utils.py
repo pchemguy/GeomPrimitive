@@ -2,12 +2,34 @@
 mpl_path_utils.py
 -----------
 
+The primary focus of this module is generation of random Paths of geometric primitives,
+such as lines, circles/ellipses, circular/elliptical arcs, triangles, squares/recatngles,
+and tabulated {(x, y) or (x, y, y')} functions. The core generation workflow is performed
+in stages:
+ -
+ -
+
+
 Core API:
 
     join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath
 
         Joins muptiple paths into a single continous or disjoint matplotlib.path.Path
         object.
+    
+    
+    random_srt_path(shape: mplPath, canvas_x1x2: PointXY, canvas_y1y2: PointXY,
+                    y_compress: float = None, angle_deg: numeric = None,
+                    origin: PointXY = None, rng: RNGBackend = None) -> tuple[mplPath, dict]
+
+         Applies a random Scale->Rotate->Translate (SRT) transform to given Path within
+         the specified canvas. the primary use is to transform a random Path defined on
+         the unit box ([-1, 1]) to a rnadom Path within the specified canvas. Scaling is
+         defined assymetrically. Isotropic scaling within the ratio of the sizes of the
+         original bounding box and canvas is performed isotropically (XY). y_compress
+         defines additional compression of the y coordinate, turning circles, circular
+         arcs, and squares into elliptical and rectangular shapes.
+    
     
     ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
