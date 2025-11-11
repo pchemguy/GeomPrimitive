@@ -27,7 +27,7 @@ else:
 import matplotlib.pyplot as plt
 
 from utils.rng import RNG, get_rng
-from logging_utils import configure_logging
+from utils.logging_utils import configure_logging
 
 from mpl_utils import (
     # Conversion helpers
