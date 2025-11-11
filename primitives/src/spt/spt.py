@@ -16,6 +16,7 @@ import logging
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 import spt_config
 if __name__ == "__main__":
     spt_config.BATCH_MODE = False
@@ -25,7 +26,7 @@ else:
         mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from rng import RNG, get_rng
+from utils.rng import RNG, get_rng
 from logging_utils import configure_logging
 
 from mpl_utils import (

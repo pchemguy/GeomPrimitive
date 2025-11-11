@@ -17,7 +17,7 @@ from spt.mpl_path_utils import (
     unit_circular_arc_segment, unit_circular_arc, unit_rectangle_path,
     JITTER_ANGLE_DEG,
 )
-from spt.rng import RNG, get_rng
+from rng.rng import RNG, get_rng
 
 
 # ---------------------------------------------------------------------------

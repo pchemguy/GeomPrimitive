@@ -13,7 +13,7 @@ import math
 import threading
 import pytest
 
-import spt.rng as rng
+import rng.rng as rng
 
 # Optional import of NumPy (tests still pass without it)
 try:
