@@ -112,6 +112,13 @@ Core API:
 
         Generates a Path representation of a rectangle inscribed into a unit circle.
 
+
+    unit_triangle_path(equal_sides: int = None, angle_category: int = None,
+                       jitter_angle_deg: int = 5, base_angle: int = None,
+                       rng: RNGBackend = None) -> tuple[mplPath, dict]
+
+        Generates a Path representation of a triangle inscribed into a unit circle.
+
     
     random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
                                 tightness: float = 0.3, rng: RNGBackend = None) -> mplPath
@@ -592,6 +599,100 @@ def unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
         "offset_deg": offset,
     }
     
+    return mplPath(verts, codes), meta
+
+
+# ---------------------------------------------------------------------------
+# Random unit triangle
+# ---------------------------------------------------------------------------
+def unit_triangle_path(equal_sides: int = None, angle_category: int = None,
+                       jitter_angle_deg: int = 5, base_angle: int = None,
+                       rng: RNGBackend = None) -> tuple[mplPath, dict]:
+    """Generates vertices of a triangle inscribed into a unit circle.
+
+    Args:
+        equal_sides: 1, 2, or 3.
+            - 3 -> Equilateral
+            - 2 -> Isosceles
+            - 1 -> Scalene
+        angle_category: Nominal angular type (compared with 90deg):
+            <90 -> Acute
+            =90 -> Right
+            >90 -> Obtuse
+        jitter_angle_deg: Standard deviation (3sigma) of angular jitter in degrees.
+        base_angle: Optional base rotation of the figure (degrees).
+        rng: Optional RNG backend (RNG, random.Random, or np.random.Generator).
+
+    Returns:
+        tuple:
+            mplPath: Path representing the triangle.
+            dict: Metadata including parameters and applied offsets.
+    """
+    # --- RNG setup ---------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(
+        rng, "normal3s",
+        lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))),
+    )
+
+    # --- Input validation --------------------------------------------------
+    if not equal_sides:
+        equal_sides = rng.choice((1, 2, 3))
+    if equal_sides not in (1, 2, 3):
+        raise ValueError(
+            f"equal_sides must be an integer in [1, 3]. "
+            f"Got {equal_sides!r}."
+        )
+
+    if not angle_category:
+        angle_category = rng.choice((60, 90, 120))
+    if not isinstance(angle_category, (int, float)):
+        raise TypeError(
+            f"angle_category must be numeric. "
+            f"Got {type(angle_category).__name__}."
+        )
+
+    # --- Base geometry -----------------------------------------------------
+    if equal_sides == 3:
+        # Equilateral triangle
+        thetas = [90, -30, 210]
+        top_offset = base_offset = 0.0
+    else:
+        top_offset = (
+            0 if equal_sides > 1 else rng.choice([-1, 1])
+            * rng.uniform(jitter_angle_deg, 90 - jitter_angle_deg)
+        )
+        base_offset = (
+            ((angle_category > 90) - (angle_category < 90))
+            * rng.uniform(jitter_angle_deg, 90 - jitter_angle_deg)
+        )
+        thetas = [90 + top_offset, 0 + base_offset, 180 - base_offset]
+
+    # --- Jitter and rotation -----------------------------------------------
+    thetas[0] += normal3s() * jitter_angle_deg
+
+    if not isinstance(base_angle, (int, float)):
+        base_angle = rng.uniform(-90, 90)
+    else:
+        base_angle += normal3s() * jitter_angle_deg
+
+    thetas = [(theta + base_angle) for theta in thetas]
+    thetas = [math.radians(((theta + 180) % 360) - 180) for theta in thetas]
+
+    # --- Path construction -------------------------------------------------
+    verts = [(math.cos(theta), math.sin(theta)) for theta in thetas]
+    verts.append(verts[0])
+    codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
+
+    meta = {
+        "equal_sides":     equal_sides,
+        "angle_category":  angle_category,
+        "base_angle_deg":  base_angle,
+        "top_offset_deg":  top_offset,
+        "base_offset_deg": base_offset,
+    }
+
     return mplPath(verts, codes), meta
 
 

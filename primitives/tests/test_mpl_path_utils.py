@@ -15,6 +15,7 @@ from spt.mpl_path_utils import (
     join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
     random_cubic_spline_segment, handdrawn_polyline_path, bezier_from_xy_dy,
     unit_circular_arc_segment, unit_circular_arc, unit_rectangle_path,
+    unit_triangle_path,
     JITTER_ANGLE_DEG,
 )
 from utils.rng import RNG, get_rng
@@ -912,6 +913,7 @@ def test_segment_count_minimum(fixed_rng):
 # Tests for unit_rectangle_path
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------
 # Geometry and structure
 # ---------------------------------------------------------------------
@@ -971,4 +973,85 @@ def test_meta_contains_expected_fields(fixed_rng):
     assert set(meta.keys()) == {"angle_deg", "offset_deg"}
     assert isinstance(meta["angle_deg"], (int, float))
     assert isinstance(meta["offset_deg"], (int, float))
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tests for unit_triangle_path
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------
+# Geometry and structure
+# ---------------------------------------------------------------------
+def test_equilateral_triangle_basic(fixed_rng):
+    path, meta = unit_triangle_path(equal_sides=3, jitter_angle_deg=0, rng=fixed_rng)
+    verts = path.vertices
+    assert isinstance(path, mplPath)
+    assert len(verts) == 4  # 3 vertices + closure
+    np.testing.assert_allclose(np.linalg.norm(verts[:-1], axis=1), 1, atol=1e-6)
+    assert path.codes[-1] == mplPath.CLOSEPOLY
+    assert meta["equal_sides"] == 3
+
+
+def test_isosceles_and_scalene_differ(fixed_rng):
+    tri1, _ = unit_triangle_path(equal_sides=2, angle_category=60, base_angle=45, rng=fixed_rng)
+    tri2, _ = unit_triangle_path(equal_sides=1, angle_category=120, base_angle=45, rng=fixed_rng)
+    assert not np.allclose(tri1.vertices, tri2.vertices, atol=1e-6)
+
+
+def test_invalid_equal_sides_raises(fixed_rng):
+    with pytest.raises(ValueError):
+        unit_triangle_path(equal_sides=4, rng=fixed_rng)
+
+
+def test_invalid_angle_category_type_raises(fixed_rng):
+    with pytest.raises(TypeError):
+        unit_triangle_path(angle_category="obtuse", rng=fixed_rng)
+
+
+def test_random_choice_when_none(fixed_rng):
+    """Should generate valid path even if arguments omitted."""
+    path, meta = unit_triangle_path(equal_sides=None, angle_category=None, rng=fixed_rng)
+    assert isinstance(path, mplPath)
+    assert len(path.vertices) == 4
+    assert meta["equal_sides"] in (1, 2, 3)
+    assert isinstance(meta["angle_category"], (int, float))
+
+
+# ---------------------------------------------------------------------
+# Randomness and jitter
+# ---------------------------------------------------------------------
+def test_angle_jitter_changes_vertices(fixed_rng):
+    p1, _ = unit_triangle_path(equal_sides=3, jitter_angle_deg=0, rng=fixed_rng)
+    p2, _ = unit_triangle_path(equal_sides=3, jitter_angle_deg=10, rng=fixed_rng)
+    assert not np.allclose(p1.vertices, p2.vertices, atol=1e-8)
+
+
+def test_zero_jitter_consistency(fixed_rng):
+    """Zero jitter must yield consistent geometry across calls."""
+    p1, _ = unit_triangle_path(equal_sides=3, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
+    p2, _ = unit_triangle_path(equal_sides=3, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
+    np.testing.assert_allclose(p1.vertices, p2.vertices)
+
+
+# ---------------------------------------------------------------------
+# Metadata and geometric checks
+# ---------------------------------------------------------------------
+def test_metadata_fields_present(fixed_rng):
+    _, meta = unit_triangle_path(equal_sides=2, rng=fixed_rng)
+    expected = {"equal_sides", "angle_category", "base_angle_deg", "top_offset_deg", "base_offset_deg"}
+    assert set(meta.keys()) == expected
+
+
+def test_vertices_on_unit_circle(fixed_rng):
+    path, _ = unit_triangle_path(equal_sides=1, rng=fixed_rng)
+    r = np.linalg.norm(path.vertices[:-1], axis=1)
+    assert np.all(r < 1.05) and np.all(r > 0.9)
+
+
+def test_path_is_closed(fixed_rng):
+    path, _ = unit_triangle_path(equal_sides=3, rng=fixed_rng)
+    np.testing.assert_allclose(path.vertices[0], path.vertices[-1], atol=1e-12)
+    assert path.codes[-1] == mplPath.CLOSEPOLY
 
