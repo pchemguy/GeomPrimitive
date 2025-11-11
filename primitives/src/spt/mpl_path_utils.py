@@ -284,7 +284,6 @@ def random_srt_path(shape: mplPath,
     # --- Rotated unscaled bounding dimensions (approximate) ---------------
     bwsize = max(1e-6, abs(bw * math.cos(angle_rad)) + abs(bh * math.sin(angle_rad)))
     bhsize = max(1e-6, abs(bh * math.cos(angle_rad)) + abs(bw * math.sin(angle_rad)))
-    
 
     # --- Scaling to fit canvas --------------------------------------------
     # Base uniform scale in X chosen to fit rotated bbox into canvas
@@ -301,7 +300,6 @@ def random_srt_path(shape: mplPath,
     # --- Rotation origin ---------------------------------------------------
     if origin is None:
         origin = (bx0, by0)
-
 
     # --- Affine transform: scale -> rotate_around -> translate ------------
     trans: Affine2D = (
@@ -355,12 +353,17 @@ def unit_circle_diameter(base_angle: numeric = None,
         rng = get_rng(thread_safe=True)
 
     # --- Determine base angle and jitter -----------------------------------
-    if not isinstance(base_angle, (int, float)):
+    if base_angle is None:
         base_angle = rng.uniform(-90, 90)
+    elif not isinstance(base_angle, (int, float)):
+        raise TypeError(
+            f"angle_deg must be of type integer or float.\n"
+            f"Received type: {type(base_angle).__name__}; value: {base_angle}."
+        )
 
     # Use RNG for normal jitter to stay consistent with other random primitives
     jitter = jitter_angle_deg * max(-1, min(1, rng.normalvariate(0, 1 / 3)))
-    angle_deg = ((base_angle + jitter + 180.0) % 360.0) - 180.0
+    angle_deg = ((base_angle + jitter + 90) % 180) - 90
     angle_rad = math.radians(angle_deg)
 
     # --- Compute endpoints on unit circle ----------------------------------
@@ -412,7 +415,6 @@ def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
     ry = r * y_compress
 
     # --- Full circle / ellipse ---
-
     if abs(span) < 1e-6 or abs(span - 360.0) < 1e-6:
         if abs(y_compress - 1.0) < 1e-9 and abs(angle_offset) < 1e-9:
             patch = Circle((x0, y0), rx)
@@ -421,7 +423,6 @@ def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
         return patch.get_transform().transform_path(patch.get_path())
 
     # --- Partial arc / elliptical arc ---
-
     arc = Arc((x0, y0), 2 * rx, 2 * ry, angle=angle_offset,
               theta1=start_angle, theta2=end_angle)
     path = arc.get_path()
@@ -431,7 +432,6 @@ def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
         return transformed
 
     # --- Close arc to center (filled sector) ---
-
     verts = transformed.vertices
     codes = transformed.codes.copy()
 

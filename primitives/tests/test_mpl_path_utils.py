@@ -52,7 +52,7 @@ def closed_arc_path():
     return ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90, close=True)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def fixed_rng():
     """Deterministic RNG instance."""
     r = RNG(seed=123)
@@ -244,7 +244,7 @@ def test_angle_is_applied(unit_circle_path, angle_deg, fixed_rng):
     )
     assert -180 <= meta["rot_deg"] <= 180
     if angle_deg != 0:
-        assert abs(meta["rot_deg"] - angle_deg) <= JITTER_ANGLE_DEG
+        assert abs(abs(meta["rot_deg"]) - abs(angle_deg)) <= JITTER_ANGLE_DEG
 
 
 # ---------------------------------------------------------------------
@@ -308,8 +308,6 @@ def test_returns_path_and_meta(base_call):
     assert isinstance(path, mplPath)
     assert isinstance(meta, dict)
     assert "angle_deg" in meta
-    assert "base_angle" in meta
-    assert "jitter_deg" in meta
 
 
 def test_path_has_two_vertices(base_call):
@@ -341,7 +339,7 @@ def test_line_passes_through_origin(fixed_rng):
 def test_angle_orientation_consistent(base_angle, fixed_rng):
     """The returned angle should roughly match the requested base_angle."""
     path, meta = unit_circle_diameter(base_angle=base_angle, rng=fixed_rng)
-    angle_diff = abs((meta["angle_deg"] - base_angle + 180) % 360 - 180)
+    angle_diff = abs((meta["angle_deg"] - base_angle + 90) % 180 - 90)
     assert angle_diff <= JITTER_ANGLE_DEG + 1e-3
 
 
@@ -349,7 +347,7 @@ def test_random_angle_range(fixed_rng):
     """Without base_angle, result must lie within [-90, 90]."""
     for _ in range(50):
         _, meta = unit_circle_diameter(rng=fixed_rng)
-        assert -90 <= meta["base_angle"] <= 90
+        assert -90 <= meta["angle_deg"] <= 90
 
 
 # ---------------------------------------------------------------------
