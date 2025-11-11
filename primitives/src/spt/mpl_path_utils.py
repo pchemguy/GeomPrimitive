@@ -2,13 +2,71 @@
 mpl_path_utils.py
 -----------
 
-The primary focus of this module is generation of random Paths of geometric primitives,
-such as lines, circles/ellipses, circular/elliptical arcs, triangles, squares/recatngles,
-and tabulated {(x, y) or (x, y, y')} functions. The core generation workflow is performed
-in stages:
- -
- -
+The primary focus of this module is generation of random Paths of geometric
+primitives, such as lines, circles/ellipses, circular/elliptical arcs, triangles,
+squares/recatngles, and tabulated functions.
 
+The core generation workflow is performed in stages:
+ 1. Generation of a random Path of basic shapes:
+      - line segment,
+      - unit circle and arc,
+      - square,
+      - arbitrary triangle.
+      - arbitrary tabulated functions {(x, y) or (x, y, y')}.
+    Circular arc is part of the unit circle, while line segments, triangles, and
+    squares are inscribed into the unit circle. This convention, paired with polar
+    coordinates enables convinient workflow for randomization of shape during this
+    stage essentially independent of size, orientation, and position (randomized in
+    subsequent stages).
+    
+    Particularly convinient are polar coordinates, which provide an expressive full
+    control over the shape of triangles. Generation of elliptical and general
+    rectangular shaoes is unnecessary at this stage, as the full spectrum of
+    elliptical and rectangular shapes is generated from circular and square shapes
+    via anisotropic scaling (using separate scaling factors for Cartesian X and Y)
+    during the random SRT transform. Because SRT transform is responsible for
+    randomizing size/scale, no need to worry about size randomization at this stage
+    either, that is only polar angles of vertices on the unit cicle are randomized,
+    but not circle radius.
+    
+    This stage also introduces jitter on initial angaular coordinates and then
+    Cartesian XY coordinates, after coordinate switching. Jitter distorts idealized
+    shapes (circles, regular polygons, right angles, specific triangle subtypes),
+    imitating realistic non-idealized rendering.
+
+    Because circles are rendered as piecewise cubic Bezier splines, jittering
+    cordinates introduces distortions to arc segments, imitating non-idealized hand
+    drawing.
+
+    For other primitives, which are essentially straight segment polylines, hand
+    drawing imitation is peformed in a separate stage.
+
+ 2. Hand drawing imitation.
+    The second stage focuses on distorting idealized straight line segments forming
+    polyine primitives (line segments and polygons). Each straight segment is split
+    into a configurable number of subsegments of randomized length. Each subsegment
+    is replaced with Matplotlib cubic Bezier segment, slightly and randomly
+    deviating from a straight line.
+
+    Tabulated functions Paths are not subjected to this process.
+
+ 3. Random Scale->Rotate->Translate (SRT) transform. This stage randomizes the size,
+    orientation, and position of Paths from prior stages. For cicles, arcs, and
+    squares, independent (anisotropic) XY scaling generates the full spectrum of
+    rectangles and elliprical shapes.
+
+Separate processes are used for genration of randomized
+ - line rendering style (linewidth, linestyle, and color);
+ - background color;
+ - idealized or randomly distorted grid.
+
+Note, grid is generated as four LineCollection objects (X and Y - major and minor),
+added to the Matplotlib plot via corresponding four drawing calls. Paths are wrapped
+in Patch objects with generated styles. Use of PatchCollection is generally unnecessary
+here, as the main objective is generating scenes with small number of independently
+styled shapes. While PathCollection probably provides sufficient flaxibility for this
+purpose, its use would complicate the code, while typically not providing considerable
+performance benefit.
 
 Core API:
 
