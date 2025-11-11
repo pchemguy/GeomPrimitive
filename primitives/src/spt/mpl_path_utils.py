@@ -119,6 +119,11 @@ Core API:
         function.
 
     
+    unit_circular_arc_segment(start_deg: float = 0.0, end_deg: float = 90.0) -> mplPath
+    
+        Creates a single Bezier segment approximation of an acute circular arc.
+    
+    
     ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
                         angle_offset: float = 0.0, close: bool = False) -> mplPath:
@@ -232,6 +237,11 @@ def random_srt_path(shape: mplPath,
         1) scaled uniformly in X and Y, plus by `y_compress` in Y,
         2) rotated around `origin` (default: path bbox center),
         3) translated into the canvas with small random offsets.
+
+    The scaling process aims for the final shape to be within 0.1x to 0.9x fraction
+    of the smaller canvas dimension. However, at high extreme ends (combined with
+    translation and rotation), part of the Path may ocassionaly extend beyond the
+    canvas, also ocasionally failing the associated test.
 
     Args:
         shape:
