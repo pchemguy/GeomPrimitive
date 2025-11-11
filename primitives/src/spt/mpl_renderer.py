@@ -28,7 +28,7 @@ from matplotlib.path import Path as mplPath
 from matplotlib.transforms import Affine2D
 
 from rng import RNG, get_rng
-from logging_utils import configure_logging
+from utils.logging_utils import configure_logging
 from mpl_utils import (
     # Conversion helpers
     bgr_from_rgba, rgb_from_bgr,
