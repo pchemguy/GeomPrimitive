@@ -327,6 +327,59 @@ def random_srt_path(shape: mplPath,
 
 
 # ---------------------------------------------------------------------------
+# Random unit circle diameter (straight line segment)
+# ---------------------------------------------------------------------------
+def unit_circle_diameter(base_angle: numeric = None,
+                         jitter_angle_deg: int = JITTER_ANGLE_DEG,
+                         rng: RNGBackend = None) -> tuple[mplPath, dict]:
+    """Generates a diameter (straight line) within a unit circle.
+
+    The line passes through the circle center (0, 0) and connects opposite
+    points on the unit circle at a given or random orientation.
+
+    Args:
+        base_angle: Optional base orientation angle in degrees.
+            If None, randomly sampled from [-90, 90].
+        jitter_angle_deg: Angular jitter amplitude in degrees.
+            Controls small random deviations around the base angle.
+        rng: Optional RNG backend (RNG, random.Random, or np.random.Generator).
+            If None, uses `get_rng(thread_safe=True)`.
+
+    Returns:
+        tuple[mplPath, dict]:
+            - Path: Matplotlib path representing the circle diameter.
+            - dict: Metadata including the final angle in degrees.
+    """
+    # --- RNG ----------------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+
+    # --- Determine base angle and jitter -----------------------------------
+    if not isinstance(base_angle, (int, float)):
+        base_angle = rng.uniform(-90, 90)
+
+    # Use RNG for normal jitter to stay consistent with other random primitives
+    jitter = jitter_angle_deg * max(-1, min(1, rng.normalvariate(0, 1 / 3)))
+    angle_deg = ((base_angle + jitter + 180.0) % 360.0) - 180.0
+    angle_rad = math.radians(angle_deg)
+
+    # --- Compute endpoints on unit circle ----------------------------------
+    x1, y1 = math.cos(angle_rad), math.sin(angle_rad)
+    x2, y2 = -x1, -y1  # opposite side
+
+    # --- Build Path ---------------------------------------------------------
+    verts = [(x1, y1), (x2, y2)]
+    codes = [mplPath.MOVETO, mplPath.LINETO]
+    path = mplPath(verts, codes)
+
+    meta: dict = {
+        "angle_deg": float(angle_deg),
+    }
+
+    return path, meta
+
+
+# ---------------------------------------------------------------------------
 # Basic Ellipse / Arc path generator
 # ---------------------------------------------------------------------------
 def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,

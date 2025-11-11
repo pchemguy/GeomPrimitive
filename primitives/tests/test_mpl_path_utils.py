@@ -11,7 +11,8 @@ from matplotlib.path import Path as mplPath
 from matplotlib.patches import Circle, Ellipse, Arc
 
 from spt.mpl_path_utils import (
-    join_paths, ellipse_or_arc_path, random_srt_path, JITTER_ANGLE_DEG
+    join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
+    JITTER_ANGLE_DEG,
 )
 from spt.rng import RNG, get_rng
 
@@ -57,6 +58,12 @@ def fixed_rng():
     r = RNG(seed=123)
     return r
 
+
+@pytest.fixture(scope="module")
+def base_call(fixed_rng):
+    """Generate a default result for reuse."""
+    path, meta = unit_circle_diameter(rng=fixed_rng)
+    return path, meta
 
 # ---------------------------------------------------------------------------
 # Tests for ellipse_or_arc_path
@@ -284,3 +291,133 @@ def test_runtime_under_threshold(benchmark, unit_circle_path, fixed_rng):
     result = benchmark(run)
     assert result is None  # benchmark just times it
 
+
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Unit tests for unit_circle_diameter()
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+
+# ---------------------------------------------------------------------
+# 1. Basic properties
+# ---------------------------------------------------------------------
+
+def test_returns_path_and_meta(base_call):
+    """Function must return a Path and a metadata dictionary."""
+    path, meta = base_call
+    assert isinstance(path, mplPath)
+    assert isinstance(meta, dict)
+    assert "angle_deg" in meta
+    assert "base_angle" in meta
+    assert "jitter_deg" in meta
+
+
+def test_path_has_two_vertices(base_call):
+    """Diameter path must contain exactly two vertices."""
+    path, _ = base_call
+    assert path.vertices.shape == (2, 2)
+    assert path.codes.tolist() == [mplPath.MOVETO, mplPath.LINETO]
+
+
+def test_vertices_on_unit_circle(base_call):
+    """Both endpoints should lie on the unit circle (rd1)."""
+    path, _ = base_call
+    radii = np.sqrt(np.sum(path.vertices**2, axis=1))
+    np.testing.assert_allclose(radii, 1.0, atol=1e-7)
+
+
+def test_line_passes_through_origin(fixed_rng):
+    """Midpoint of the line should be near the origin."""
+    path, _ = unit_circle_diameter(rng=fixed_rng)
+    mid = path.vertices.mean(axis=0)
+    np.testing.assert_allclose(mid, (0.0, 0.0), atol=1e-7)
+
+
+# ---------------------------------------------------------------------
+# 2. Angle behavior
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("base_angle", [0, 45, 90, -60])
+def test_angle_orientation_consistent(base_angle, fixed_rng):
+    """The returned angle should roughly match the requested base_angle."""
+    path, meta = unit_circle_diameter(base_angle=base_angle, rng=fixed_rng)
+    angle_diff = abs((meta["angle_deg"] - base_angle + 180) % 360 - 180)
+    assert angle_diff <= JITTER_ANGLE_DEG + 1e-3
+
+
+def test_random_angle_range(fixed_rng):
+    """Without base_angle, result must lie within [-90, 90]."""
+    for _ in range(50):
+        _, meta = unit_circle_diameter(rng=fixed_rng)
+        assert -90 <= meta["base_angle"] <= 90
+
+
+# ---------------------------------------------------------------------
+# 3. Determinism and randomness
+# ---------------------------------------------------------------------
+
+def test_same_seed_produces_same_result():
+    """Identical seeds yield identical coordinates."""
+    rng1 = RNG(seed=42)
+    rng2 = RNG(seed=42)
+    p1, m1 = unit_circle_diameter(rng=rng1)
+    p2, m2 = unit_circle_diameter(rng=rng2)
+    np.testing.assert_allclose(p1.vertices, p2.vertices)
+    assert m1 == m2
+
+
+def test_different_seed_produces_different_result():
+    """Distinct seeds yield different coordinates."""
+    rng1 = RNG(seed=1)
+    rng2 = RNG(seed=999)
+    p1, _ = unit_circle_diameter(rng=rng1)
+    p2, _ = unit_circle_diameter(rng=rng2)
+    assert not np.allclose(p1.vertices, p2.vertices)
+
+
+# ---------------------------------------------------------------------
+# 4. Error handling
+# ---------------------------------------------------------------------
+
+def test_invalid_base_angle_type():
+    """Non-numeric base_angle must raise TypeError."""
+    with pytest.raises(TypeError):
+        unit_circle_diameter(base_angle="invalid_angle")
+
+
+def test_invalid_rng_type():
+    """Passing a bad RNG should still fail cleanly."""
+    class Dummy: ...
+    with pytest.raises(AttributeError):
+        unit_circle_diameter(rng=Dummy())
+
+
+# ---------------------------------------------------------------------
+# 5. Geometry consistency
+# ---------------------------------------------------------------------
+
+def test_endpoints_are_opposite(fixed_rng):
+    """Endpoints must be diametrically opposite (sum ~ 0)."""
+    path, _ = unit_circle_diameter(rng=fixed_rng)
+    summed = path.vertices[0] + path.vertices[1]
+    np.testing.assert_allclose(summed, (0.0, 0.0), atol=1e-7)
+
+
+def test_length_equals_diameter(fixed_rng):
+    """Line length should equal 2 ~ circle radius (2)."""
+    path, _ = unit_circle_diameter(rng=fixed_rng)
+    dist = np.linalg.norm(path.vertices[1] - path.vertices[0])
+    np.testing.assert_allclose(dist, 2.0, atol=1e-7)
+
+
+# ---------------------------------------------------------------------
+# 6. Performance
+# ---------------------------------------------------------------------
+
+@pytest.mark.benchmark(group="unit_circle_diameter")
+def test_runtime_under_threshold(benchmark, fixed_rng):
+    """Ensure diameter generation runs within 1ms."""
+    def run():
+        unit_circle_diameter(rng=fixed_rng)
+    result = benchmark(run)
+    assert result is None  # timing only
