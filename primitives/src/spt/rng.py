@@ -97,11 +97,11 @@ class RNG:
                 return int(self._rng.integers(*a, **kw))
             return self._rng.randrange(*a, **kw)
 
-    def uniform(self, a: float = 0.0, b: float = 1.0) -> float:
+    def uniform(self, *a, **kw) -> float:
         with self._lock:
             if self._use_numpy:
-                return float(self._rng.uniform(a, b))
-            return self._rng.uniform(a, b)
+                return float(self._rng.uniform(*a, **kw))
+            return self._rng.uniform(*a, **kw)
 
     def choice(self, seq: list[Any]) -> Any:
         with self._lock:

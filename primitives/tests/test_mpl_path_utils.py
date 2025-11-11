@@ -14,7 +14,7 @@ from matplotlib.patches import Circle, Ellipse, Arc
 from spt.mpl_path_utils import (
     join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
     random_cubic_spline_segment, handdrawn_polyline_path, bezier_from_xy_dy,
-    unit_circular_arc_segment,
+    unit_circular_arc_segment, unit_circular_arc,
     JITTER_ANGLE_DEG,
 )
 from spt.rng import RNG, get_rng
@@ -814,3 +814,94 @@ def test_unit_arc_segment_span(span):
 def test_unit_arc_segment_raises_large_span():
     with pytest.raises(ValueError):
         unit_circular_arc_segment(0, 120)
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tests for unit_circular_arc
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------
+# Geometry basics
+# ---------------------------------------------------------------------
+def test_unit_arc_start_and_end_points(fixed_rng):
+    """Start and end vertices must lie on the unit circle."""
+    path = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    verts = path.vertices
+    np.testing.assert_allclose(verts[0], (1, 0), atol=1e-12)
+    np.testing.assert_allclose(verts[-1], (0, 1), atol=1e-12)
+
+    # radius near 1 (control points can slightly exceed)
+    r = np.linalg.norm(verts, axis=1)
+    assert r.min() > 0.9 and r.max() < 1.2
+
+
+def test_unit_arc_codes_structure(fixed_rng):
+    """Check path codes follow MOVETO + CURVE4 pattern."""
+    path = unit_circular_arc(0, 60, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    codes = path.codes
+    assert codes[0] == mplPath.MOVETO
+    assert np.all(codes[1:] == mplPath.CURVE4)
+
+
+def test_unit_arc_segment_count_scaling(fixed_rng):
+    """Number of vertices should grow with angular span."""
+    short = unit_circular_arc(0, 30, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    long = unit_circular_arc(0, 180, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    assert len(long.vertices) > len(short.vertices)
+
+
+# ---------------------------------------------------------------------
+# Closure behavior
+# ---------------------------------------------------------------------
+def test_full_circle_closed(fixed_rng):
+    """Full 360deg arc must produce CLOSEPOLY at the end."""
+    path = unit_circular_arc(0, 360, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    codes = path.codes
+    verts = path.vertices
+    assert codes[-1] == mplPath.CLOSEPOLY
+    assert np.isnan(verts[-1]).all()
+    np.testing.assert_allclose(verts[0], verts[-2], atol=1e-6)
+
+
+def test_small_or_large_span_forces_full_circle(fixed_rng):
+    """Invalid spans (<1deg or >359deg) should yield closed circle."""
+    path1 = unit_circular_arc(0, 0.5, rng=fixed_rng)
+    path2 = unit_circular_arc(0, 400, rng=fixed_rng)
+    for p in (path1, path2):
+        assert p.codes[-1] == mplPath.CLOSEPOLY
+
+
+# ---------------------------------------------------------------------
+# Random / jitter effects
+# ---------------------------------------------------------------------
+def test_jitter_modifies_vertices(fixed_rng):
+    """Non-zero jitter must change vertex positions."""
+    p1 = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    p2 = unit_circular_arc(0, 90, jitter_amp=0.05, jitter_y=0.2, rng=fixed_rng)
+    assert not np.allclose(p1.vertices, p2.vertices, atol=1e-6)
+
+
+def test_zero_jitter_stability(fixed_rng):
+    """Zero jitter should give consistent results across calls."""
+    p1 = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    p2 = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    np.testing.assert_allclose(p1.vertices, p2.vertices)
+
+
+# ---------------------------------------------------------------------
+# Continuity and smoothness
+# ---------------------------------------------------------------------
+def test_angle_progression_monotonic(fixed_rng):
+    """Ensure that angles increase smoothly (no backward jumps)."""
+    path = unit_circular_arc(0, 180, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    ang = np.unwrap(np.degrees(np.arctan2(path.vertices[:, 1], path.vertices[:, 0])))
+    diffs = np.diff(ang)
+    assert np.all(diffs > -1e-6)
+
+
+def test_segment_count_minimum(fixed_rng):
+    """Even for very small arcs, there should be at least 3 segments."""
+    path = unit_circular_arc(0, 5, jitter_amp=0, jitter_y=0, rng=fixed_rng)
+    assert len(path.vertices) >= 1 + 3 * 3
