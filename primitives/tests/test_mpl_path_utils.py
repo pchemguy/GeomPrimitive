@@ -14,7 +14,7 @@ from matplotlib.patches import Circle, Ellipse, Arc
 from spt.mpl_path_utils import (
     join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
     random_cubic_spline_segment, handdrawn_polyline_path, bezier_from_xy_dy,
-    unit_circular_arc_segment, unit_circular_arc,
+    unit_circular_arc_segment, unit_circular_arc, unit_rectangle_path,
     JITTER_ANGLE_DEG,
 )
 from spt.rng import RNG, get_rng
@@ -905,3 +905,70 @@ def test_segment_count_minimum(fixed_rng):
     """Even for very small arcs, there should be at least 3 segments."""
     path = unit_circular_arc(0, 5, jitter_amp=0, jitter_y=0, rng=fixed_rng)
     assert len(path.vertices) >= 1 + 3 * 3
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tests for unit_rectangle_path
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Geometry and structure
+# ---------------------------------------------------------------------
+def test_square_geometry(fixed_rng):
+    path, meta = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, rng=fixed_rng)
+    verts = path.vertices
+    assert isinstance(path, mplPath)
+    assert len(verts) == 5  # 4 corners + closure
+    np.testing.assert_allclose(np.linalg.norm(verts[:-1], axis=1), 1, atol=1e-6)
+    assert path.codes[0] == mplPath.MOVETO
+    assert path.codes[-1] == mplPath.CLOSEPOLY
+    assert "angle_deg" in meta and "offset_deg" in meta
+
+
+def test_rectangle_geometry(fixed_rng):
+    path, meta = unit_rectangle_path(equal_sides=2, jitter_angle_deg=0, rng=fixed_rng)
+    verts = path.vertices
+    assert len(verts) == 5
+    radii = np.linalg.norm(verts[:-1], axis=1)
+    assert radii.max() <= 1.0 + 1e-6
+    assert radii.min() >= 0.9
+
+
+def test_invalid_equal_sides_raises(fixed_rng):
+    with pytest.raises(ValueError):
+        unit_rectangle_path(equal_sides=3, rng=fixed_rng)
+
+
+def test_random_choice_when_none(fixed_rng):
+    """If equal_sides is None, should randomly choose valid 2 or 4."""
+    path, meta = unit_rectangle_path(equal_sides=None, rng=fixed_rng)
+    assert isinstance(path, mplPath)
+    assert meta["offset_deg"] == 0 or abs(meta["offset_deg"]) < 45
+
+
+# ---------------------------------------------------------------------
+# Randomness and jitter
+# ---------------------------------------------------------------------
+def test_angle_jitter_changes_vertices(fixed_rng):
+    p1, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
+    p2, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=10, base_angle=45, rng=fixed_rng)
+    assert not np.allclose(p1.vertices, p2.vertices, atol=1e-8)
+
+
+def test_zero_jitter_stability(fixed_rng):
+    """Zero jitter should produce identical geometry on repeated runs."""
+    p1, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
+    p2, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
+    np.testing.assert_allclose(p1.vertices, p2.vertices)
+
+
+# ---------------------------------------------------------------------
+# Meta and performance
+# ---------------------------------------------------------------------
+def test_meta_contains_expected_fields(fixed_rng):
+    _, meta = unit_rectangle_path(equal_sides=4, rng=fixed_rng)
+    assert set(meta.keys()) == {"angle_deg", "offset_deg"}
+    assert isinstance(meta["angle_deg"], (int, float))
+    assert isinstance(meta["offset_deg"], (int, float))
+

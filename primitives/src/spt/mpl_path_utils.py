@@ -96,6 +96,23 @@ Core API:
         Generates a randomly oriented unit circle diamter (line segment).
     
     
+    unit_circular_arc(start_deg: float = 0.0, end_deg: float = 90.0,
+                      jitter_amp: float = 0.02, jitter_y: float = 0.1,
+                      max_angle_step_deg: float = 20.0, min_angle_steps: int = 3,
+                      rng: RNGBackend = None) -> mplPath
+
+        Generates a Path representation of a unit circular arc modeled as a chain of
+        cubic Bezier splines. The routine optionally introduces angular jitter on angular
+        cordinates, aspect ration (distorting the circle), line shape, imitating hand
+        drawing.
+
+    
+    unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
+                        base_angle: int = None, rng: RNGBackend = None) -> mplPath
+
+        Generates a Path representation of a rectangle inscribed into a unit circle.
+
+    
     random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
                                 tightness: float = 0.3, rng: RNGBackend = None) -> mplPath
 
@@ -452,7 +469,9 @@ def unit_circular_arc(start_deg: float = 0.0, end_deg: float = 90.0,
     """
     # RNG setup ---------------------------------------------------------------
     if rng is None:
-        rng = random
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
     # Angle normalization -----------------------------------------------------
     if start_deg is None or end_deg is None:
@@ -508,6 +527,71 @@ def unit_circular_arc(start_deg: float = 0.0, end_deg: float = 90.0,
         verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
 
     return mplPath(verts, codes)
+
+
+# ---------------------------------------------------------------------------
+# Random unit rectangle
+# ---------------------------------------------------------------------------
+def unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
+                        base_angle: int = None, rng: RNGBackend = None) -> mplPath:
+    """Generates a rectangle or square inscribed in a unit circle.
+
+    Args:
+        equal_sides: 2 for rectangle, 4 for square. Randomly chosen if None.
+        jitter_angle_deg: Maximum angular deviation (degrees).
+        base_angle: Base rotation of the figure (degrees).
+        rng: Optional RNG backend (RNG, random.Random, np.random.Generator).
+
+    Returns:
+        Matplotlib Path representing the shape.
+    """
+    # --- RNG setup ---------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
+
+    # --- Shape type --------------------------------------------------------
+    equal_sides = equal_sides or rng.choice((2, 4))
+    if equal_sides not in (2, 4):
+        raise ValueError(
+            f"equal_sides must be 2 (rectangle) or 4 (square). "
+            f"Received: {equal_sides}"
+        )
+
+    # --- Angular offsets ---------------------------------------------------
+    offset = (
+        0 if equal_sides == 4 else
+        rng.choice([-1, 1]) * rng.uniform(jitter_angle_deg, 45 - jitter_angle_deg)
+    )
+
+    if not isinstance(base_angle, (int, float)):
+        base_angle = rng.uniform(-90, 90)
+    else:
+        base_angle += normal3s() * jitter_angle_deg
+
+    # --- Corner angles -----------------------------------------------------
+    thetas = [
+        45 + base_angle + offset + normal3s() * jitter_angle_deg,
+       135 + base_angle - offset + normal3s() * jitter_angle_deg,
+      -135 + base_angle + offset + normal3s() * jitter_angle_deg,
+       -45 + base_angle - offset + normal3s() * jitter_angle_deg,
+    ]
+
+    thetas = [math.radians(((theta + 180) % 360) - 180) for theta in thetas]
+
+    # --- Vertices and Path -------------------------------------------------
+    verts = [(math.cos(t), math.sin(t)) for t in thetas]
+    verts.append(verts[0])  # close shape
+
+    codes = [mplPath.MOVETO] + [mplPath.LINETO] * (len(verts) - 2) + [mplPath.CLOSEPOLY]
+
+    meta: dict = {
+        "angle_deg": base_angle,
+        "offset_deg": offset,
+    }
+    
+    return mplPath(verts, codes), meta
 
 
 # ---------------------------------------------------------------------------
