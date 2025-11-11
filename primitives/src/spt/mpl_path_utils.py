@@ -112,6 +112,13 @@ Core API:
         Bezier sections.
 
     
+    bezier_from_xy_dy(x: NDarray, y: NDarray, dy: NDarray = None, tension: float = 0.0,
+                      endpoint_style: str = "default") -> mplPath
+    
+        Creates a Path containing piecewise spline representation of a tabulated
+        function.
+
+    
     ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
                         angle_offset: float = 0.0, close: bool = False) -> mplPath:
@@ -140,6 +147,7 @@ import random
 import math
 from typing import TypeAlias, Union
 import numpy as np
+from numpy.typing import NDArray
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -620,6 +628,153 @@ def demo_handdrawn_polyline_path(base_points: list[PointXY] = None,
     plt.suptitle("Hand-Drawn Polyline Parameter Sweep", fontsize=14, weight="bold")
     plt.tight_layout()
     plt.show()
+
+
+# ---------------------------------------------------------------------------
+# Construct a Matplotlib Path composed of cubic Bezier segments with C1 continuity.
+# ---------------------------------------------------------------------------
+def bezier_from_xy_dy(x: NDarray, y: NDarray, dy: NDarray = None, tension: float = 0.0,
+                      endpoint_style: str = "default") -> mplPath:
+    """
+    Construct a Matplotlib Path composed of cubic Bezier segments with C1 continuity.
+    
+    Each segment between consecutive (x, y) pairs is defined by four control points:
+    P0, P1, P2, P3, where P1 and P2 determine tangent behavior. The default scaling
+    (1/3 of the segment length) yields a standard cubic Bezier interpolant.
+    
+    The curve shape can be tuned using:
+      - `tension`: adjusts derivative magnitude (smoothness)
+      - `endpoint_style`: modifies tangent scaling at endpoints
+    
+    Args:
+        x: 1D strictly increasing array of x-coordinates.
+        y: 1D array of function values y(x).
+        dy: Optional 1D array of derivatives y'(x).
+            If None, estimated via finite differences.
+        tension: Smoothness control in [0, 1].
+            0 - fully smooth (Catmull-Rom-like)
+            1 - polyline (zero curvature)
+            Nonlinear scaling ( (1-tension)^2 ) is applied for gentler decay.
+        endpoint_style:
+            - 'default': uniform 1/3 tangent scaling (standard Bezier)
+            - 'catmull': uniform 1/6 scaling (softer curvature)
+            - 'relaxed': adaptive - 1/6 at endpoints, 1/3 inside
+            - numeric value: custom uniform scaling factor (e.g., 0.25)
+    
+    Returns:
+        matplotlib.path.Path:
+            Path representing the continuous Bezier spline.
+    
+    Raises:
+        ValueError: if fewer than two points are provided or x is not strictly increasing.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    n = len(x)
+    if n < 2:
+        raise ValueError("Need at least two data points.")
+    if np.any(np.diff(x) <= 0):
+        raise ValueError("x must be strictly increasing.")
+
+    # --- Derivative estimation if not provided ---
+    if dy is None:
+        dy = np.empty_like(y)
+        dx = np.diff(x)
+        dy[1:-1] = (y[2:] - y[:-2]) / (x[2:] - x[:-2])
+        dy[0] = (y[1] - y[0]) / dx[0]
+        dy[-1] = (y[-1] - y[-2]) / dx[-1]
+        dy *= (1.0 - tension) ** 2  # Nonlinear tension scaling
+
+    # --- Segment geometry ---
+    h = np.diff(x)
+    x0, y0, dy0 = x[:-1], y[:-1], dy[:-1]
+    x1, y1, dy1 = x[1:], y[1:], dy[1:]
+
+    # --- Tangent scaling factor selection ---
+    if isinstance(endpoint_style, (int, float)):
+        scale = np.full_like(h, float(endpoint_style))
+    elif endpoint_style == "catmull":
+        scale = np.full_like(h, 1 / 6)
+    elif endpoint_style == "relaxed":
+        scale = np.full_like(h, 1 / 3)
+        if len(scale) >= 2:
+            scale[0] = scale[-1] = 1 / 6
+    else:  # default
+        scale = np.full_like(h, 1 / 3)
+
+    # --- Compute control points ---
+    B0 = np.column_stack([x0, y0])
+    B1 = np.column_stack([x0 + scale * h, y0 + scale * h * dy0])
+    B2 = np.column_stack([x1 - scale * h, y1 - scale * h * dy1])
+    B3 = np.column_stack([x1, y1])
+
+    # --- Assemble vertices and codes sequentially ---
+    verts = [B0[0]]
+    codes = [mplPath.MOVETO]
+    for b1, b2, b3 in zip(B1, B2, B3):
+        verts.extend([b1, b2, b3])
+        codes.extend([mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4])
+
+    verts = np.array(verts, dtype=float)
+    codes = np.array(codes, dtype=np.uint8)
+    return mplPath(verts, codes)
+
+
+# ---------------------------------------------------------------------------
+# Single segment Bezier approximation for an acute unit circular arc
+# ---------------------------------------------------------------------------
+def unit_circular_arc_segment(start_deg: float = 0.0, end_deg: float = 90.0) -> mplPath:
+    """ Construct a cubic Bezier Path approximating a circular arc between two angles.
+
+    The arc lies on the unit circle centered at (0, 0) and spans from `start_deg`
+    to `end_deg` degrees, measured counter-clockwise. For spans larger than 90deg,
+    multiple segments should be joined for accurate curvature.
+
+    Args:
+        start_deg: Start angle in degrees (0deg = +X axis).
+        end_deg:   End angle in degrees.
+    
+    Returns:
+        mplPath: Path consisting of four vertices (MOVETO + 3xCURVE4)
+                 representing a single cubic Bezier arc segment.
+
+    Raises:
+        ValueError: If the absolute angular span exceeds 90deg.
+
+    Notes:
+        - The handle length `t = 4/3 * tan(theta / 4)` ensures tangent continuity.
+        - Approximation error < 0.00027 R for theta = 90deg.
+        - Suitable for composing smooth multi-segment arcs.
+    """
+    # --- Validate span -------------------------------------------------------
+    span = abs(end_deg - start_deg)
+    if span > 90.0 + 1e-9:
+        raise ValueError(
+            f"Span too large ({span:.2f}deg) for single cubic Bezier; "
+            "split into <= 90deg segments."
+        )
+
+    # --- Core geometry -------------------------------------------------------
+    start = np.radians(start_deg)
+    end = np.radians(end_deg)
+    delta = end - start
+    t = 4.0 / 3.0 * np.tan(delta / 4.0)  # handle scaling
+
+    # --- Compute control points ---------------------------------------------
+    cos_s, sin_s = np.cos(start), np.sin(start)
+    cos_e, sin_e = np.cos(end), np.sin(end)
+
+    P0 = (cos_s, sin_s)
+    P1 = (cos_s - t * sin_s, sin_s + t * cos_s)
+    P2 = (cos_e + t * sin_e, sin_e - t * cos_e)
+    P3 = (cos_e, sin_e)
+
+    verts = np.array([P0, P1, P2, P3], dtype=float)
+    codes = np.array(
+        [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4],
+        dtype=np.uint8,
+    )
+    return mplPath(verts, codes)
 
 
 # ---------------------------------------------------------------------------

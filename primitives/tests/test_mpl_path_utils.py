@@ -4,6 +4,7 @@ test_mpl_path_utils.py
 Unit tests for mpl_path_utils.py
 """
 
+import time
 import math
 import numpy as np
 import pytest
@@ -12,7 +13,8 @@ from matplotlib.patches import Circle, Ellipse, Arc
 
 from spt.mpl_path_utils import (
     join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
-    random_cubic_spline_segment, handdrawn_polyline_path,
+    random_cubic_spline_segment, handdrawn_polyline_path, bezier_from_xy_dy,
+    unit_circular_arc_segment,
     JITTER_ANGLE_DEG,
 )
 from spt.rng import RNG, get_rng
@@ -630,3 +632,185 @@ def test_runtime_under_threshold(base_points, benchmark):
     assert isinstance(path, mplPath)
     assert len(path.vertices) > 4
 
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tests for bezier_from_xy_dy
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Fixtures and helpers
+# -----------------------------------------------------------------------------
+@pytest.fixture(scope="module")
+def base_data():
+    """Provide a simple sine-like dataset for tests."""
+    x = np.linspace(0, 2 * np.pi, 10)
+    y = np.sin(x)
+    return x, y
+
+
+def extract_segments(path: mplPath):
+    """Return list of (P0, P1, P2, P3) Bezier control points for each segment."""
+    verts, codes = path.vertices, path.codes
+    segs = []
+    i = 1
+    while i < len(codes):
+        if codes[i:i + 3].tolist() == [mplPath.CURVE4] * 3:
+            P0 = verts[i - 1]
+            P1, P2, P3 = verts[i:i + 3]
+            segs.append((P0, P1, P2, P3))
+            i += 3
+        else:
+            i += 1
+    return segs
+
+
+# -----------------------------------------------------------------------------
+# Core structure
+# -----------------------------------------------------------------------------
+def test_returns_valid_path(base_data):
+    x, y = base_data
+    path = bezier_from_xy_dy(x, y)
+    assert isinstance(path, mplPath)
+    assert path.vertices.ndim == 2
+    assert len(path.codes) == len(path.vertices)
+    assert path.codes[0] == mplPath.MOVETO
+
+
+def test_segment_count_matches(base_data):
+    x, y = base_data
+    path = bezier_from_xy_dy(x, y)
+    segs = extract_segments(path)
+    assert len(segs) == len(x) - 1
+
+
+# -----------------------------------------------------------------------------
+# Continuity checks
+# -----------------------------------------------------------------------------
+def test_continuity_C1(base_data):
+    """Test that each segment connects smoothly (C0 and C1 continuity)."""
+    x, y = base_data
+    path = bezier_from_xy_dy(x, y, tension=0.0)
+    segs = extract_segments(path)
+    for (P0, P1, P2, P3), (Q0, Q1, Q2, Q3) in zip(segs[:-1], segs[1:]):
+        # Position continuity
+        assert np.allclose(P3, Q0, atol=1e-12)
+        # Tangent continuity: last control direction matches next first
+        v1 = P3 - P2
+        v2 = Q1 - Q0
+        cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+        assert np.isclose(cos_angle, 1.0, atol=1e-2)
+
+
+# -----------------------------------------------------------------------------
+# Endpoint style effects
+# -----------------------------------------------------------------------------
+@pytest.mark.parametrize("style,expected_scale_first,expected_scale_last", [
+    ("default", 1/3, 1/3),
+    ("catmull", 1/6, 1/6),
+    ("relaxed", 1/6, 1/6),
+    (0.25, 0.25, 0.25),
+])
+def test_endpoint_scaling(base_data, style, expected_scale_first, expected_scale_last):
+    x, y = base_data
+    path = bezier_from_xy_dy(x, y, endpoint_style=style)
+    segs = extract_segments(path)
+
+    # Recover approximate tangent scale ratios for first and last segments
+    P0, P1, P2, P3 = segs[0]
+    Q0, Q1, Q2, Q3 = segs[-1]
+
+    dy_first = (y[1] - y[0]) / (x[1] - x[0])
+    dy_last = (y[-1] - y[-2]) / (x[-1] - x[-2])
+    scale_first = np.linalg.norm(P1 - P0) / ((x[1] - x[0]) * np.sqrt(1 + dy_first**2))
+    scale_last  = np.linalg.norm(Q3 - Q2) / ((x[-1] - x[-2]) * np.sqrt(1 + dy_last**2))
+    assert np.isclose(scale_first, expected_scale_first, rtol=0.2)
+    assert np.isclose(scale_last, expected_scale_last, rtol=0.2)
+
+
+# -----------------------------------------------------------------------------
+# Tension effects
+# -----------------------------------------------------------------------------
+@pytest.mark.parametrize("tension1,tension2", [(0.0, 0.8)])
+def test_tension_softens_curvature(base_data, tension1, tension2):
+    """Compare curvature magnitude for low vs high tension."""
+    x, y = base_data
+    path_lo = bezier_from_xy_dy(x, y, tension=tension1)
+    path_hi = bezier_from_xy_dy(x, y, tension=tension2)
+    segs_lo = extract_segments(path_lo)
+    segs_hi = extract_segments(path_hi)
+
+    # Compute mean curvature proxy: sum of |P1 - P0| + |P3 - P2|
+    curve_lo = np.mean([np.linalg.norm(P1 - P0) + np.linalg.norm(P3 - P2)
+                        for (P0, P1, P2, P3) in segs_lo])
+    curve_hi = np.mean([np.linalg.norm(P1 - P0) + np.linalg.norm(P3 - P2)
+                        for (P0, P1, P2, P3) in segs_hi])
+
+    # High tension - straighter - smaller control vector distance
+    assert curve_hi < curve_lo
+
+
+# -----------------------------------------------------------------------------
+# Robustness
+# -----------------------------------------------------------------------------
+def test_handles_custom_dy(base_data):
+    x, y = base_data
+    dy = np.gradient(y, x)
+    path = bezier_from_xy_dy(x, y, dy=dy)
+    segs = extract_segments(path)
+    assert len(segs) == len(x) - 1
+    assert all(isinstance(P0, np.ndarray) for P0, *_ in segs)
+
+
+def test_invalid_x_raises():
+    x = np.array([0, 1, 1, 2])
+    y = np.sin(x)
+    with pytest.raises(ValueError):
+        bezier_from_xy_dy(x, y)
+
+
+def test_tension_bounds(base_data):
+    x, y = base_data
+    for t in [0.0, 0.5, 1.0]:
+        path = bezier_from_xy_dy(x, y, tension=t)
+        assert isinstance(path, mplPath)
+        assert len(path.vertices) > 0
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Tests for unit_circular_arc_segment
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+
+
+def test_unit_arc_segment_quadrant():
+    path = unit_circular_arc_segment(0, 90)
+    verts = path.vertices
+
+    # Endpoints exactly on unit circle
+    assert np.allclose(verts[0], (1, 0), atol=1e-12)
+    assert np.allclose(verts[-1], (0, 1), atol=1e-12)
+
+    # Radius check: endpoints at 1, control points slightly > 1 (expected)
+    r = np.linalg.norm(verts, axis=1)
+    assert np.isclose(r[0], 1, atol=1e-12)
+    assert np.isclose(r[-1], 1, atol=1e-12)
+    assert np.all((1.0 <= r[1:3]) & (r[1:3] <= 1.15)), f"Control points {r[1:3]} out of expected range"
+
+    # Monotonic increase in angle (0 - 90 deg)
+    angles = np.degrees(np.arctan2(verts[:, 1], verts[:, 0]))
+    assert np.all(np.diff(angles) > -1e-6), f"Arc angles not increasing: {angles}"
+
+
+@pytest.mark.parametrize("span", [45, 90])
+def test_unit_arc_segment_span(span):
+    path = unit_circular_arc_segment(0, span)
+    assert isinstance(path, mplPath)
+    assert len(path.vertices) == 4
+
+
+def test_unit_arc_segment_raises_large_span():
+    with pytest.raises(ValueError):
+        unit_circular_arc_segment(0, 120)
