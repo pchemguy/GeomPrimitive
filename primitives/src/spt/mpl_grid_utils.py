@@ -41,7 +41,8 @@ from matplotlib.collections import LineCollection
 from numpy.typing import NDArray
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from rng import RNGBackend
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+from utils.rng import RNGBackend
 
 numeric = Union[int, float]
 PointXY = tuple[numeric, numeric]

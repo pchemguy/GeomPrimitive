@@ -173,6 +173,7 @@ from numpy.typing import NDArray
 
 import matplotlib as mpl
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 import spt_config
 if __name__ == "__main__":
     spt_config.BATCH_MODE = False
@@ -186,7 +187,7 @@ from matplotlib.path import Path as mplPath
 from matplotlib.transforms import Affine2D
 
 from mpl_utils import *
-from rng import RNGBackend, RNG, get_rng
+from utils.rng import RNGBackend, RNG, get_rng
 
 numeric: TypeAlias = Union[int, float]
 PointXY: TypeAlias = tuple[numeric, numeric]
