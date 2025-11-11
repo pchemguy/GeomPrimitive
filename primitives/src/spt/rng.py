@@ -121,6 +121,23 @@ class RNG:
                 return float(self._rng.normal(mu, sigma))
             return self._rng.normalvariate(mu, sigma)
 
+    def normal3s(self) -> float:
+        """Return a normally distributed random value in [-1, 1], sigma = 1/3.
+        
+        Generates a clipped normal variable centered at 0 with a standard deviation
+        of 1/3, truncated to the interval [-1, 1]. Approximately 99.7% of values
+        fall within these bounds.
+        
+        Returns:
+            float: Random number in [-1, 1].
+        """
+        with self._lock:
+            if self._use_numpy:
+                var = float(self._rng.normal(0, 1.0/3.0))
+            else:
+                var = self._rng.normalvariate(0, 1.0/3.0)
+            return max(-1, min(1, var))
+
     def shuffle(self, seq: list[Any]) -> list[Any]:
         with self._lock:
             if self._use_numpy and hasattr(self._rng, "permutation"):

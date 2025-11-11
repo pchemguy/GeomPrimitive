@@ -33,6 +33,12 @@ def seeded_rng():
 
 
 @pytest.fixture
+def fixed_rng():
+    """Provide a deterministic RNG with fixed seed."""
+    return rng.RNG(seed=123)
+
+
+@pytest.fixture
 def fresh_rng():
     """Provide a new RNG seeded with PID/time entropy."""
     return rng.RNG()
@@ -106,6 +112,15 @@ def test_normal_distribution_mean_variance(seeded_rng):
     var = sum((x - mean) ** 2 for x in samples) / len(samples)
     assert abs(mean) < 0.1
     assert 0.5 < var < 1.5
+
+
+def test_normal3s_bounds_and_distribution(fixed_rng):
+    vals = [fixed_rng.normal3s() for _ in range(10000)]
+    arr = np.array(vals)
+    assert np.all(arr >= -1) and np.all(arr <= 1)
+    # Expect mean ~ 0 and std ~ 1/3 within tolerance
+    assert abs(arr.mean()) < 0.05
+    assert 0.25 < arr.std() < 0.38
 
 
 # ---------------------------------------------------------------------

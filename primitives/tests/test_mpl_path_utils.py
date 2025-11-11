@@ -12,6 +12,7 @@ from matplotlib.patches import Circle, Ellipse, Arc
 
 from spt.mpl_path_utils import (
     join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
+    random_cubic_spline_segment, handdrawn_polyline_path,
     JITTER_ANGLE_DEG,
 )
 from spt.rng import RNG, get_rng
@@ -419,3 +420,213 @@ def test_runtime_under_threshold(benchmark, fixed_rng):
         unit_circle_diameter(rng=fixed_rng)
     result = benchmark(run)
     assert result is None  # timing only
+
+
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Unit tests for random_cubic_spline_segment()
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+
+def test_returns_valid_path(fixed_rng):
+    """Must return a Matplotlib Path object with correct codes."""
+    p = random_cubic_spline_segment((0, 0), (1, 0), rng=fixed_rng)
+    assert isinstance(p, mplPath)
+    assert p.vertices.shape == (4, 2)
+    assert p.codes.tolist() == [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
+
+
+def test_start_and_end_points_preserved(fixed_rng):
+    """Start and end vertices must match input coordinates."""
+    start, end = (0, 0), (1, 0)
+    p = random_cubic_spline_segment(start, end, rng=fixed_rng)
+    np.testing.assert_allclose(p.vertices[0], start)
+    np.testing.assert_allclose(p.vertices[-1], end)
+
+
+def test_perpendicular_deviation(fixed_rng):
+    """Control points should deviate from the straight line."""
+    p = random_cubic_spline_segment((0, 0), (1, 0), amp=0.5, rng=fixed_rng)
+    P1, P2 = p.vertices[1:3]
+    assert abs(P1[1]) > 0 or abs(P2[1]) > 0  # deviation in y-axis expected
+
+
+def test_tightness_effect(fixed_rng):
+    """Changing tightness should affect control points' proximity to endpoints."""
+    p_loose = random_cubic_spline_segment((0, 0), (1, 0), tightness=0.2, rng=fixed_rng)
+    p_tight = random_cubic_spline_segment((0, 0), (1, 0), tightness=0.8, rng=fixed_rng)
+
+    # Control point 1 moves closer to the start as tightness increases
+    assert p_tight.vertices[1][0] > p_loose.vertices[1][0]
+
+
+def test_amp_effect_on_curvature(fixed_rng):
+    """Higher amplitude should produce greater perpendicular deviation."""
+    p_small = random_cubic_spline_segment((0, 0), (1, 0), amp=0.05, rng=fixed_rng)
+    p_large = random_cubic_spline_segment((0, 0), (1, 0), amp=0.5, rng=fixed_rng)
+
+    # Compare y deviations of control points
+    dev_small = np.max(np.abs(p_small.vertices[:, 1]))
+    dev_large = np.max(np.abs(p_large.vertices[:, 1]))
+    assert dev_large > dev_small
+
+
+def test_invalid_input_types():
+    """Reject invalid types for start/end."""
+    with pytest.raises(TypeError):
+        random_cubic_spline_segment("bad", (1, 1))
+    with pytest.raises(TypeError):
+        random_cubic_spline_segment((0, 0), "bad")
+
+
+def test_invalid_tuple_length():
+    """Reject malformed tuples."""
+    with pytest.raises(ValueError):
+        random_cubic_spline_segment((0, 0, 1), (1, 1))
+
+
+@pytest.mark.benchmark(group="random_cubic_spline_segment")
+def test_perf_benchmark(benchmark, fixed_rng):
+    """Ensure spline generation runs within microsecond range."""
+    benchmark(lambda: random_cubic_spline_segment((0, 0), (1, 0), rng=fixed_rng))
+
+
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Unit tests for handdrawn_polyline_path()
+# ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+
+@pytest.fixture(scope="function")
+def base_points():
+    return [(0, 0), (1, 0.2), (2, -0.3), (3, 0.1)]
+
+# ---------------------------------------------------------------------------
+# Basic behavior
+# ---------------------------------------------------------------------------
+def test_returns_path_instance(base_points, fixed_rng):
+    """Function must return a valid Matplotlib Path."""
+    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    assert isinstance(path, mplPath)
+    assert len(path.vertices) == 46
+    assert path.codes is not None
+    assert len(path.vertices) == len(path.codes)
+
+
+def test_minimum_two_points_required(fixed_rng):
+    """Should raise ValueError if less than 2 points."""
+    with pytest.raises(ValueError):
+        handdrawn_polyline_path([(0, 0)], rng=fixed_rng)
+
+
+def test_invalid_points_type():
+    """Should reject invalid point inputs."""
+    with pytest.raises(TypeError):
+        handdrawn_polyline_path("not_a_list")  # type: ignore
+
+
+def test_invalid_amp_type(base_points):
+    with pytest.raises(TypeError):
+        handdrawn_polyline_path(base_points, amp="big")  # type: ignore
+
+
+def test_invalid_tightness_type(base_points):
+    with pytest.raises(TypeError):
+        handdrawn_polyline_path(base_points, tightness="tight")  # type: ignore
+
+
+def test_invalid_splines_count(base_points):
+    """Should reject negative value for splines_per_segment."""
+    with pytest.raises(ValueError):
+        path = handdrawn_polyline_path(base_points, splines_per_segment=-3)
+
+
+# ---------------------------------------------------------------------------
+# Geometric properties
+# ---------------------------------------------------------------------------
+def test_path_start_and_end_match_original(base_points, fixed_rng):
+    """The resulting path should start and end at the original endpoints."""
+    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    start, end = base_points[0], base_points[-1]
+    np.testing.assert_allclose(path.vertices[0], start, atol=1e-8)
+    np.testing.assert_allclose(path.vertices[-1], end, atol=1e-8)
+
+
+def test_closed_polyline_roundtrip(fixed_rng):
+    """Closed polyline should have CLOSEPOLY code at the end."""
+    square = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
+    path = handdrawn_polyline_path(square, rng=fixed_rng)
+    assert path.codes[-1] == mplPath.CLOSEPOLY
+    np.testing.assert_allclose(path.vertices[-1], square[0], atol=1e-8)
+
+
+def test_path_contains_valid_curves(base_points, fixed_rng):
+    """Path must include cubic Bezier segments."""
+    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    assert mplPath.CURVE4 in path.codes
+    assert path.codes[0] == mplPath.MOVETO
+
+
+def test_jitter_introduces_variation(base_points):
+    """Repeated calls should produce different geometries."""
+    path1 = handdrawn_polyline_path(base_points)
+    path2 = handdrawn_polyline_path(base_points)
+    assert not np.allclose(path1.vertices, path2.vertices)
+
+
+# ---------------------------------------------------------------------------
+# Geometric stability / boundedness
+# ---------------------------------------------------------------------------
+def test_vertices_remain_within_expected_bounds(base_points, fixed_rng):
+    """All vertices should stay within a reasonable bounding box around input points."""
+    amp = 0.2
+    path = handdrawn_polyline_path(base_points, amp=amp, rng=fixed_rng)
+    verts = np.array(path.vertices)
+    xs, ys = zip(*base_points)
+
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+
+    # Allow 3x amplitude vertical deviation and 10% horizontal tolerance
+    tol_x = (x_max - x_min) * 0.1
+    tol_y = (y_max - y_min) * 0.1 + 3 * amp
+
+    assert np.all((verts[:, 0] >= x_min - tol_x) & (verts[:, 0] <= x_max + tol_x))
+    assert np.all((verts[:, 1] >= y_min - tol_y) & (verts[:, 1] <= y_max + tol_y))
+    
+
+def test_vertex_to_vertex_distance_continuity(base_points, fixed_rng):
+    """Adjacent vertices must not jump more than 2x average step length."""
+    path = handdrawn_polyline_path(base_points, amp=0.3, rng=fixed_rng)
+    verts = np.array(path.vertices)
+    diffs = np.linalg.norm(np.diff(verts, axis=0), axis=1)
+    avg_step = np.mean(diffs)
+    max_allowed = 2.0 * avg_step
+    assert np.all(diffs < max_allowed), f"Found jump > {max_allowed:.3f}"
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility and randomness
+# ---------------------------------------------------------------------------
+def test_different_seed_produces_different_results(base_points, fixed_rng):
+    rng1 = get_rng(thread_safe=True)
+    rng2 = get_rng(thread_safe=True)
+    rng1.seed(101)
+    rng2.seed(202)
+    path1 = handdrawn_polyline_path(base_points, rng=rng1)
+    path2 = handdrawn_polyline_path(base_points, rng=rng2)
+    assert not np.allclose(path1.vertices, path2.vertices)
+
+
+# ---------------------------------------------------------------------------
+# Performance sanity check
+# ---------------------------------------------------------------------------
+@pytest.mark.benchmark(group="handdrawn_polyline_path")
+def test_runtime_under_threshold(base_points, benchmark):
+    """Performance check to ensure efficient execution."""
+    def run():
+        return handdrawn_polyline_path(base_points)
+    path = benchmark(run)
+    assert isinstance(path, mplPath)
+    assert len(path.vertices) > 4
+

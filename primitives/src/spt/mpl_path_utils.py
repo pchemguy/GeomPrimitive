@@ -80,14 +80,37 @@ Core API:
                     y_compress: float = None, angle_deg: numeric = None,
                     origin: PointXY = None, rng: RNGBackend = None) -> tuple[mplPath, dict]
 
-         Applies a random Scale->Rotate->Translate (SRT) transform to given Path within
-         the specified canvas. the primary use is to transform a random Path defined on
-         the unit box ([-1, 1]) to a rnadom Path within the specified canvas. Scaling is
-         defined assymetrically. Isotropic scaling within the ratio of the sizes of the
-         original bounding box and canvas is performed isotropically (XY). y_compress
-         defines additional compression of the y coordinate, turning circles, circular
-         arcs, and squares into elliptical and rectangular shapes.
+        Applies a random Scale->Rotate->Translate (SRT) transform to given Path within
+        the specified canvas. the primary use is to transform a random Path defined on
+        the unit box ([-1, 1]) to a rnadom Path within the specified canvas. Scaling is
+        defined assymetrically. Isotropic scaling within the ratio of the sizes of the
+        original bounding box and canvas is performed isotropically (XY). y_compress
+        defines additional compression of the y coordinate, turning circles, circular
+        arcs, and squares into elliptical and rectangular shapes.
     
+    
+    unit_circle_diameter(base_angle: numeric = None,
+                         jitter_angle_deg: int = JITTER_ANGLE_DEG,
+                         rng: RNGBackend = None) -> tuple[mplPath, dict]
+
+        Generates a randomly oriented unit circle diamter (line segment).
+    
+    
+    random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
+                                tightness: float = 0.3, rng: RNGBackend = None) -> mplPath
+
+        Transforms a single straight line segment into a single randomized cubic Bezier
+        segment, imitating hand drawing. Suitable for short segments.
+            
+    
+    handdrawn_polyline_path(points: list[PointXY], splines_per_segment: int = 5,
+                            amp: float = 0.15, tightness: float = 0.3,
+                            rng: RNGBackend = None) -> mplPath
+
+        Given open or closed polyline Path, creates a new Path that imitates hand
+        drawn style by replacing each straight segment with configurable number of
+        Bezier sections.
+
     
     ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
@@ -128,7 +151,7 @@ else:
         # Use a non-interactive backend (safe for multiprocessing workers)
         mpl.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle, Ellipse, Arc
+from matplotlib.patches import PathPatch, Circle, Ellipse, Arc
 from matplotlib.path import Path as mplPath
 from matplotlib.transforms import Affine2D
 
@@ -146,8 +169,7 @@ JITTER_ANGLE_DEG = 5
 # Path joining utility
 # ---------------------------------------------------------------------------
 def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
-    """
-    Join multiple Matplotlib ``Path`` objects into a single composite path.
+    """Join multiple Matplotlib ``Path`` objects into a single composite path.
     
     Args:
         paths (list[matplotlib.path.Path]):
@@ -195,8 +217,7 @@ def random_srt_path(shape: mplPath,
                     origin: PointXY = None,
                     rng: RNGBackend = None,
                    ) -> tuple[mplPath, dict]:
-    """
-    Apply a random Scale-Rotate-Translate (SRT) transform to a Path so it fits
+    """Apply a random Scale-Rotate-Translate (SRT) transform to a Path so it fits
     inside a given canvas box with some jitter.
 
     The shape is:
@@ -249,6 +270,8 @@ def random_srt_path(shape: mplPath,
     # --- RNG ---------------------------------------------------------------
     if rng is None:
         rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
     # --- Canvas geometry ---------------------------------------------------
     cxmin, cxmax = map(float, canvas_x1x2)
@@ -269,7 +292,7 @@ def random_srt_path(shape: mplPath,
     if not isinstance(angle_deg, (int, float)):
         angle_deg = rng.randrange(360)
     elif angle_deg != 0:
-        jitter = JITTER_ANGLE_DEG * max(-1.0, min(1.0, rng.normalvariate(0.0, 1/3)))
+        jitter = JITTER_ANGLE_DEG * normal3s()
         angle_deg = float(round(angle_deg) + jitter)
     # Normalize to [-180, 180)
     angle_deg = ((angle_deg + 180.0) % 360.0) - 180.0
@@ -287,7 +310,7 @@ def random_srt_path(shape: mplPath,
 
     # --- Scaling to fit canvas --------------------------------------------
     # Base uniform scale in X chosen to fit rotated bbox into canvas
-    sfx = rng.uniform(0.2, 1) * min(cw / bwsize, ch / bhsize)
+    sfx = rng.uniform(0.1, 0.9) * min(cw / bwsize, ch / bhsize)
     sfy = sfx * y_compress
 
     # --- Translation jitter ------------------------------------------------
@@ -351,6 +374,8 @@ def unit_circle_diameter(base_angle: numeric = None,
     # --- RNG ----------------------------------------------------------------
     if rng is None:
         rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
     # --- Determine base angle and jitter -----------------------------------
     if base_angle is None:
@@ -362,7 +387,7 @@ def unit_circle_diameter(base_angle: numeric = None,
         )
 
     # Use RNG for normal jitter to stay consistent with other random primitives
-    jitter = jitter_angle_deg * max(-1, min(1, rng.normalvariate(0, 1 / 3)))
+    jitter = normal3s() * jitter_angle_deg
     angle_deg = ((base_angle + jitter + 90) % 180) - 90
     angle_rad = math.radians(angle_deg)
 
@@ -383,13 +408,227 @@ def unit_circle_diameter(base_angle: numeric = None,
 
 
 # ---------------------------------------------------------------------------
+# Random cubic spline segment (hand-drawn imitation)
+# ---------------------------------------------------------------------------
+def random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
+                                tightness: float = 0.3, rng: RNGBackend = None
+                               ) -> mplPath:
+    """Generate a cubic spline Path segment imitating a hand-drawn line.
+
+    The function creates a 4-point cubic Bezier curve between two points
+    with randomized perpendicular deviation to simulate "hand-drawn" jitter.
+
+    Args:
+        start: Starting point (x0, y0).
+        end: Ending point (x1, y1).
+        amp: Amplitude of perpendicular deviation (typ. 0.1-0.3).
+        tightness: Controls curvature bias toward endpoints (typ. 0.2-0.5).
+        rng: Optional RNG backend (RNG, random.Random, or np.random.Generator).
+
+    Returns:
+        mplPath: A cubic Bezier Path with one MOVETO and three CURVE4 vertices.
+    """
+    # --- RNG ----------------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
+
+    if not (isinstance(start, tuple) and isinstance(end, tuple)):
+        raise TypeError(
+            f"start and end must be tuple[float, float]. "
+            f"Received {type(start)} and {type(end)}."
+        )
+    if len(start) != 2 or len(end) != 2:
+        raise ValueError("start and end tuples must each have exactly two elements.")
+
+    x0, y0 = start
+    x1, y1 = end
+    dx = x1 - x0
+    dy = y1 - y0
+
+    # Generate two normal deviations, clipped to [-1, 1]
+    dev1 = normal3s() * amp
+    dev2 = normal3s() * amp
+
+    # Define control points with small perpendicular offsets
+    P0 = (x0, y0)
+    P1 = (x0 + dx * tightness - dy * dev1, y0 + dy * tightness + dx * dev1)
+    P2 = (x1 - dx * tightness - dy * dev2, y1 - dy * tightness + dx * dev2)
+    P3 = (x1, y1)
+
+    verts = [P0, P1, P2, P3]
+    codes = [mplPath.MOVETO, mplPath.CURVE4, mplPath.CURVE4, mplPath.CURVE4]
+    return mplPath(verts, codes)
+
+
+# ---------------------------------------------------------------------------
+# Hand-drawn polyline using chained cubic splines
+# ---------------------------------------------------------------------------
+def handdrawn_polyline_path(points: list[PointXY], splines_per_segment: int = 5,
+                            amp: float = 0.15, tightness: float = 0.3,
+                            rng: RNGBackend = None) -> mplPath:
+    """Generate a hand-drawn style polyline represented as a cubic Bezier chain.
+
+    Each straight segment between consecutive points is subdivided into multiple
+    short cubic spline sections with randomized curvature and jitter, producing
+    a continuous, organic "hand-drawn" appearance.
+
+    Each original line segment is divided into ``splines_per_segment`` equal-length
+    subsections. For each subsection, an inner point is randomly *slid* along the
+    parent segment by up to +/-0.4 x step length. This random shift changes the
+    actual spacing between neighboring spline anchor points, which may range from
+    roughly 0.2x to 1.8x the nominal step length - while always preserving the
+    overall point order (no self-intersections due to inversion).
+
+    Args:
+        points: Sequence of (x, y) coordinates forming the base polyline.
+        splines_per_segment: Number of spline subdivisions per straight segment.
+        amp: Amplitude of random perpendicular deviation applied to each spline
+            (controls "waviness").
+        tightness: Fraction controlling how close control points are pulled toward
+            endpoints (higher values yield tighter, less curved splines).
+        rng: Optional RNG backend (``RNG``, ``random.Random``, or ``np.random.Generator``)
+            used for reproducible randomization. If not provided, a thread-safe
+            global RNG is used.
+
+    Returns:
+        mplPath: A continuous cubic Bezier chain path mimicking a hand-drawn polyline.
+    """
+    # --- Validation --------------------------------------------------------
+    if not isinstance(points, (list, tuple)) or isinstance(points, (str, bytes)):
+        raise TypeError("'points' must be an iterable of (x, y) pairs.")
+    if len(points) < 2:
+        raise ValueError("At least two points are required to form a polyline.")
+    if not isinstance(splines_per_segment, int) or splines_per_segment < 1:
+        raise ValueError("splines_per_segment must be a positive integer.")
+    for name, val in {"amp": amp, "tightness": tightness}.items():
+        if not isinstance(val, (int, float)):
+            raise TypeError(f"{name} must be numeric, got {type(val).__name__}")
+
+    JITTER_AMPLITUDE = 0.4 # Fraction of a step for sliding amplitude
+
+    # --- RNG ----------------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(rng, "normal3s",
+                   lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
+
+    # --- Core setup --------------------------------------------------------
+    P1, Pn = points[0], points[-1]
+    closed = math.hypot(Pn[0] - P1[0], Pn[1] - P1[1]) < 1e-6
+
+    verts: list[PointXY] = [points[0]]
+
+    # --- Loop through polyline segments ------------------------------------
+    for start, end in zip(points, points[1:]):
+        x0, y0 = start
+        xn, yn = end
+        dx, dy = xn - x0, yn - y0
+        stepx, stepy = dx / splines_per_segment, dy / splines_per_segment
+        xp, yp = x0, y0
+
+        # --- Loop through spline sections ----------------------------------
+        for i in range(1, splines_per_segment + 1):
+            slide = normal3s() * JITTER_AMPLITUDE
+            xi = x0 + (i + slide) * stepx # end point of the current section
+            yi = y0 + (i + slide) * stepy # end point of the current section
+            dxs, dys = xi - xp, yi - yp
+
+            dev1 = normal3s() * amp
+            dev2 = normal3s() * amp
+
+            P1 = (xp + dxs * tightness - dys * dev1, yp + dys * tightness + dxs * dev1)
+            P2 = (xi - dxs * tightness - dys * dev2, yi - dys * tightness + dxs * dev2)
+            P3 = (xi, yi)
+
+            verts.extend([P1, P2, P3])
+            xp, yp = xi, yi # set next section start (xp, yp) to curent section end (xi, yi)
+
+        verts[-1] = end
+
+    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * (len(verts) - 1)
+
+    if closed:
+        codes.append(mplPath.CLOSEPOLY)
+        verts.append(points[0])
+
+    return mplPath(verts, codes)
+
+
+# ---------------------------------------------------------------------------
+# Demo: visualize hand-drawn polyline parameter effects
+# ---------------------------------------------------------------------------
+def demo_handdrawn_polyline_path(base_points: list[PointXY] = None,
+                                 amps: list[float] = None,
+                                 tightness_values: list[float] = None,
+                                 seed: int = None) -> None:
+    """Visual diagnostic demo for :func:`handdrawn_polyline_path`.
+
+    Generates a grid of examples showing how amplitude and tightness affect
+    the curvature and jitter of hand-drawn splines.
+
+    Args:
+        base_points: Optional sequence of control points defining the base polyline.
+            Defaults to a 4-point zigzag pattern if None.
+        amps: Sequence of amplitude values to visualize (controls "waviness").
+        tightness_values: Sequence of tightness values to visualize.
+        seed: Optional seed for deterministic reproducibility.
+
+    Example:
+        >>> from spt.mpl_path_utils import demo_handdrawn_polyline_path
+        >>> demo_handdrawn_polyline_path()
+    """
+    # --- Defaults ----------------------------------------------------------
+    if base_points is None:
+        base_points = [(0, 0), (1, 0.2), (2, -0.3), (3, 0.1)]
+    if amps is None:
+        amps = [0.05, 0.1, 0.2, 0.3]
+    if tightness_values is None:
+        tightness_values = [0.1, 0.2, 0.4, 0.6]
+
+    rng = get_rng(thread_safe=True)
+    if seed is not None:
+        rng.seed(seed)
+
+    n_rows, n_cols = len(amps), len(tightness_values)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(3.5 * n_cols, 2.0 * n_rows))
+
+    if n_rows == 1 and n_cols == 1:
+        axes = np.array([[axes]])
+    elif n_rows == 1:
+        axes = np.array([axes])
+    elif n_cols == 1:
+        axes = np.array([[ax] for ax in axes])
+
+    # --- Plot each combination --------------------------------------------
+    for i, amp in enumerate(amps):
+        for j, tight in enumerate(tightness_values):
+            ax = axes[i, j]
+            path = handdrawn_polyline_path(
+                base_points, amp=amp, tightness=tight, rng=rng
+            )
+            patch = PathPatch(path, facecolor="none", lw=2.0, alpha=0.8)
+            ax.add_patch(patch)
+            ax.plot(*zip(*base_points), "--", lw=0.8, color="gray", alpha=0.5)
+            ax.set_aspect("equal")
+            ax.autoscale_view()
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(f"amp={amp:.2f}, tight={tight:.2f}")
+
+    plt.suptitle("Hand-Drawn Polyline Parameter Sweep", fontsize=14, weight="bold")
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
 # Basic Ellipse / Arc path generator
 # ---------------------------------------------------------------------------
 def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
                         start_angle: float = 0.0, end_angle: float = 360.0,
                         angle_offset: float = 0.0, close: bool = False) -> mplPath:
-    """
-    Create a basic Matplotlib Path representing a circle, ellipse, or elliptical arc.
+    """Create a basic Matplotlib Path representing a circle, ellipse, or elliptical arc.
   
     Supports anisotropic vertical scaling via ``y_compress`` and rotation via
     ``angle_offset``. Optionally closes the arc to form a filled sector (pie slice).
