@@ -176,6 +176,8 @@ import os
 import sys
 import time
 import random
+import numbers
+from numbers import Integral, Real
 import math
 from typing import TypeAlias, Union
 import numpy as np
@@ -199,9 +201,8 @@ from matplotlib.transforms import Affine2D
 from mpl_utils import *
 from utils.rng import RNGBackend, RNG, get_rng
 
-numeric: TypeAlias = Union[int, float]
-PointXY: TypeAlias = tuple[numeric, numeric]
-CoordRange: TypeAlias = tuple[numeric, numeric]
+PointXY: TypeAlias = tuple[Real, Real]
+CoordRange: TypeAlias = tuple[Real, Real]
 
 JITTER_ANGLE_DEG = 5
 
@@ -258,7 +259,7 @@ def random_srt_path(
         canvas_x1x2      : PointXY,
         canvas_y1y2      : PointXY,
         y_compress       : float      = None,
-        angle_deg        : numeric    = None,
+        angle_deg        : Real       = None,
         jitter_angle_deg : int        = JITTER_ANGLE_DEG,
         origin           : PointXY    = None,
         rng              : RNGBackend = None,
@@ -354,12 +355,12 @@ def random_srt_path(
     cx0, cy0 = (cxmax + cxmin) / 2, (cymax + cymin) / 2
 
     # --- Vertical compression ----------------------------------------------
-    if not isinstance(y_compress, (int, float)):
+    if not isinstance(y_compress, Real):
         y_compress = rng.uniform(0.5, 1.0)
     y_compress = max(0.2, float(y_compress))    
     
     # --- Angle with jitter -------------------------------------------------
-    if not isinstance(angle_deg, (int, float)):
+    if not isinstance(angle_deg, Real):
         angle_deg = rng.randrange(360)
     elif angle_deg != 0:
         angle_deg = round(angle_deg) + jitter_angle_deg * normal3s()
@@ -424,7 +425,7 @@ def random_srt_path(
 # Random unit circle diameter (straight line segment)
 # ---------------------------------------------------------------------------
 def unit_circle_diameter(
-            base_angle       : numeric    = None,
+            base_angle       : Real       = None,
             jitter_angle_deg : int        = JITTER_ANGLE_DEG,
             rng              : RNGBackend = None,
         ) -> tuple[mplPath, dict]:
@@ -455,7 +456,7 @@ def unit_circle_diameter(
     # --- Determine base angle and jitter -----------------------------------
     if base_angle is None:
         base_angle = rng.uniform(-90, 90)
-    elif not isinstance(base_angle, (int, float)):
+    elif not isinstance(base_angle, Real):
         raise TypeError(
             f"angle_deg must be of type integer or float.\n"
             f"Received type: {type(base_angle).__name__}; value: {base_angle}."
@@ -588,7 +589,7 @@ def unit_circular_arc(
 # Random unit rectangle
 # ---------------------------------------------------------------------------
 def unit_rectangle_path(
-        diagonal_angle   : numeric    = None,
+        diagonal_angle   : Real       = None,
         jitter_angle_deg : int        = JITTER_ANGLE_DEG,
         base_angle       : int        = None,
         rng              : RNGBackend = None,
@@ -612,7 +613,7 @@ def unit_rectangle_path(
                    lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
     # --- Shape type --------------------------------------------------------
-    if not diagonal_angle is None and not isinstance(diagonal_angle, (int, float)):
+    if not diagonal_angle is None and not isinstance(diagonal_angle, Real):
         raise TypeError(f"diagonal_angle must be numeric. "
                         f"Received {type(diagonal_angle)}")
 
@@ -636,7 +637,7 @@ def unit_rectangle_path(
     #     -45 - offset + base_angle + normal3s() * jitter_angle_deg,
     #  ]
 
-    if not isinstance(base_angle, (int, float)):
+    if not isinstance(base_angle, Real):
         base_angle = rng.uniform(-90, 90)
     else:
         base_angle += normal3s() * jitter_angle_deg
@@ -729,7 +730,7 @@ def unit_triangle_path(
 
     if not angle_category:
         angle_category = rng.choice((60, 90, 120))
-    if not isinstance(angle_category, (int, float)):
+    if not isinstance(angle_category, Real):
         raise TypeError(
             f"angle_category must be numeric. "
             f"Got {type(angle_category).__name__}."
@@ -754,7 +755,7 @@ def unit_triangle_path(
     # --- Jitter and rotation -----------------------------------------------
     thetas[0] += normal3s() * jitter_angle_deg
 
-    if not isinstance(base_angle, (int, float)):
+    if not isinstance(base_angle, Real):
         base_angle = rng.uniform(-90, 90)
     else:
         base_angle += normal3s() * jitter_angle_deg
@@ -883,7 +884,7 @@ def handdrawn_polyline_path(
     if not isinstance(splines_per_segment, int) or splines_per_segment < 1:
         raise ValueError("splines_per_segment must be a positive integer.")
     for name, val in {"amp": amp, "tightness": tightness}.items():
-        if not isinstance(val, (int, float)):
+        if not isinstance(val, Real):
             raise TypeError(f"{name} must be numeric, got {type(val).__name__}")
 
     JITTER_AMPLITUDE = 0.4 # Fraction of a step for sliding amplitude
@@ -1075,7 +1076,7 @@ def bezier_from_xy_dy(
     x1, y1, dy1 = x[1:], y[1:], dy[1:]
 
     # --- Tangent scaling factor selection ---
-    if isinstance(endpoint_style, (int, float)):
+    if isinstance(endpoint_style, Real):
         scale = np.full_like(h, float(endpoint_style))
     elif endpoint_style == "catmull":
         scale = np.full_like(h, 1 / 6)
@@ -1391,12 +1392,69 @@ def line_segment(
 
 
 # ---------------------------------------------------------------------------
+# Triangle
+# ---------------------------------------------------------------------------
+def triangle(
+        canvas_x1x2         : PointXY,
+        canvas_y1y2         : PointXY,
+        equal_sides         : int        = None,
+        angle_category      : int        = None,
+        base_angle          : int        = None,
+        origin              : PointXY    = None,
+        jitter_angle_deg    : int        = JITTER_ANGLE_DEG,
+        splines_per_segment : int        = 5,
+        amp                 : float      = 0.3,
+        tightness           : float      = 0.25,
+        rng                 : RNGBackend = None,
+    ) -> mplPath:
+    """Creates a random triangle."""
+
+    # --- Stage 1: unit triangle -------------------------------------------
+    shape, shape_meta = unit_triangle_path(
+        equal_sides=equal_sides,
+        angle_category=angle_category,
+        jitter_angle_deg=jitter_angle_deg,
+        base_angle=base_angle,
+        rng=rng,
+    )
+
+    # --- Stage 2: apply hand-drawn style -----------------------------------
+    shape, spline_meta = handdrawn_polyline_path(
+        points=list(shape.vertices),
+        splines_per_segment=splines_per_segment,
+        amp=amp,
+        tightness=tightness,
+        rng=rng,
+    )
+    
+    # --- Stage 3: apply SRT (scale / rotate / translate) -------------------
+    shape, srt_meta = random_srt_path(
+        shape=shape,
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=None,
+        angle_deg=base_angle,
+        origin=origin,
+        jitter_angle_deg=jitter_angle_deg,
+        rng=rng,
+    )
+
+    meta = {
+        "shape_meta"  : shape_meta,
+        "spline_meta" : spline_meta,
+        "srt_meta"    : srt_meta,
+    }
+
+    return shape, meta
+
+
+# ---------------------------------------------------------------------------
 # Rectangle
 # ---------------------------------------------------------------------------
 def rectangle(
         canvas_x1x2         : PointXY,
         canvas_y1y2         : PointXY,
-        diagonal_angle      : numeric    = None,
+        diagonal_angle      : Real       = None,
         base_angle          : int        = None,
         origin              : PointXY    = None,
         jitter_angle_deg    : int        = JITTER_ANGLE_DEG,
@@ -1481,6 +1539,11 @@ def demo():
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, diagonal_angle=None, base_angle=None, origin=None,
     )
     ax.add_patch(PathPatch(rect_shape, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
+
+    triangle_shape = triangle(
+        canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
+    )
+    ax.add_patch(PathPatch(triangle_shape, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
     
     """
 
