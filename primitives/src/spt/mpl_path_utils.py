@@ -348,6 +348,8 @@ def random_srt_path(
     angle_rad = math.radians(angle_deg)
 
     # --- Original path bbox -----------------------------------------------
+    # TODO: get_extents() does not really work correctly and should  be replaced.
+    # TODO: See mpl_artist_preview.py - ax_autofit()
     bbox = shape.get_extents()
     bxmin, bymin, bxmax, bymax = bbox.x0, bbox.y0, bbox.x1, bbox.y1
     bx0, by0 = (bxmax + bxmin) / 2, (bymax + bymin) / 2
@@ -359,7 +361,7 @@ def random_srt_path(
 
     # --- Scaling to fit canvas --------------------------------------------
     # Base uniform scale in X chosen to fit rotated bbox into canvas
-    sfx = rng.uniform(0.1, 0.9) * min(cw / bwsize, ch / bhsize)
+    sfx = rng.uniform(0.2, 0.9) * min(cw / bwsize, ch / bhsize)
     sfy = sfx * y_compress
 
     # --- Translation jitter ------------------------------------------------
@@ -650,7 +652,7 @@ def unit_rectangle_path(
 def unit_triangle_path(
         equal_sides      : int        = None,
         angle_category   : int        = None,
-        jitter_angle_deg : int        = 5,
+        jitter_angle_deg : int        = JITTER_ANGLE_DEG,
         base_angle       : int        = None,
         rng              : RNGBackend = None,
     ) -> tuple[mplPath, dict]:
@@ -1200,64 +1202,6 @@ def basic_ellipse_or_arc_path(
     return mplPath(verts_closed, codes_closed)
 
 
-def elliptical_arc(
-        canvas_x1x2        : CoordRange = (0, 1023),
-        canvas_y1y2        : CoordRange = (0, 1023),
-        start_deg          : float      = None,
-        end_deg            : float      = None,
-        y_compress         : float      = None,
-        angle_deg          : int        = None,
-        origin             : PointXY    = None,
-        jitter_angle_deg   : int        = 5,
-        jitter_amp         : float      = 0.02,
-        jitter_y           : float      = 0.1,
-        max_angle_step_deg : int        = 20,
-        min_angle_steps    : int        = 3,
-        rng                : RNGBackend = None,
-    ) -> mplPath:    
-    """ Creates a generalized elliptical arc or an ellipse.
-
-    The code first creates a unit circular arc using piecewise cubic Bezier
-    curves provided by Matplotlib. In principle, a 90 deg arc can be approximated
-    by a single cubic curve very well. However, to imitate hand drawing, smaller
-    steps are used, set at the default value of 20 deg `max_angle_step_deg`.
-
-    For smaller arcs, the smallest number of sections is set to 3 (`min_angle_steps`).
-
-    Once the unit arc or a full circle is created, Jitter is applied to individual
-    points (magnitude controlled by `jitter_amp`), as well as to aspect ratio
-    (`jitter_y` controls scaling of the y coordinates only. The latter is only
-    useful for creating non-ideal circular arcs, as elliptical transform will absorb
-    this factor.
-
-    The circular arc is scaled to yield an ellipse, rotated (with angle jitter), and
-    translated to yield the final generalized elliptical arc with jitter.
-    """
-    # Create a unit circular arc using piecewise cubic Bezier curves.
-    #
-    shape: mplPath = unit_circular_arc(
-        start_deg,
-        end_deg,
-        jitter_amp,
-        jitter_y,
-        max_angle_step_deg,
-        min_angle_steps,
-        rng,
-    )
-    
-    shape_srt: mplPath = random_srt_path(
-        shape,
-        canvas_x1x2,
-        canvas_y1y2,
-        y_compress,
-        angle_deg,
-        origin,
-        rng,
-    )
-
-    return arc_path
-
-
 # ---------------------------------------------------------------------------
 # Ellipse / Arc
 # ---------------------------------------------------------------------------
@@ -1269,8 +1213,8 @@ def elliptical_arc(
         y_compress         : float      = None,
         angle_deg          : int        = None,
         origin             : PointXY    = None,
-        jitter_angle_deg   : int        = 5,
-        jitter_amp         : float      = 0.02,
+        jitter_angle_deg   : int        = JITTER_ANGLE_DEG,
+        jitter_amp         : float      = 0.04,
         jitter_y           : float      = 0.1,
         max_angle_step_deg : int        = 20,
         min_angle_steps    : int        = 3,
@@ -1370,10 +1314,10 @@ def rectangle(
         diagonal_angle      : numeric    = None,
         base_angle          : int        = None,
         origin              : PointXY    = None,
-        jitter_angle_deg    : int        = 5,
+        jitter_angle_deg    : int        = JITTER_ANGLE_DEG,
         splines_per_segment : int        = 5,
-        amp                 : float      = 0.15,
-        tightness           : float      = 0.3,
+        amp                 : float      = 0.3,
+        tightness           : float      = 0.25,
         rng                 : RNGBackend = None,
     ) -> mplPath:
     """Creates a random rectangle.
@@ -1409,7 +1353,7 @@ def rectangle(
         shape=shape,
         canvas_x1x2=canvas_x1x2,
         canvas_y1y2=canvas_y1y2,
-        y_compress=1,
+        y_compress=None,
         angle_deg=base_angle,
         origin=origin,
         jitter_angle_deg=jitter_angle_deg,
