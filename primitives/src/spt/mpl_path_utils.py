@@ -302,6 +302,20 @@ def random_srt_path(
 
     TODO: Overall calculations are inaccurate (pivot corrdinates are not taken
           into account, Matplotlib's .get_extents() is inaccurate also).
+          Proper process involves
+            1. Manual determination of the bounding box
+            2. Selecting, if necessary, rotation angle
+            3. Rotating bounding box, taking into account pivot point.
+               Note, with general pivot point, rotation and scaling do not commute,
+               so must think this through carefully.
+            4. Determining acceptable range for scaling factor to make sure that
+               the scaled ROTATED bounding box will remain within canvas,
+               allowing 5% margins on all sides for added jitter.
+            5. Selecting scaling factor from the range.
+            6. Scaling/rotating bounding box and determining acceptable translation
+               range.
+          Again: Scaling/Rotation DO NOT COMMUTE. Also remember that present code
+          must scale circle/arc first (y_compress) to form proper elliptical shape.
     """
     # --- Type checks --------------------------------------------------------
     if not isinstance(shape, mplPath):
