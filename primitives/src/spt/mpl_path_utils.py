@@ -196,7 +196,7 @@ else:
 import matplotlib.pyplot as plt
 from matplotlib.patches import PathPatch, Circle, Ellipse, Arc
 from matplotlib.path import Path as mplPath
-from matplotlib.transforms import Affine2D
+from matplotlib.transforms import Affine2D, Bbox
 
 from mpl_utils import *
 from utils.rng import RNGBackend, RNG, get_rng
@@ -249,6 +249,20 @@ def join_paths(
         codes_list.append(path.codes[start:])
 
     return mplPath(np.concatenate(verts_list), np.concatenate(codes_list))
+
+
+# ---------------------------------------------------------------------------
+# Computes Path bounding box
+# ---------------------------------------------------------------------------
+def bbox_from_path(path: Path) -> NDarray:
+    """Computes Path bounding box"""
+    verts = np.asarray(path.vertices, dtype=float)
+    verts = verts[np.isfinite(verts).all(axis=1)]
+    if verts.size == 0:
+        return np.array([[0,0],[0,0]])
+    min_xy = verts.min(axis=0)
+    max_xy = verts.max(axis=0)
+    return np.stack((min_xy, max_xy))
 
 
 # ---------------------------------------------------------------------------
