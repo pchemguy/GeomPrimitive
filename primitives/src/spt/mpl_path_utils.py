@@ -469,30 +469,32 @@ def unit_circular_arc(
         rng                : RNGBackend = None,
     ) -> mplPath:
     """Generate a unit circular arc as a multi-segment cubic Bezier path.
-    
-    Each sub-arc spans <= `max_angle_step_deg` (default 20deg) and uses the analytic
-    4/3*tan(Dtheta/4) handle length. Optional additive and multiplicative jitter
-    imitate human sketch irregularities.
-    
+
+    Each sub-arc spans <= `max_angle_step_deg` (default 20deg) and uses the
+    analytic 4/3*tan(Dtheta/4) handle length for optimum circular curvature.
+    Additive and multiplicative jitter simulate hand-drawn irregularities.
+
     Args:
         start_deg: Starting angle in degrees.
-        end_deg:   Ending angle in degrees.
-        jitter_amp: Maximum additive vertex jitter (fraction of radius).
-        jitter_y:   Multiplicative Y-axis jitter amplitude (~ vertical squish).
-        max_angle_step_deg: Maximum angular step per Bezier segment.
-        min_angle_steps: Minimum segment count, even for small spans.
-        rng: Optional RNG backend (`random.Random`, `np.random.Generator`, or custom).
-    
+        end_deg: Ending angle in degrees.
+        jitter_amp: Additive jitter amplitude (fraction of radius).
+        jitter_y: Multiplicative jitter (vertical squish).
+        max_angle_step_deg: Maximum sub-arc span (degrees).
+        min_angle_steps: Minimum number of Bezier segments.
+        rng: Optional RNG backend (`RNG`, `random.Random`, or `np.random.Generator`).
+
     Returns:
-      matplotlib.path.Path: Composite cubic Bezier path approximating the arc.
+        tuple:
+            matplotlib.path.Path - Bezier path approximating the arc.
+            dict - Metadata about span, closure, and parameters.
     """
-    # RNG setup ---------------------------------------------------------------
+    # --- RNG setup -----------------------------------------------------------
     if rng is None:
         rng = get_rng(thread_safe=True)
     normal3s = getattr(rng, "normal3s",
                    lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
-    # Angle normalization -----------------------------------------------------
+    # --- Angle normalization -------------------------------------------------
     if start_deg is None or end_deg is None:
         start_deg = uniform(0, 360 - JITTER_ANGLE_DEG * 3)
         end_deg = rng.uniform(start_deg + JITTER_ANGLE_DEG, 360)
@@ -504,32 +506,30 @@ def unit_circular_arc(
     else:
         closed = False
 
-    # Segmentation ------------------------------------------------------------
+    # --- Segmentation -------------------------------------------------------
     theta_steps = int(max(min_angle_steps, round(span_deg / max_angle_step_deg)))
     start, end = math.radians(start_deg), math.radians(end_deg)
     span = end - start
     step_theta = span / theta_steps
     t = 4.0 / 3.0 * math.tan(step_theta / 4.0)
 
-    # Build control vertices --------------------------------------------------
-    verts: list[PointXY] = []
+   # --- Vertex generation --------------------------------------------------
+    P0 = (math.cos(start), math.sin(start))
+    verts: list[PointXY] = [P0]
     theta_beg = start
-    for i in range(theta_steps):
+    for _ in range(theta_steps):
         theta_end = theta_beg + step_theta
         cos_b, sin_b = math.cos(theta_beg), math.sin(theta_beg)
         cos_e, sin_e = math.cos(theta_end), math.sin(theta_end)
 
-        P0 = (cos_b, sin_b)
         P1 = (cos_b - t * sin_b, sin_b + t * cos_b)
         P2 = (cos_e + t * sin_e, sin_e - t * cos_e)
         P3 = (cos_e, sin_e)
 
-        if i == 0:
-            verts.append(P0)
         verts.extend([P1, P2, P3])
         theta_beg = theta_end
 
-    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * (3 * theta_steps)
+    codes = [mplPath.MOVETO] + [mplPath.CURVE4] * 3 * theta_steps
 
     if closed:
         verts.append((np.nan, np.nan))
@@ -537,18 +537,18 @@ def unit_circular_arc(
 
     verts = np.array(verts, dtype=float)
 
-    # Y-axis multiplicative jitter --------------------------------------------
+    # --- Y-axis multiplicative jitter ----------------------------------------
     if jitter_y:
         verts[:, 1] *= 1 - np.random.uniform(0, 1) * jitter_y
 
-    # Additive jitter ---------------------------------------------------------
+    # --- Additive jitter -----------------------------------------------------
     if jitter_amp:
         verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
 
     path = mplPath(verts, codes)
 
     meta: dict = {
-        "start_deg": angle_deg,
+        "start_deg": start_deg,
         "end_deg"  : end_deg,
     }
     return path, meta
@@ -1329,10 +1329,3 @@ def elliptical_arc(
     }
 
     return shape_srt, meta
-
-
-
-
-
-
-    srt_meta
