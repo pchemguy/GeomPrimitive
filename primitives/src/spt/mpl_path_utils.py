@@ -265,10 +265,210 @@ def bbox_from_path(path: Path) -> NDarray:
     return np.stack((min_xy, max_xy))
 
 
+
+
+
+
+
+
+
+
+
+def random_srt_path(
+    shape: mplPath,
+    canvas_x1x2: Tuple[float, float],
+    canvas_y1y2: Tuple[float, float],
+    y_compress: float | None = None,
+    angle_deg: Real | None = None,
+    jitter_angle_deg: float = 5.0,
+    origin: Tuple[float, float] | None = None,
+    rng: RNGBackend | None = None,
+) -> Tuple[mplPath, Dict[str, float]]:
+    """Apply a randomized Scale-Rotate-Translate (SRT) transform to a Path.
+
+    Ensures the transformed path stays within the given canvas box.
+
+    Args:
+        shape: Input Path.
+        canvas_x1x2, canvas_y1y2: Canvas limits (xmin,xmax), (ymin,ymax).
+        y_compress: Optional Y-scale factor (<1.0 = ellipse-like). Random if None.
+        angle_deg: Optional base rotation (deg). Random if None.
+        jitter_angle_deg: Gaussian jitter amplitude (3sigma).
+        origin: Rotation center; defaults to bbox center.
+        rng: Optional RNG backend.
+        margin_frac: Fractional padding from canvas edges (default 5%).
+
+    Returns:
+        (transformed_path, meta) where meta contains applied parameters.
+    """
+    print(bbox_from_path(shape))
+    
+    # --- Validation --------------------------------------------------------
+    if not isinstance(shape, mplPath):
+        raise TypeError(f"Expected mplPath, got {type(shape).__name__}")
+    if not (isinstance(canvas_x1x2, tuple) and isinstance(canvas_y1y2, tuple)):
+        raise TypeError("canvas_x1x2 and canvas_y1y2 must be tuples of floats")
+
+    # --- RNG ---------------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+    normal3s = getattr(
+        rng, "normal3s",
+        lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))),
+    )
+
+    # --- Canvas geometry ---------------------------------------------------
+    cxmin, cxmax = map(float, canvas_x1x2)
+    cymin, cymax = map(float, canvas_y1y2)
+    cw, ch = cxmax - cxmin, cymax - cymin
+    if cw <= 0 or ch <= 0:
+        raise ValueError(f"Invalid canvas size: ({cw}, {ch})")
+    cx0, cy0 = (cxmin + cxmax) / 2, (cymin + cymax) / 2
+
+    # --- Path bounding box -------------------------------------------------
+    (bmin, bmax) = bbox_from_path(shape)
+    bxmin, bymin = bmin
+    bxmax, bymax = bmax
+    bw, bh = bxmax - bxmin, bymax - bymin
+    bx0, by0 = (bxmax + bxmin) / 2, (bymax + bymin) / 2
+    if bw == 0 or bh == 0:
+        bw = bh = 1e-6
+
+    # --- Randomized parameters --------------------------------------------
+    if not isinstance(y_compress, Real):
+        y_compress = rng.uniform(0.2, 1.0)
+    y_compress = max(0.1, y_compress)
+
+    if not isinstance(angle_deg, Real):
+        angle_deg = rng.uniform(-180, 180)
+    else:
+        angle_deg += jitter_angle_deg * normal3s()
+    angle_deg = ((angle_deg + 180) % 360) - 180
+    angle_rad = math.radians(angle_deg)
+
+    # --- Compute rotated bbox footprint (unscaled) ------------------------
+    corners = np.array([
+        [bxmin, bymin],
+        [bxmax, bymin],
+        [bxmax, bymax],
+        [bxmin, bymax],
+    ])
+    pivot = np.array(origin or (bx0, by0))
+
+    # Rotate corners about pivot (no scale yet)
+    rot_corners = (
+        Affine2D()
+        .rotate_around(pivot[0], pivot[1], angle_rad)
+        .transform(corners)
+    )
+
+    # --- Compute maximum scale to fit in canvas ---------------------------
+    rxmin, rymin = rot_corners.min(axis=0)
+    rxmax, rymax = rot_corners.max(axis=0)
+    rw, rh = rxmax - rxmin, rymax - rymin
+
+    margin_frac = 0.05
+    margin_x = cw * margin_frac
+    margin_y = ch * margin_frac
+    cw_eff = cw - 2 * margin_x
+    ch_eff = ch - 2 * margin_y
+    max_scale = min(cw_eff / max(rw, 1e-12), ch_eff / max(rh, 1e-12))
+
+    sfx = rng.uniform(0.2, 0.9) * max_scale
+    sfy = sfx * y_compress
+
+    # --- Apply scale about pivot to the rotated corners -------------------
+    # (rot_corners - pivot) * [sfx, sfy] + pivot
+    sr_corners = (rot_corners - pivot) * np.array([sfx, sfy]) + pivot
+
+    # Current SR bbox and its center/size (before translation)
+    sr_min = sr_corners.min(axis=0)
+    sr_max = sr_corners.max(axis=0)
+    sr_w, sr_h = sr_max - sr_min
+    sr_center = (sr_min + sr_max) * 0.5
+
+    # --- Choose a feasible target center inside canvas (respecting margins)
+    target_xmin = cxmin + margin_x + sr_w * 0.5
+    target_xmax = cxmax - margin_x - sr_w * 0.5
+    target_ymin = cymin + margin_y + sr_h * 0.5
+    target_ymax = cymax - margin_y - sr_h * 0.5
+
+    # If numeric tolerances make ranges collapse, clamp to canvas center
+    if target_xmax < target_xmin:
+        target_xmin = target_xmax = cx0
+    if target_ymax < target_ymin:
+        target_ymin = target_ymax = cy0
+
+    target_cx = rng.uniform(target_xmin, target_xmax)
+    target_cy = rng.uniform(target_ymin, target_ymax)
+
+    # --- Translation that brings SR center to target center ----------------
+    tx = target_cx - sr_center[0]
+    ty = target_cy - sr_center[1]
+
+    # --- Final SRT transform ----------------------------------------------
+    if origin is None:
+        origin = (bx0, by0)
+    trans = (
+        Affine2D()
+        .scale(sfx, sfy)
+        .rotate_around(origin[0], origin[1], angle_rad)
+        .translate(tx, ty)
+    )
+
+    verts_array = trans.transform(shape.vertices)
+    new_path = mplPath(verts_array, shape.codes)
+
+    meta = {
+        "operation": "SRT",
+        "scale_x": sfx,
+        "scale_y": sfy,
+        "rot_deg": angle_deg,
+        "rot_x": origin[0],
+        "rot_y": origin[1],
+        "trans_x": tx,
+        "trans_y": ty,
+        "y_compress": y_compress,
+        "margin_frac": margin_frac,
+    }
+
+    print(bbox_from_path(new_path))
+    return new_path, meta
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ---------------------------------------------------------------------------
 # Applies random SRT transform to Path.
 # ---------------------------------------------------------------------------
-def random_srt_path(
+def ___random_srt_path_(
         shape            : mplPath,
         canvas_x1x2      : PointXY,
         canvas_y1y2      : PointXY,
@@ -1528,8 +1728,8 @@ def rectangle(
 def demo():
     rng = get_rng(thread_safe=True, use_numpy=True)
     
-    canvas_x1x2=(-10, 30)
-    canvas_y1y2=(-10, 20)
+    canvas_x1x2=(0, 40)
+    canvas_y1y2=(0, 30)
         
     fig, ax = plt.subplots(figsize=(5, 5))
 
@@ -1538,17 +1738,17 @@ def demo():
     ax.set_xlim(*canvas_x1x2)
     ax.set_ylim(*canvas_y1y2)
 
-    line_shape, meta = line_segment(
-        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, base_angle=None, 
-    )
-    ax.add_patch(PathPatch(line_shape, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+#    line_shape, meta = line_segment(
+#        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, base_angle=None, 
+#    )
+#    ax.add_patch(PathPatch(line_shape, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
 
     arc_shape, meta = elliptical_arc(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
-        start_deg=0, end_deg=270, angle_deg=None, origin=(0, 0),
+        start_deg=None, end_deg=None, angle_deg=None, origin=(0, 0),
     )
     ax.add_patch(PathPatch(arc_shape, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
-
+    """
     rect_shape, meta = rectangle(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, diagonal_angle=None, base_angle=None, origin=None,
     )
@@ -1602,7 +1802,7 @@ def demo():
         rng=rng,
     )
     ax.add_patch(PathPatch(function3, edgecolor="magenta", lw=2, facecolor="none", linestyle="solid"))
-
+    """
     plt.show()
 
 
