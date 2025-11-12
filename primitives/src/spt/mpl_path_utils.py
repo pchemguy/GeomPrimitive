@@ -1453,13 +1453,6 @@ def demo():
     ax.add_patch(PathPatch(rect_shape, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
     
     """
-    segment = line_path(
-        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=0, jitter_angle_deg=5
-    )
-    ax.add_patch(PathPatch(segment, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
-
-    polyline = polyline_path([(-5,5), (5,-5), (15,5), (-5,5)])
-    ax.add_patch(PathPatch(polyline, edgecolor="brown", lw=5, facecolor="none", linestyle="dotted"))
 
     triangle = triangle_path(
         canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
@@ -1473,6 +1466,7 @@ def demo():
     function1 = random_srt_path(
         bezier_from_xy_dy(x, y, dy=None, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
     )
+
     ax.add_patch(PathPatch(function1, edgecolor="gold", lw=2, facecolor="none", linestyle="solid"))
     function2 = random_srt_path(
         bezier_from_xy_dy(x, y, dy=dy, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
