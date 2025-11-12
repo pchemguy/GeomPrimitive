@@ -384,13 +384,14 @@ def random_srt_path(
     verts_array = trans.transform(shape.vertices)
     
     meta: dict = {
-        "scale_x": float(sfx),
-        "scale_y": float(sfy),
-        "rot_x"  : float(origin[0]),
-        "rot_y"  : float(origin[1]),
-        "rot_deg": float(angle_deg),
-        "trans_x": float(tx),
-        "trans_y": float(ty),
+        "operation" : "SRT",
+        "scale_x"   : sfx,
+        "scale_y"   : sfy,
+        "rot_x"     : origin[0],
+        "rot_y"     : origin[1],
+        "rot_deg"   : angle_deg,
+        "trans_x"   : tx,
+        "trans_y"   : ty,
     }
     
     return mplPath(verts_array, shape.codes), meta
@@ -452,7 +453,8 @@ def unit_circle_diameter(
     path = mplPath(verts, codes)
 
     meta: dict = {
-        "angle_deg": float(angle_deg),
+        "shape_kind" : "line",
+        "angle_deg"  : angle_deg,
     }
 
     return path, meta
@@ -552,8 +554,9 @@ def unit_circular_arc(
     path = mplPath(verts, codes)
 
     meta: dict = {
-        "start_deg": start_deg,
-        "end_deg"  : end_deg,
+        "shape_kind" : "circle",
+        "start_deg"  : start_deg,
+        "end_deg"    : end_deg,
     }
     return path, meta
 
@@ -562,15 +565,16 @@ def unit_circular_arc(
 # Random unit rectangle
 # ---------------------------------------------------------------------------
 def unit_rectangle_path(
-        equal_sides      : int        = None,
-        jitter_angle_deg : int        = 5,
+        diagonal_angle   : numeric    = None,
+        jitter_angle_deg : int        = JITTER_ANGLE_DEG,
         base_angle       : int        = None,
         rng              : RNGBackend = None,
     ) -> mplPath:
     """Generates a rectangle or square inscribed in a unit circle.
 
     Args:
-        equal_sides: 2 for rectangle, 4 for square. Randomly chosen if None.
+        diagonal_angle: Angle between digonals in degrees (90 for square and
+                        0-180 for rectangle). Randomly chosen if None.
         jitter_angle_deg: Maximum angular deviation (degrees).
         base_angle: Base rotation of the figure (degrees).
         rng: Optional RNG backend (RNG, random.Random, np.random.Generator).
@@ -585,18 +589,29 @@ def unit_rectangle_path(
                    lambda: max(-1, min(1, rng.normalvariate(0, 1.0 / 3.0))))
 
     # --- Shape type --------------------------------------------------------
-    equal_sides = equal_sides or rng.choice((2, 4))
-    if equal_sides not in (2, 4):
-        raise ValueError(
-            f"equal_sides must be 2 (rectangle) or 4 (square). "
-            f"Received: {equal_sides}"
+    if not diagonal_angle is None and not isinstance(diagonal_angle, (int, float)):
+        raise TypeError(f"diagonal_angle must be numeric. "
+                        f"Received {type(diagonal_angle)}")
+
+    angle_margin = max(jitter_angle_deg, JITTER_ANGLE_DEG) * 2
+    if diagonal_angle is None:
+        # Using equal chances for square vs. irregular rectangle
+        diagonal_angle = 90 + (
+            rng.choice((-1, 0, 1, 0)) * rng.uniform(angle_margin, 90 - angle_margin)
         )
+    diagonal_angle = max(angle_margin, min(180 - angle_margin, diagonal_angle))
 
     # --- Angular offsets ---------------------------------------------------
-    offset = (
-        0 if equal_sides == 4 else
-        rng.choice([-1, 1]) * rng.uniform(jitter_angle_deg, 45 - jitter_angle_deg)
-    )
+
+    top_right_angle = diagonal_angle / 2
+    offset = top_right_angle - 45
+
+    #  thetas = [
+    #      45 + offset + base_angle + normal3s() * jitter_angle_deg,
+    #     135 - offset + base_angle + normal3s() * jitter_angle_deg,
+    #    -135 + offset + base_angle + normal3s() * jitter_angle_deg,
+    #     -45 - offset + base_angle + normal3s() * jitter_angle_deg,
+    #  ]
 
     if not isinstance(base_angle, (int, float)):
         base_angle = rng.uniform(-90, 90)
@@ -605,10 +620,10 @@ def unit_rectangle_path(
 
     # --- Corner angles -----------------------------------------------------
     thetas = [
-        45 + base_angle + offset + normal3s() * jitter_angle_deg,
-       135 + base_angle - offset + normal3s() * jitter_angle_deg,
-      -135 + base_angle + offset + normal3s() * jitter_angle_deg,
-       -45 + base_angle - offset + normal3s() * jitter_angle_deg,
+         0 + top_right_angle + base_angle + normal3s() * jitter_angle_deg,
+       180 - top_right_angle + base_angle + normal3s() * jitter_angle_deg,
+      -180 + top_right_angle + base_angle + normal3s() * jitter_angle_deg,
+         0 - top_right_angle + base_angle + normal3s() * jitter_angle_deg,
     ]
 
     thetas = [math.radians(((theta + 180) % 360) - 180) for theta in thetas]
@@ -620,8 +635,10 @@ def unit_rectangle_path(
     codes = [mplPath.MOVETO] + [mplPath.LINETO] * (len(verts) - 2) + [mplPath.CLOSEPOLY]
 
     meta: dict = {
-        "angle_deg"  : base_angle,
-        "offset_deg" : offset,
+        "shape_kind"     : "rectangle",
+        "angle_deg"      : base_angle,
+        "diagonal_angle" : diagonal_angle,
+        "offset_deg"     : offset,
     }
     
     return mplPath(verts, codes), meta
@@ -715,6 +732,7 @@ def unit_triangle_path(
     codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
 
     meta = {
+        "shape_kind"      : "triangle",
         "equal_sides"     : equal_sides,
         "angle_category"  : angle_category,
         "base_angle_deg"  : base_angle,
@@ -1286,7 +1304,7 @@ def elliptical_arc(
     if not isinstance(rng._rng, np.random.Generator):
         raise TypeError(f"elliptical_arc requires np.random.Generator. Received '{type(rng._rng)}'")
 
-    # --- Stage 1: base circular arc ---------------------------------------
+    # --- Stage 1: unit circular arc ---------------------------------------
     shape, shape_meta = unit_circular_arc(
         start_deg=start_deg,
         end_deg=end_deg,
@@ -1335,6 +1353,63 @@ def elliptical_arc(
     }
 
     return shape_srt, meta
+
+
+# ---------------------------------------------------------------------------
+# Rectangle
+# ---------------------------------------------------------------------------
+def rectangle(
+        canvas_x1x2      : PointXY,
+        canvas_y1y2      : PointXY,
+        equal_sides      : int        = None,
+        base_angle       : int        = None,
+        jitter_angle_deg : int        = 5,
+        spline_count     : int        = 5,
+        amp              : float      = 0.15,
+        tightness        : float      = 0.3,
+        rng              : RNGBackend = None,
+    ) -> mplPath:
+    """Creates a random rectangle.
+
+    Composes three primitives:
+    1. unit_rectangle_rnd() - geometric primitive generation
+    2. random_srt_path()    - geometric transformation to canvas space
+    3. polyline_path()      - stylization into hand-drawn form
+    
+    This function performs *no* parameter interpretation or mutation
+    beyond connecting compatible interfaces between the components.
+    """
+    # --- Stage 1: unit triangle -------------------------------------------
+    shape, shape_meta = unit_rectangle_path(
+        equal_sides=equal_sides,
+        jitter_angle_deg=jitter_angle_deg,
+        base_angle=base_angle,
+        rng=rng,
+    )
+
+    # Transforms (random SRT) unit triangle to canvas
+    
+    shape_srt: mplPath = random_srt_path(
+        unit_shape, canvas_x1x2, canvas_y1y2, None, 0, (0, 0)
+    )
+
+    # --- Stage 2: apply SRT (scale / rotate / translate) -------------------
+    shape_srt, srt_meta = random_srt_path(
+        shape=shape,
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=None,
+        angle_deg=angle_deg,
+        origin=origin,
+        jitter_angle_deg=jitter_angle_deg,
+        rng=rng,
+    )
+
+    # Creates hand-drawn style
+
+    shape_handdrawn = polyline_path(list(shape_srt.vertices), spline_count, amp, tightness)
+    
+    return shape_handdrawn
 
 
 def demo():

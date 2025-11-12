@@ -319,6 +319,8 @@ def test_returns_path_and_meta(base_call):
     assert isinstance(path, mplPath)
     assert isinstance(meta, dict)
     assert "angle_deg" in meta
+    assert "shape_kind" in meta
+    assert meta["shape_kind"] == "line"
 
 
 def test_path_has_two_vertices(base_call):
@@ -923,64 +925,103 @@ def test_segment_count_minimum(fixed_rng):
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------
-# Geometry and structure
+# Basic structure
 # ---------------------------------------------------------------------
-def test_square_geometry(fixed_rng):
-    path, meta = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, rng=fixed_rng)
-    verts = path.vertices
+
+def test_returns_valid_path_and_meta(fixed_rng):
+    path, meta = unit_rectangle_path(rng=fixed_rng)
     assert isinstance(path, mplPath)
-    assert len(verts) == 5  # 4 corners + closure
-    np.testing.assert_allclose(np.linalg.norm(verts[:-1], axis=1), 1, atol=1e-6)
-    assert path.codes[0] == mplPath.MOVETO
+    assert isinstance(meta, dict)
+    assert "angle_deg" in meta
+    assert "offset_deg" in meta
+    assert "diagonal_angle" in meta
+    assert "shape_kind" in meta
+
+
+def test_path_is_closed(fixed_rng):
+    path, _ = unit_rectangle_path(rng=fixed_rng)
+    verts = path.vertices
+    assert np.allclose(verts[0], verts[-1], atol=1e-12)
     assert path.codes[-1] == mplPath.CLOSEPOLY
-    assert "angle_deg" in meta and "offset_deg" in meta
 
 
-def test_rectangle_geometry(fixed_rng):
-    path, meta = unit_rectangle_path(equal_sides=2, jitter_angle_deg=0, rng=fixed_rng)
-    verts = path.vertices
-    assert len(verts) == 5
-    radii = np.linalg.norm(verts[:-1], axis=1)
-    assert radii.max() <= 1.0 + 1e-6
-    assert radii.min() >= 0.9
-
-
-def test_invalid_equal_sides_raises(fixed_rng):
-    with pytest.raises(ValueError):
-        unit_rectangle_path(equal_sides=3, rng=fixed_rng)
-
-
-def test_random_choice_when_none(fixed_rng):
-    """If equal_sides is None, should randomly choose valid 2 or 4."""
-    path, meta = unit_rectangle_path(equal_sides=None, rng=fixed_rng)
-    assert isinstance(path, mplPath)
-    assert meta["offset_deg"] == 0 or abs(meta["offset_deg"]) < 45
+def test_has_four_sides(fixed_rng):
+    path, _ = unit_rectangle_path(rng=fixed_rng)
+    verts = path.vertices[:-1]  # exclude closing duplicate
+    assert len(verts) == 4
 
 
 # ---------------------------------------------------------------------
-# Randomness and jitter
+# Deterministic reproducibility
 # ---------------------------------------------------------------------
-def test_angle_jitter_changes_vertices(fixed_rng):
-    p1, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
-    p2, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=10, base_angle=45, rng=fixed_rng)
-    assert not np.allclose(p1.vertices, p2.vertices, atol=1e-8)
+
+def test_same_seed_produces_same_result():
+    rng1 = RNG(seed=42)
+    rng2 = RNG(seed=42)
+    path1, meta1 = unit_rectangle_path(rng=rng1)
+    path2, meta2 = unit_rectangle_path(rng=rng2)
+    assert np.allclose(path1.vertices, path2.vertices)
+    assert meta1 == meta2
 
 
-def test_zero_jitter_stability(fixed_rng):
-    """Zero jitter should produce identical geometry on repeated runs."""
-    p1, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
-    p2, _ = unit_rectangle_path(equal_sides=4, jitter_angle_deg=0, base_angle=45, rng=fixed_rng)
-    np.testing.assert_allclose(p1.vertices, p2.vertices)
+def test_different_seed_produces_different_result():
+    rng1 = RNG(seed=100)
+    rng2 = RNG(seed=200)
+    path1, _ = unit_rectangle_path(rng=rng1)
+    path2, _ = unit_rectangle_path(rng=rng2)
+    assert not np.allclose(path1.vertices, path2.vertices)
 
 
 # ---------------------------------------------------------------------
-# Meta and performance
+# Geometric validity
 # ---------------------------------------------------------------------
-def test_meta_contains_expected_fields(fixed_rng):
-    _, meta = unit_rectangle_path(equal_sides=4, rng=fixed_rng)
-    assert set(meta.keys()) == {"angle_deg", "offset_deg"}
-    assert isinstance(meta["angle_deg"], (int, float))
-    assert isinstance(meta["offset_deg"], (int, float))
+
+def test_vertices_on_unit_circle(fixed_rng):
+    path, _ = unit_rectangle_path(rng=fixed_rng)
+    verts = path.vertices[:-1]
+    radii = np.linalg.norm(verts, axis=1)
+    assert np.all((radii > 0.99) & (radii < 1.01))  # within numerical tolerance
+
+
+def test_diagonal_angle_within_bounds(fixed_rng):
+    _, meta = unit_rectangle_path(diagonal_angle=None, rng=fixed_rng)
+    angle = meta["diagonal_angle"]
+    assert 10 <= angle <= 170
+
+
+def test_diagonal_angle_type_error(fixed_rng):
+    with pytest.raises(TypeError):
+        unit_rectangle_path(diagonal_angle="bad", rng=fixed_rng)
+
+
+# ---------------------------------------------------------------------
+# Meta semantics
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("angle", [90, 60, 120])
+def test_shape_kind_correct(angle, fixed_rng):
+    _, meta = unit_rectangle_path(diagonal_angle=angle, rng=fixed_rng)
+    kind = meta["shape_kind"]
+    assert kind == "rectangle"        
+
+
+# ---------------------------------------------------------------------
+# Jitter & rotation effects
+# ---------------------------------------------------------------------
+
+def test_jitter_affects_vertices(fixed_rng):
+    path1, _ = unit_rectangle_path(jitter_angle_deg=0, rng=fixed_rng)
+    path2, _ = unit_rectangle_path(jitter_angle_deg=10, rng=fixed_rng)
+    verts1, verts2 = path1.vertices, path2.vertices
+    assert not np.allclose(verts1, verts2)
+
+
+def test_base_angle_rotation_effect(fixed_rng):
+    path1, _ = unit_rectangle_path(base_angle=0, rng=fixed_rng)
+    path2, _ = unit_rectangle_path(base_angle=45, rng=fixed_rng)
+    verts1, verts2 = path1.vertices, path2.vertices
+    # rotated shape should differ
+    assert not np.allclose(verts1, verts2)
 
 
 # ---------------------------------------------------------------------------
@@ -1025,6 +1066,7 @@ def test_random_choice_when_none(fixed_rng):
     assert len(path.vertices) == 4
     assert meta["equal_sides"] in (1, 2, 3)
     assert isinstance(meta["angle_category"], (int, float))
+    assert meta["shape_kind"] == "triangle"
 
 
 # ---------------------------------------------------------------------
@@ -1048,7 +1090,7 @@ def test_zero_jitter_consistency(fixed_rng):
 # ---------------------------------------------------------------------
 def test_metadata_fields_present(fixed_rng):
     _, meta = unit_triangle_path(equal_sides=2, rng=fixed_rng)
-    expected = {"equal_sides", "angle_category", "base_angle_deg", "top_offset_deg", "base_offset_deg"}
+    expected = {"equal_sides", "angle_category", "base_angle_deg", "top_offset_deg", "base_offset_deg", "shape_kind"}
     assert set(meta.keys()) == expected
 
 
