@@ -299,6 +299,9 @@ def random_srt_path(
         (new_path, meta) where:
             new_path: transformed Path
             meta: dict with scale, rotation, and translation parameters.
+
+    TODO: Overall calculations are inaccurate (pivot corrdinates are not taken
+          into account, Matplotlib's .get_extents() is inaccurate also).
     """
     # --- Type checks --------------------------------------------------------
     if not isinstance(shape, mplPath):
@@ -356,6 +359,7 @@ def random_srt_path(
     bw, bh = bbox.width, bbox.height
 
     # --- Rotated unscaled bounding dimensions (approximate) ---------------
+    # TODO: This does not take into account pivot coordinates, and so is relatively innacurate.
     bwsize = max(1e-6, abs(bw * math.cos(angle_rad)) + abs(bh * math.sin(angle_rad)))
     bhsize = max(1e-6, abs(bh * math.cos(angle_rad)) + abs(bw * math.sin(angle_rad)))
 
@@ -504,7 +508,7 @@ def unit_circular_arc(
 
     # --- Angle normalization -------------------------------------------------
     if start_deg is None or end_deg is None:
-        start_deg = uniform(0, 360 - JITTER_ANGLE_DEG * 3)
+        start_deg = rng.uniform(0, 360 - JITTER_ANGLE_DEG * 3)
         end_deg = rng.uniform(start_deg + JITTER_ANGLE_DEG, 360)
     span_deg = end_deg - start_deg
 
@@ -1306,6 +1310,57 @@ def elliptical_arc(
 
 
 # ---------------------------------------------------------------------------
+# Line Segment
+# ---------------------------------------------------------------------------
+def line_segment(
+        canvas_x1x2         : PointXY,
+        canvas_y1y2         : PointXY,
+        base_angle          : int        = None,
+        jitter_angle_deg    : int        = JITTER_ANGLE_DEG,
+        splines_per_segment : int        = 5,
+        amp                 : float      = 0.3,
+        tightness           : float      = 0.25,
+        rng                 : RNGBackend = None,
+    ) -> mplPath:
+    """Creates a random line segment."""
+
+    # --- Stage 1: unit line ------------------------------------------------
+    shape, shape_meta = unit_circle_diameter(
+            base_angle=base_angle,
+            jitter_angle_deg=jitter_angle_deg,
+            rng=rng,
+    )
+    
+    # --- Stage 2: apply hand-drawn style -----------------------------------
+    shape, spline_meta = handdrawn_polyline_path(
+        points=list(shape.vertices),
+        splines_per_segment=splines_per_segment,
+        amp=amp,
+        tightness=tightness,
+        rng=rng,
+    )
+    
+    # --- Stage 3: apply SRT (scale / rotate / translate) -------------------
+    shape, srt_meta = random_srt_path(
+        shape=shape,
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=None,
+        angle_deg=base_angle,
+        jitter_angle_deg=jitter_angle_deg,
+        rng=rng,
+    )
+
+    meta = {
+        "shape_meta"  : shape_meta,
+        "spline_meta" : spline_meta,
+        "srt_meta"    : srt_meta,
+    }
+
+    return shape, meta
+
+
+# ---------------------------------------------------------------------------
 # Rectangle
 # ---------------------------------------------------------------------------
 def rectangle(
@@ -1339,7 +1394,6 @@ def rectangle(
     )
 
     # --- Stage 2: apply hand-drawn style -----------------------------------
-
     shape, spline_meta = handdrawn_polyline_path(
         points=list(shape.vertices),
         splines_per_segment=splines_per_segment,
@@ -1370,6 +1424,8 @@ def rectangle(
 
 
 def demo():
+    rng = get_rng(thread_safe=True, use_numpy=True)
+    
     canvas_x1x2=(-10, 30)
     canvas_y1y2=(-10, 20)
         
@@ -1380,9 +1436,14 @@ def demo():
     ax.set_xlim(*canvas_x1x2)
     ax.set_ylim(*canvas_y1y2)
 
+    line_shape, meta = line_segment(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, base_angle=None, 
+    )
+    ax.add_patch(PathPatch(line_shape, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+
     arc_shape, meta = elliptical_arc(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
-        start_deg=0, end_deg=360, angle_deg=None, origin=None,
+        start_deg=None, end_deg=None, angle_deg=None, origin=(0, 0),
     )
     ax.add_patch(PathPatch(arc_shape, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
 
