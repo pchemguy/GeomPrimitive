@@ -676,29 +676,31 @@ def unit_triangle_path(
     ) -> tuple[mplPath, dict]:
     """Generates vertices of a triangle inscribed into a unit circle.
 
-    All Isosceles triangles, including the regular, are obtained by keeping the top
-    vertex at reference (0, 1), top_offset=0. top_offset > 0 yield all scalene triangles.
-    Base locked at reference (base_offset=0) yields right triangles, base below reference
-    (base_offset<0 for (0, 1)) yields accute triangles, while the opposite yields obtuse
-    triangles.
+    Reference triangle:
+        Base = [(-1, 0), (1, 0)], top = (0, 1).
+
+    Geometry overview:
+        - The top vertex is offset by +/-top_offset relative to reference (0, 1).
+        - Base vertices are symmetrically offset by +/-base_offset relative to (+/-1, 0).
+        - These offsets define all triangle classes:
+            - Isosceles : top_offset  = 0
+            - Right     : base_offset = 0
+            - Acute     : base_offset < 0
+            - Obtuse    : base_offset > 0
 
     Args:
-        equal_sides: 1, 2, or 3.
-            - 3 -> Equilateral
-            - 2 -> Isosceles
-            - 1 -> Scalene
-        angle_category: Nominal angular type (compared with 90deg):
-            <90 -> Acute
-            =90 -> Right
-            >90 -> Obtuse
-        jitter_angle_deg: Standard deviation (3sigma) of angular jitter in degrees.
-        base_angle: Optional base rotation of the figure (degrees).
-        rng: Optional RNG backend (RNG, random.Random, or np.random.Generator).
+        equal_sides: 1, 2, or 3
+            - 3 : Equilateral
+            - 2 : Isosceles
+            - 1 : Scalene
+        angle_category: Nominal angular class (compared to 90deg):
+            <90 - Acute, =90 - Right, >90 - Obtuse
+        jitter_angle_deg: 3sigma angular jitter in degrees.
+        base_angle: Optional base rotation of figure (degrees).
+        rng: Optional RNG backend (RNG, random.Random, np.random.Generator).
 
     Returns:
-        tuple:
-            mplPath: Path representing the triangle.
-            dict: Metadata including parameters and applied offsets.
+        (mplPath, dict): Triangle path and metadata.
     """
     # --- RNG setup ---------------------------------------------------------
     if rng is None:
