@@ -88,16 +88,20 @@ class RNG:
 
     """
 
-    def random(self) -> float:
+    def random(self, *a, **kw) -> float:
         with self._lock:
             if self._use_numpy:
-                return float(self._rng.random())
-            return self._rng.random()
+                return float(self._rng.random(*a, **kw))
+            return self._rng.random(*a, **kw)
 
-    def randint(self, a: int, b: int) -> int:
+    def randint(self, a: int, b: int, **kw) -> int:
         with self._lock:
             if self._use_numpy:
-                return int(self._rng.integers(a, b + 1))
+                out = self._rng.integers(a, b + 1, **kw)
+                # Convert 0-D ndarray to float for consistency
+                if np.isscalar(out) or (isinstance(out, np.ndarray) and out.shape == ()):
+                    return int(out)
+                return out
             return self._rng.randint(a, b)
 
     def randrange(self, *a, **kw) -> int:
@@ -117,23 +121,31 @@ class RNG:
                 return out
             return out
     
-    def choice(self, seq: list[Any]) -> Any:
+    def choice(self, *a, **kw) -> Any:
         with self._lock:
             if self._use_numpy:
-                return self._rng.choice(seq)
-            return self._rng.choice(seq)
+                return self._rng.choice(*a, **kw)
+            return self._rng.choice(*a, **kw)
 
-    def normal(self, mu: float = 0.0, sigma: float = 1.0) -> float:
+    def normal(self, *a, **kw) -> float:
         with self._lock:
             if self._use_numpy:
-                return float(self._rng.normal(mu, sigma))
-            return self._rng.normalvariate(mu, sigma)
+                out = self._rng.normal(*a, **kw)
+                # Convert 0-D ndarray to float for consistency
+                if isinstance(out, np.ndarray) and out.shape == ():
+                    return float(out)
+                return out
+            return self._rng.normalvariate(*a, **kw)
 
-    def normalvariate(self, mu: float = 0.0, sigma: float = 1.0) -> float:
+    def normalvariate(self, *a, **kw) -> float:
         with self._lock:
             if self._use_numpy:
-                return float(self._rng.normal(mu, sigma))
-            return self._rng.normalvariate(mu, sigma)
+                out = self._rng.normal(*a, **kw)
+                # Convert 0-D ndarray to float for consistency
+                if isinstance(out, np.ndarray) and out.shape == ():
+                    return float(out)
+                return out
+            return self._rng.normalvariate(*a, **kw)
 
     def normal3s(self) -> float:
         """Return a normally distributed random value in [-1, 1], sigma = 1/3.

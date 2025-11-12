@@ -243,31 +243,28 @@ def test_perf_benchmark(benchmark):
     assert len(result) == 1000
 
 
-# ---------------------------------------------------------------------
-# Tests: scalar behavior
-# ---------------------------------------------------------------------
+# =====================================================================
+# UNIFORM
+# =====================================================================
 def test_uniform_scalar_stdlib(std_rng):
-    """Stdlib RNG should always return a Python float."""
+    """Stdlib RNG: always returns Python float."""
     val = std_rng.uniform(0, 1)
     assert isinstance(val, float)
     assert 0 <= val <= 1
 
 
 def test_uniform_scalar_numpy(np_rng):
-    """NumPy RNG with no size argument returns a float (converted from 0-D ndarray)."""
+    """NumPy RNG: scalar call returns float (converted from 0-D ndarray)."""
     val = np_rng.uniform(0, 1)
     assert isinstance(val, float)
     assert 0 <= val <= 1
 
 
-# ---------------------------------------------------------------------
-# Tests: vectorized behavior
-# ---------------------------------------------------------------------
 def test_uniform_array_numpy(np_rng):
-    """NumPy RNG with size argument returns an ndarray of the correct shape and range."""
-    arr = np_rng.uniform(0, 1, size=(3, 2))
+    """NumPy RNG: vectorized call returns ndarray."""
+    arr = np_rng.uniform(0, 1, size=(2, 3))
     assert isinstance(arr, np.ndarray)
-    assert arr.shape == (3, 2)
+    assert arr.shape == (2, 3)
     assert np.all((arr >= 0) & (arr <= 1))
 
 
@@ -294,4 +291,82 @@ def test_uniform_array_shapes(np_rng, shape):
     arr = np_rng.uniform(-5, 5, size=shape)
     assert arr.shape == shape
     assert np.all((arr >= -5) & (arr <= 5))
+
+
+# =====================================================================
+# NORMAL
+# =====================================================================
+def test_normal_scalar_stdlib(std_rng):
+    """Stdlib RNG: returns Python float."""
+    val = std_rng.normal()
+    assert isinstance(val, float)
+    assert -5 < val < 5  # sanity bound
+
+
+def test_normal_scalar_numpy(np_rng):
+    """NumPy RNG: scalar call returns float."""
+    val = np_rng.normal()
+    assert isinstance(val, float)
+    assert -5 < val < 5
+
+
+def test_normal_array_numpy(np_rng):
+    """NumPy RNG: vectorized call returns ndarray."""
+    arr = np_rng.normal(0, 1, size=(3, 3))
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (3, 3)
+
+
+# =====================================================================
+# RANDINT
+# =====================================================================
+def test_randint_scalar_stdlib(std_rng):
+    """Stdlib RNG: returns Python int."""
+    val = std_rng.randint(0, 10)
+    assert isinstance(val, int)
+    assert 0 <= val <= 10
+
+
+def test_randint_scalar_numpy(np_rng):
+    """NumPy RNG: returns Python int (converted from numpy scalar)."""
+    val = np_rng.randint(0, 10)
+    assert isinstance(val, int)
+    assert 0 <= val <= 10
+
+
+def test_randint_array_numpy(np_rng):
+    """NumPy RNG: vectorized call."""
+    arr = np_rng.randint(0, 10, size=(4, 2))
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (4, 2)
+    assert np.all((arr >= 0) & (arr <= 10))
+
+
+# =====================================================================
+# CROSS-BACKEND REPRODUCIBILITY & PARITY
+# =====================================================================
+def test_same_seed_produces_same_results():
+    """RNG instances with identical seeds produce identical outputs."""
+    # Stdlib
+    r1, r2 = RNG(seed=123, use_numpy=False), RNG(seed=123, use_numpy=False)
+    assert r1.uniform(0, 1) == r2.uniform(0, 1)
+    assert r1.randint(0, 10) == r2.randint(0, 10)
+
+    # NumPy
+    n1, n2 = RNG(seed=123, use_numpy=True), RNG(seed=123, use_numpy=True)
+    np.testing.assert_allclose(n1.uniform(0, 1, size=4), n2.uniform(0, 1, size=4))
+    np.testing.assert_allclose(n1.normal(0, 1, size=4), n2.normal(0, 1, size=4))
+
+
+# =====================================================================
+# SHAPE CONSISTENCY & BOUNDS
+# =====================================================================
+@pytest.mark.parametrize("shape", [(1,), (2, 2), (3, 1, 2)])
+def test_uniform_and_normal_shapes(np_rng, shape):
+    """Ensure shape argument works for both uniform and normal calls."""
+    u = np_rng._rng.uniform(-2, 2, size=shape)
+    n = np_rng._rng.normal(0, 1, size=shape)
+    assert u.shape == shape
+    assert n.shape == shape
+    assert np.all((u >= -2) & (u <= 2))
 
