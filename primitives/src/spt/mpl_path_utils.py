@@ -87,6 +87,9 @@ Core API:
         original bounding box and canvas is performed isotropically (XY). y_compress
         defines additional compression of the y coordinate, turning circles, circular
         arcs, and squares into elliptical and rectangular shapes.
+
+        Note: presently this routine does not work correctly resulting in shapes going
+        partially or even fully off the canvas. See the notes in the routine's docstring.
     
     
     unit_circle_diameter(base_angle: numeric = None,
