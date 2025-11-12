@@ -494,8 +494,8 @@ def unit_circular_arc(
 
     # Angle normalization -----------------------------------------------------
     if start_deg is None or end_deg is None:
-        start_deg = uniform(0, 270)
-        end_deg = rng.uniform(start_deg + 5, 360)
+        start_deg = uniform(0, 360 - JITTER_ANGLE_DEG * 3)
+        end_deg = rng.uniform(start_deg + JITTER_ANGLE_DEG, 360)
     span_deg = end_deg - start_deg
 
     if span_deg < 1 or span_deg > 359:
@@ -506,18 +506,18 @@ def unit_circular_arc(
 
     # Segmentation ------------------------------------------------------------
     theta_steps = int(max(min_angle_steps, round(span_deg / max_angle_step_deg)))
-    start, end = np.radians(start_deg), np.radians(end_deg)
+    start, end = math.radians(start_deg), math.radians(end_deg)
     span = end - start
     step_theta = span / theta_steps
-    t = 4.0 / 3.0 * np.tan(step_theta / 4.0)
+    t = 4.0 / 3.0 * math.tan(step_theta / 4.0)
 
     # Build control vertices --------------------------------------------------
     verts: list[PointXY] = []
     theta_beg = start
     for i in range(theta_steps):
         theta_end = theta_beg + step_theta
-        cos_b, sin_b = np.cos(theta_beg), np.sin(theta_beg)
-        cos_e, sin_e = np.cos(theta_end), np.sin(theta_end)
+        cos_b, sin_b = math.cos(theta_beg), math.sin(theta_beg)
+        cos_e, sin_e = math.cos(theta_end), math.sin(theta_end)
 
         P0 = (cos_b, sin_b)
         P1 = (cos_b - t * sin_b, sin_b + t * cos_b)
@@ -545,7 +545,13 @@ def unit_circular_arc(
     if jitter_amp:
         verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
 
-    return mplPath(verts, codes)
+    path = mplPath(verts, codes)
+
+    meta: dict = {
+        "start_deg": angle_deg,
+        "end_deg"  : end_deg,
+    }
+    return path, meta
 
 
 # ---------------------------------------------------------------------------
@@ -1272,7 +1278,7 @@ def elliptical_arc(
         rng = get_rng(thread_safe=True)
 
     # --- Stage 1: base circular arc ---------------------------------------
-    shape, arc_meta = unit_circular_arc(
+    shape, shape_meta = unit_circular_arc(
         start_deg=start_deg,
         end_deg=end_deg,
         jitter_amp=jitter_amp,
@@ -1295,6 +1301,22 @@ def elliptical_arc(
     )
 
     # --- Merge metadata ----------------------------------------------------
+    """
+    meta: dict = {
+        "shape_kind": "circle",
+        "shape_meta": {
+        },
+        "srt_meta": {
+            "scale_x": srt_meta["scale_x"],
+            "scale_y": srt_meta["scale_y"],
+            "rot_x"  : srt_meta["rot_x"],
+            "rot_y"  : srt_meta["rot_y"],
+            "rot_deg": srt_meta["rot_deg"],
+            "trans_x": srt_meta["trans_x"],
+            "trans_y": srt_meta["trans_y"],
+        }
+    }
+    """
     meta = {
         "start_deg": arc_meta.get("start_deg", start_deg),
         "end_deg": arc_meta.get("end_deg", end_deg),
@@ -1307,3 +1329,10 @@ def elliptical_arc(
     }
 
     return shape_srt, meta
+
+
+
+
+
+
+    srt_meta
