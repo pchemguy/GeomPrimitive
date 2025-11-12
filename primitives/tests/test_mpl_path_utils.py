@@ -518,7 +518,7 @@ def base_points():
 # ---------------------------------------------------------------------------
 def test_returns_path_instance(base_points, fixed_rng):
     """Function must return a valid Matplotlib Path."""
-    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    path, meta = handdrawn_polyline_path(base_points, rng=fixed_rng)
     assert isinstance(path, mplPath)
     assert len(path.vertices) == 46
     assert path.codes is not None
@@ -558,7 +558,7 @@ def test_invalid_splines_count(base_points):
 # ---------------------------------------------------------------------------
 def test_path_start_and_end_match_original(base_points, fixed_rng):
     """The resulting path should start and end at the original endpoints."""
-    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    path, _ = handdrawn_polyline_path(base_points, rng=fixed_rng)
     start, end = base_points[0], base_points[-1]
     np.testing.assert_allclose(path.vertices[0], start, atol=1e-8)
     np.testing.assert_allclose(path.vertices[-1], end, atol=1e-8)
@@ -567,22 +567,22 @@ def test_path_start_and_end_match_original(base_points, fixed_rng):
 def test_closed_polyline_roundtrip(fixed_rng):
     """Closed polyline should have CLOSEPOLY code at the end."""
     square = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
-    path = handdrawn_polyline_path(square, rng=fixed_rng)
+    path, _ = handdrawn_polyline_path(square, rng=fixed_rng)
     assert path.codes[-1] == mplPath.CLOSEPOLY
     np.testing.assert_allclose(path.vertices[-1], square[0], atol=1e-8)
 
 
 def test_path_contains_valid_curves(base_points, fixed_rng):
     """Path must include cubic Bezier segments."""
-    path = handdrawn_polyline_path(base_points, rng=fixed_rng)
+    path, _ = handdrawn_polyline_path(base_points, rng=fixed_rng)
     assert mplPath.CURVE4 in path.codes
     assert path.codes[0] == mplPath.MOVETO
 
 
 def test_jitter_introduces_variation(base_points):
     """Repeated calls should produce different geometries."""
-    path1 = handdrawn_polyline_path(base_points)
-    path2 = handdrawn_polyline_path(base_points)
+    path1, _ = handdrawn_polyline_path(base_points)
+    path2, _ = handdrawn_polyline_path(base_points)
     assert not np.allclose(path1.vertices, path2.vertices)
 
 
@@ -592,7 +592,7 @@ def test_jitter_introduces_variation(base_points):
 def test_vertices_remain_within_expected_bounds(base_points, fixed_rng):
     """All vertices should stay within a reasonable bounding box around input points."""
     amp = 0.2
-    path = handdrawn_polyline_path(base_points, amp=amp, rng=fixed_rng)
+    path, _ = handdrawn_polyline_path(base_points, amp=amp, rng=fixed_rng)
     verts = np.array(path.vertices)
     xs, ys = zip(*base_points)
 
@@ -609,7 +609,7 @@ def test_vertices_remain_within_expected_bounds(base_points, fixed_rng):
 
 def test_vertex_to_vertex_distance_continuity(base_points, fixed_rng):
     """Adjacent vertices must not jump more than 2x average step length."""
-    path = handdrawn_polyline_path(base_points, amp=0.3, rng=fixed_rng)
+    path, _ = handdrawn_polyline_path(base_points, amp=0.3, rng=fixed_rng)
     verts = np.array(path.vertices)
     diffs = np.linalg.norm(np.diff(verts, axis=0), axis=1)
     avg_step = np.mean(diffs)
@@ -625,8 +625,8 @@ def test_different_seed_produces_different_results(base_points, fixed_rng):
     rng2 = get_rng(thread_safe=True)
     rng1.seed(101)
     rng2.seed(202)
-    path1 = handdrawn_polyline_path(base_points, rng=rng1)
-    path2 = handdrawn_polyline_path(base_points, rng=rng2)
+    path1, _ = handdrawn_polyline_path(base_points, rng=rng1)
+    path2, _ = handdrawn_polyline_path(base_points, rng=rng2)
     assert not np.allclose(path1.vertices, path2.vertices)
 
 
@@ -638,7 +638,7 @@ def test_runtime_under_threshold(base_points, benchmark):
     """Performance check to ensure efficient execution."""
     def run():
         return handdrawn_polyline_path(base_points)
-    path = benchmark(run)
+    path, _ = benchmark(run)
     assert isinstance(path, mplPath)
     assert len(path.vertices) > 4
 

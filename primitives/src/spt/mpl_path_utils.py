@@ -860,7 +860,10 @@ def handdrawn_polyline_path(
 
     # --- Core setup --------------------------------------------------------
     P1, Pn = points[0], points[-1]
-    closed = math.hypot(Pn[0] - P1[0], Pn[1] - P1[1]) < 1e-6
+    closed = (
+        (np.isnan(Pn[0]) and np.isnan(Pn[1])) or
+        math.hypot(Pn[0] - P1[0], Pn[1] - P1[1]) < 1e-6
+    )
 
     verts: list[PointXY] = [points[0]]
 
@@ -897,7 +900,11 @@ def handdrawn_polyline_path(
         codes.append(mplPath.CLOSEPOLY)
         verts.append(points[0])
 
-    return mplPath(verts, codes)
+    meta: dict = {
+        "operation" : "spline",
+    }
+
+    return mplPath(verts, codes), meta
 
 
 # ---------------------------------------------------------------------------
@@ -1316,7 +1323,7 @@ def elliptical_arc(
     )
 
     # --- Stage 2: apply SRT (scale / rotate / translate) -------------------
-    shape_srt, srt_meta = random_srt_path(
+    shape, srt_meta = random_srt_path(
         shape=shape,
         canvas_x1x2=canvas_x1x2,
         canvas_y1y2=canvas_y1y2,
@@ -1330,10 +1337,10 @@ def elliptical_arc(
     # --- Merge metadata ----------------------------------------------------
     """
     meta: dict = {
-        "shape_kind": "circle",
         "shape_meta": {
-            "start_deg": start_deg,
-            "end_deg"  : end_deg,
+            "shape_kind": "circle",
+            "start_deg" : start_deg,
+            "end_deg"   : end_deg,
         },
         "srt_meta": {
             "scale_x": srt_meta["scale_x"],
@@ -1347,27 +1354,27 @@ def elliptical_arc(
     }
     """
     meta = {
-        "method_kind" : "circle",
         "shape_meta"  : shape_meta,
         "srt_meta"    : srt_meta,
     }
 
-    return shape_srt, meta
+    return shape, meta
 
 
 # ---------------------------------------------------------------------------
 # Rectangle
 # ---------------------------------------------------------------------------
 def rectangle(
-        canvas_x1x2      : PointXY,
-        canvas_y1y2      : PointXY,
-        equal_sides      : int        = None,
-        base_angle       : int        = None,
-        jitter_angle_deg : int        = 5,
-        spline_count     : int        = 5,
-        amp              : float      = 0.15,
-        tightness        : float      = 0.3,
-        rng              : RNGBackend = None,
+        canvas_x1x2         : PointXY,
+        canvas_y1y2         : PointXY,
+        diagonal_angle      : numeric    = None,
+        base_angle          : int        = None,
+        origin              : PointXY    = None,
+        jitter_angle_deg    : int        = 5,
+        splines_per_segment : int        = 5,
+        amp                 : float      = 0.15,
+        tightness           : float      = 0.3,
+        rng                 : RNGBackend = None,
     ) -> mplPath:
     """Creates a random rectangle.
 
@@ -1379,37 +1386,43 @@ def rectangle(
     This function performs *no* parameter interpretation or mutation
     beyond connecting compatible interfaces between the components.
     """
-    # --- Stage 1: unit triangle -------------------------------------------
+    # --- Stage 1: unit rectangle ------------------------------------------
     shape, shape_meta = unit_rectangle_path(
-        equal_sides=equal_sides,
+        diagonal_angle=diagonal_angle,
         jitter_angle_deg=jitter_angle_deg,
         base_angle=base_angle,
         rng=rng,
     )
 
-    # Transforms (random SRT) unit triangle to canvas
-    
-    shape_srt: mplPath = random_srt_path(
-        unit_shape, canvas_x1x2, canvas_y1y2, None, 0, (0, 0)
-    )
+    # --- Stage 2: apply hand-drawn style -----------------------------------
 
-    # --- Stage 2: apply SRT (scale / rotate / translate) -------------------
-    shape_srt, srt_meta = random_srt_path(
+    shape, spline_meta = handdrawn_polyline_path(
+        points=list(shape.vertices),
+        splines_per_segment=splines_per_segment,
+        amp=amp,
+        tightness=tightness,
+        rng=rng,
+    )
+    
+    # --- Stage 3: apply SRT (scale / rotate / translate) -------------------
+    shape, srt_meta = random_srt_path(
         shape=shape,
         canvas_x1x2=canvas_x1x2,
         canvas_y1y2=canvas_y1y2,
-        y_compress=None,
-        angle_deg=angle_deg,
+        y_compress=1,
+        angle_deg=base_angle,
         origin=origin,
         jitter_angle_deg=jitter_angle_deg,
         rng=rng,
     )
 
-    # Creates hand-drawn style
+    meta = {
+        "shape_meta"  : shape_meta,
+        "spline_meta" : spline_meta,
+        "srt_meta"    : srt_meta,
+    }
 
-    shape_handdrawn = polyline_path(list(shape_srt.vertices), spline_count, amp, tightness)
-    
-    return shape_handdrawn
+    return shape, meta
 
 
 def demo():
@@ -1423,12 +1436,16 @@ def demo():
     ax.set_xlim(*canvas_x1x2)
     ax.set_ylim(*canvas_y1y2)
 
-    arc, meta = elliptical_arc(
+    arc_shape, meta = elliptical_arc(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
-        start_deg=0, end_deg=360, angle_deg=None
+        start_deg=0, end_deg=360, angle_deg=None, origin=None,
     )
-    ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+    ax.add_patch(PathPatch(arc_shape, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
 
+    rect_shape, meta = rectangle(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, diagonal_angle=None, base_angle=None, origin=None,
+    )
+    ax.add_patch(PathPatch(rect_shape, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
     
     """
     segment = line_path(
@@ -1444,10 +1461,6 @@ def demo():
     )
     ax.add_patch(PathPatch(triangle, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
 
-    rectangle = rectangle_path(
-        canvas_x1x2, canvas_y1y2, equal_sides = None, base_angle = None
-    )
-    ax.add_patch(PathPatch(rectangle, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
 
     x = np.linspace(-1, 1, 10)
     y = np.sin(np.pi * x)
