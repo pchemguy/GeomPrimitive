@@ -72,12 +72,16 @@ class GridJitterConfig:
     drop_fraction_sigma:       float = 0.05
 
 
-def generate_grid_collections(bbox: BBox,
-                              alpha_deg: float, theta_deg: float,
-                              x_major: float, x_minor: float,
-                              y_major: float, y_minor: float,
-                              jitter: GridJitterConfig = None,
-                              rng: RNGBackend = None,
+def generate_grid_collections(
+        bbox      : BBox,
+        alpha_deg : float,
+        theta_deg : float,
+        x_major   : float,
+        x_minor   : float,
+        y_major   : float,
+        y_minor   : float,
+        jitter    : GridJitterConfig = None,
+        rng       : RNGBackend       = None,
     ) -> tuple[LineCollection, LineCollection, LineCollection, LineCollection]:
     """Generate 4 LineCollections for an oblique, optionally jittered grid.
 

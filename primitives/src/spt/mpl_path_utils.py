@@ -148,9 +148,9 @@ Core API:
         Creates a single Bezier segment approximation of an acute circular arc.
     
     
-    ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
-                        start_angle: float = 0.0, end_angle: float = 360.0,
-                        angle_offset: float = 0.0, close: bool = False) -> mplPath:
+    basic_ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
+                              start_angle: float = 0.0, end_angle: float = 360.0,
+                              angle_offset: float = 0.0, close: bool = False) -> mplPath:
 
         This routine creates basic primitives using Matplotlib Circle, Ellipse, and Arc
         patches. For these patches, Matplotlib internally creates an associated path
@@ -206,7 +206,10 @@ JITTER_ANGLE_DEG = 5
 # ---------------------------------------------------------------------------
 # Path joining utility
 # ---------------------------------------------------------------------------
-def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
+def join_paths(
+        paths           : list[mplPath],
+        preserve_moveto : bool           = False,
+    ) -> mplPath:
     """Join multiple Matplotlib ``Path`` objects into a single composite path.
     
     Args:
@@ -247,14 +250,15 @@ def join_paths(paths: list[mplPath], preserve_moveto: bool = False) -> mplPath:
 # ---------------------------------------------------------------------------
 # Applies random SRT transform to Path.
 # ---------------------------------------------------------------------------
-def random_srt_path(shape: mplPath,
-                    canvas_x1x2: PointXY,
-                    canvas_y1y2: PointXY,
-                    y_compress: float = None,
-                    angle_deg: numeric = None,
-                    origin: PointXY = None,
-                    rng: RNGBackend = None,
-                   ) -> tuple[mplPath, dict]:
+def random_srt_path(
+        shape       : mplPath,
+        canvas_x1x2 : PointXY,
+        canvas_y1y2 : PointXY,
+        y_compress  : float      = None,
+        angle_deg   : numeric    = None,
+        origin      : PointXY    = None,
+        rng         : RNGBackend = None,
+    ) -> tuple[mplPath, dict]:
     """Apply a random Scale-Rotate-Translate (SRT) transform to a Path so it fits
     inside a given canvas box with some jitter.
 
@@ -380,8 +384,8 @@ def random_srt_path(shape: mplPath,
     meta: dict = {
         "scale_x": float(sfx),
         "scale_y": float(sfy),
-        "rot_x":   float(origin[0]),
-        "rot_y":   float(origin[1]),
+        "rot_x"  : float(origin[0]),
+        "rot_y"  : float(origin[1]),
         "rot_deg": float(angle_deg),
         "trans_x": float(tx),
         "trans_y": float(ty),
@@ -393,9 +397,11 @@ def random_srt_path(shape: mplPath,
 # ---------------------------------------------------------------------------
 # Random unit circle diameter (straight line segment)
 # ---------------------------------------------------------------------------
-def unit_circle_diameter(base_angle: numeric = None,
-                         jitter_angle_deg: int = JITTER_ANGLE_DEG,
-                         rng: RNGBackend = None) -> tuple[mplPath, dict]:
+def unit_circle_diameter(
+            base_angle       : numeric    = None,
+            jitter_angle_deg : int        = JITTER_ANGLE_DEG,
+            rng              : RNGBackend = None,
+        ) -> tuple[mplPath, dict]:
     """Generates a diameter (straight line) within a unit circle.
 
     The line passes through the circle center (0, 0) and connects opposite
@@ -453,10 +459,15 @@ def unit_circle_diameter(base_angle: numeric = None,
 # ---------------------------------------------------------------------------
 # Random unit circular arc
 # ---------------------------------------------------------------------------
-def unit_circular_arc(start_deg: float = 0.0, end_deg: float = 90.0,
-                      jitter_amp: float = 0.02, jitter_y: float = 0.1,
-                      max_angle_step_deg: float = 20.0, min_angle_steps: int = 3,
-                      rng: RNGBackend = None) -> mplPath:
+def unit_circular_arc(
+        start_deg          : float      = 0.0,
+        end_deg            : float      = 90.0,
+        jitter_amp         : float      = 0.02,
+        jitter_y           : float      = 0.1,
+        max_angle_step_deg : float      = 20.0,
+        min_angle_steps    : int        = 3,
+        rng                : RNGBackend = None,
+    ) -> mplPath:
     """Generate a unit circular arc as a multi-segment cubic Bezier path.
     
     Each sub-arc spans <= `max_angle_step_deg` (default 20deg) and uses the analytic
@@ -540,8 +551,12 @@ def unit_circular_arc(start_deg: float = 0.0, end_deg: float = 90.0,
 # ---------------------------------------------------------------------------
 # Random unit rectangle
 # ---------------------------------------------------------------------------
-def unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
-                        base_angle: int = None, rng: RNGBackend = None) -> mplPath:
+def unit_rectangle_path(
+        equal_sides      : int        = None,
+        jitter_angle_deg : int        = 5,
+        base_angle       : int        = None,
+        rng              : RNGBackend = None,
+    ) -> mplPath:
     """Generates a rectangle or square inscribed in a unit circle.
 
     Args:
@@ -595,8 +610,8 @@ def unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
     codes = [mplPath.MOVETO] + [mplPath.LINETO] * (len(verts) - 2) + [mplPath.CLOSEPOLY]
 
     meta: dict = {
-        "angle_deg": base_angle,
-        "offset_deg": offset,
+        "angle_deg"  : base_angle,
+        "offset_deg" : offset,
     }
     
     return mplPath(verts, codes), meta
@@ -605,9 +620,13 @@ def unit_rectangle_path(equal_sides: int = None, jitter_angle_deg: int = 5,
 # ---------------------------------------------------------------------------
 # Random unit triangle
 # ---------------------------------------------------------------------------
-def unit_triangle_path(equal_sides: int = None, angle_category: int = None,
-                       jitter_angle_deg: int = 5, base_angle: int = None,
-                       rng: RNGBackend = None) -> tuple[mplPath, dict]:
+def unit_triangle_path(
+        equal_sides      : int        = None,
+        angle_category   : int        = None,
+        jitter_angle_deg : int        = 5,
+        base_angle       : int        = None,
+        rng              : RNGBackend = None,
+    ) -> tuple[mplPath, dict]:
     """Generates vertices of a triangle inscribed into a unit circle.
 
     Args:
@@ -686,11 +705,11 @@ def unit_triangle_path(equal_sides: int = None, angle_category: int = None,
     codes = [mplPath.MOVETO, mplPath.LINETO, mplPath.LINETO, mplPath.CLOSEPOLY]
 
     meta = {
-        "equal_sides":     equal_sides,
-        "angle_category":  angle_category,
-        "base_angle_deg":  base_angle,
-        "top_offset_deg":  top_offset,
-        "base_offset_deg": base_offset,
+        "equal_sides"     : equal_sides,
+        "angle_category"  : angle_category,
+        "base_angle_deg"  : base_angle,
+        "top_offset_deg"  : top_offset,
+        "base_offset_deg" : base_offset,
     }
 
     return mplPath(verts, codes), meta
@@ -699,9 +718,13 @@ def unit_triangle_path(equal_sides: int = None, angle_category: int = None,
 # ---------------------------------------------------------------------------
 # Random cubic spline segment (hand-drawn imitation)
 # ---------------------------------------------------------------------------
-def random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
-                                tightness: float = 0.3, rng: RNGBackend = None
-                               ) -> mplPath:
+def random_cubic_spline_segment(
+        start     : PointXY,
+        end       : PointXY,
+        amp       : float      = 0.15,
+        tightness : float      = 0.3,
+        rng       : RNGBackend = None,
+    ) -> mplPath:
     """Generate a cubic spline Path segment imitating a hand-drawn line.
 
     The function creates a 4-point cubic Bezier curve between two points
@@ -754,9 +777,13 @@ def random_cubic_spline_segment(start: PointXY, end: PointXY, amp: float = 0.15,
 # ---------------------------------------------------------------------------
 # Hand-drawn polyline using chained cubic splines
 # ---------------------------------------------------------------------------
-def handdrawn_polyline_path(points: list[PointXY], splines_per_segment: int = 5,
-                            amp: float = 0.15, tightness: float = 0.3,
-                            rng: RNGBackend = None) -> mplPath:
+def handdrawn_polyline_path(
+        points              : list[PointXY],
+        splines_per_segment : int            = 5,
+        amp                 : float          = 0.15,
+        tightness           : float          = 0.3,
+        rng                 : RNGBackend     = None,
+    ) -> mplPath:
     """Generate a hand-drawn style polyline represented as a cubic Bezier chain.
 
     Each straight segment between consecutive points is subdivided into multiple
@@ -914,8 +941,13 @@ def demo_handdrawn_polyline_path(base_points: list[PointXY] = None,
 # ---------------------------------------------------------------------------
 # Construct a Matplotlib Path composed of cubic Bezier segments with C1 continuity.
 # ---------------------------------------------------------------------------
-def bezier_from_xy_dy(x: NDarray, y: NDarray, dy: NDarray = None, tension: float = 0.0,
-                      endpoint_style: str = "default") -> mplPath:
+def bezier_from_xy_dy(
+        x              : NDarray,
+        y              : NDarray,
+        dy             : NDarray  = None,
+        tension        : float    = 0.0,
+        endpoint_style : str      = "default",
+    ) -> mplPath:
     """
     Construct a Matplotlib Path composed of cubic Bezier segments with C1 continuity.
     
@@ -1004,7 +1036,10 @@ def bezier_from_xy_dy(x: NDarray, y: NDarray, dy: NDarray = None, tension: float
 # ---------------------------------------------------------------------------
 # Single segment Bezier approximation for an acute unit circular arc
 # ---------------------------------------------------------------------------
-def unit_circular_arc_segment(start_deg: float = 0.0, end_deg: float = 90.0) -> mplPath:
+def unit_circular_arc_segment(
+        start_deg : float = 0.0,
+        end_deg   : float = 90.0
+    ) -> mplPath:
     """ Construct a cubic Bezier Path approximating a circular arc between two angles.
 
     The arc lies on the unit circle centered at (0, 0) and spans from `start_deg`
@@ -1061,9 +1096,16 @@ def unit_circular_arc_segment(start_deg: float = 0.0, end_deg: float = 90.0) -> 
 # ---------------------------------------------------------------------------
 # Basic Ellipse / Arc path generator
 # ---------------------------------------------------------------------------
-def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
-                        start_angle: float = 0.0, end_angle: float = 360.0,
-                        angle_offset: float = 0.0, close: bool = False) -> mplPath:
+def basic_ellipse_or_arc_path(
+        x0           : float,
+        y0           : float,
+        r            : float,
+        y_compress   : float = 1.0,
+        start_angle  : float = 0.0,
+        end_angle    : float = 360.0,
+        angle_offset : float = 0.0,
+        close        : bool  = False
+    ) -> mplPath:
     """Create a basic Matplotlib Path representing a circle, ellipse, or elliptical arc.
   
     Supports anisotropic vertical scaling via ``y_compress`` and rotation via
@@ -1122,3 +1164,146 @@ def ellipse_or_arc_path(x0: float, y0: float, r: float, y_compress: float = 1.0,
 
     return mplPath(verts_closed, codes_closed)
 
+
+def elliptical_arc(
+        canvas_x1x2        : CoordRange = (0, 1023),
+        canvas_y1y2        : CoordRange = (0, 1023),
+        start_deg          : float      = None,
+        end_deg            : float      = None,
+        y_compress         : float      = None,
+        angle_deg          : int        = None,
+        origin             : PointXY    = None,
+        jitter_angle_deg   : int        = 5,
+        jitter_amp         : float      = 0.02,
+        jitter_y           : float      = 0.1,
+        max_angle_step_deg : int        = 20,
+        min_angle_steps    : int        = 3,
+        rng                : RNGBackend = None,
+    ) -> mplPath:    
+    """ Creates a generalized elliptical arc or an ellipse.
+
+    The code first creates a unit circular arc using piecewise cubic Bezier
+    curves provided by Matplotlib. In principle, a 90 deg arc can be approximated
+    by a single cubic curve very well. However, to imitate hand drawing, smaller
+    steps are used, set at the default value of 20 deg `max_angle_step_deg`.
+
+    For smaller arcs, the smallest number of sections is set to 3 (`min_angle_steps`).
+
+    Once the unit arc or a full circle is created, Jitter is applied to individual
+    points (magnitude controlled by `jitter_amp`), as well as to aspect ratio
+    (`jitter_y` controls scaling of the y coordinates only. The latter is only
+    useful for creating non-ideal circular arcs, as elliptical transform will absorb
+    this factor.
+
+    The circular arc is scaled to yield an ellipse, rotated (with angle jitter), and
+    translated to yield the final generalized elliptical arc with jitter.
+    """
+    # Create a unit circular arc using piecewise cubic Bezier curves.
+    #
+    shape: mplPath = unit_circular_arc(
+        start_deg,
+        end_deg,
+        jitter_amp,
+        jitter_y,
+        max_angle_step_deg,
+        min_angle_steps,
+        rng,
+    )
+    
+    shape_srt: mplPath = random_srt_path(
+        shape,
+        canvas_x1x2,
+        canvas_y1y2,
+        y_compress,
+        angle_deg,
+        origin,
+        rng,
+    )
+
+    return arc_path
+
+
+
+def elliptical_arc(
+        canvas_x1x2        : CoordRange = (0, 1023),
+        canvas_y1y2        : CoordRange = (0, 1023),
+        start_deg          : float      = None,
+        end_deg            : float      = None,
+        y_compress         : float      = None,
+        angle_deg          : int        = None,
+        origin             : PointXY    = None,
+        jitter_angle_deg   : int        = 5,
+        jitter_amp         : float      = 0.02,
+        jitter_y           : float      = 0.1,
+        max_angle_step_deg : int        = 20,
+        min_angle_steps    : int        = 3,
+        rng                : RNGBackend = None,
+    ) -> tuple[mplPath, dict]:
+    """Creates a generalized elliptical arc or ellipse.
+
+    The function first generates a unit circular arc using piecewise cubic
+    Bezier curves. It then applies multi-stage transformations:
+
+      1. Jittered arc generation (minor spatial & angular irregularities)
+      2. Elliptical scaling (via y_compress)
+      3. Random rotation and translation (via random_srt_path)
+
+    Args:
+        canvas_x1x2: Horizontal bounding range (pixels).
+        canvas_y1y2: Vertical bounding range (pixels).
+        start_deg, end_deg: Arc angles in degrees. Defaults to random values.
+        y_compress: Optional y-axis compression (<1.0 -> ellipse).
+        angle_deg: Optional global rotation angle.
+        origin: Optional translation origin.
+        jitter_angle_deg: Angular jitter magnitude (3sigma).
+        jitter_amp: Additive positional jitter magnitude.
+        jitter_y: Multiplicative jitter applied to y-axis only.
+        max_angle_step_deg: Max angular span per cubic Bezier segment.
+        min_angle_steps: Minimum number of Bezier segments.
+        rng: Optional random number generator backend.
+
+    Returns:
+        tuple:
+            mplPath: Final elliptical arc path.
+            dict: Metadata with applied parameters and transformations.
+    """
+    # --- RNG setup ---------------------------------------------------------
+    if rng is None:
+        rng = get_rng(thread_safe=True)
+
+    # --- Stage 1: base circular arc ---------------------------------------
+    shape, arc_meta = unit_circular_arc(
+        start_deg=start_deg,
+        end_deg=end_deg,
+        jitter_amp=jitter_amp,
+        jitter_y=jitter_y,
+        max_angle_step_deg=max_angle_step_deg,
+        min_angle_steps=min_angle_steps,
+        rng=rng,
+    )
+
+    # --- Stage 2: apply SRT (scale / rotate / translate) -------------------
+    shape_srt, srt_meta = random_srt_path(
+        shape=shape,
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=y_compress,
+        angle_deg=angle_deg,
+        origin=origin,
+        jitter_angle_deg=jitter_angle_deg,
+        rng=rng,
+    )
+
+    # --- Merge metadata ----------------------------------------------------
+    meta = {
+        "start_deg": arc_meta.get("start_deg", start_deg),
+        "end_deg": arc_meta.get("end_deg", end_deg),
+        "span_deg": (arc_meta.get("end_deg", 0) or end_deg or 0)
+        - (arc_meta.get("start_deg", 0) or start_deg or 0),
+        "y_compress": srt_meta.get("y_compress", y_compress),
+        "angle_deg": srt_meta.get("angle_deg", angle_deg),
+        "origin": srt_meta.get("origin", origin),
+        "rng_seed": getattr(rng, "seed", None),
+    }
+
+    return shape_srt, meta

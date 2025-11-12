@@ -12,7 +12,7 @@ from matplotlib.path import Path as mplPath
 from matplotlib.patches import Circle, Ellipse, Arc
 
 from spt.mpl_path_utils import (
-    join_paths, random_srt_path, unit_circle_diameter, ellipse_or_arc_path,
+    join_paths, random_srt_path, unit_circle_diameter, basic_ellipse_or_arc_path,
     random_cubic_spline_segment, handdrawn_polyline_path, bezier_from_xy_dy,
     unit_circular_arc_segment, unit_circular_arc, unit_rectangle_path,
     unit_triangle_path,
@@ -35,25 +35,25 @@ def unit_circle_path():
 @pytest.fixture
 def basic_circle_path():
     """Full circle (should match Circle geometry)."""
-    return ellipse_or_arc_path(0, 0, 1.0)
+    return basic_ellipse_or_arc_path(0, 0, 1.0)
 
 
 @pytest.fixture
 def basic_ellipse_path():
     """Full ellipse with y_compress < 1."""
-    return ellipse_or_arc_path(0, 0, 1.0, y_compress=0.6)
+    return basic_ellipse_or_arc_path(0, 0, 1.0, y_compress=0.6)
 
 
 @pytest.fixture
 def arc_path():
     """Open arc (quarter-circle)."""
-    return ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
+    return basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
 
 
 @pytest.fixture
 def closed_arc_path():
     """Closed pie-slice arc."""
-    return ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90, close=True)
+    return basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90, close=True)
 
 
 @pytest.fixture(scope="module")
@@ -70,7 +70,7 @@ def base_call(fixed_rng):
     return path, meta
 
 # ---------------------------------------------------------------------------
-# Tests for ellipse_or_arc_path
+# Tests for basic_ellipse_or_arc_path
 # ---------------------------------------------------------------------------
 
 def test_circle_equivalence_to_patch(basic_circle_path):
@@ -106,7 +106,7 @@ def test_closed_arc_adds_center_vertex(closed_arc_path):
 @pytest.mark.parametrize("angle_offset", [0.0, 30.0, 90.0])
 def test_angle_offset_rotates_major_axis(angle_offset):
     """Rotation should affect vertex bounding box orientation."""
-    path1 = ellipse_or_arc_path(0, 0, 1.0, y_compress=0.5, angle_offset=angle_offset)
+    path1 = basic_ellipse_or_arc_path(0, 0, 1.0, y_compress=0.5, angle_offset=angle_offset)
     verts = path1.vertices
     x_span = np.ptp(verts[:, 0])
     y_span = np.ptp(verts[:, 1])
@@ -121,8 +121,8 @@ def test_angle_offset_rotates_major_axis(angle_offset):
 
 def test_span_less_than_360_yields_partial_arc():
     """Span < 360deg should produce open arc with fewer vertices than full ellipse."""
-    full = ellipse_or_arc_path(0, 0, 1.0)
-    partial = ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=180)
+    full = basic_ellipse_or_arc_path(0, 0, 1.0)
+    partial = basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=180)
     assert len(partial.vertices) < len(full.vertices)
 
 
@@ -140,8 +140,8 @@ def test_invalid_arguments_raise():
 
 def test_join_paths_continuous_merge():
     """When preserve_moveto=False, the joined path omits duplicate MOVETO commands."""
-    c1 = ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
-    c2 = ellipse_or_arc_path(0, 0, 1.0, start_angle=90, end_angle=180)
+    c1 = basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
+    c2 = basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=90, end_angle=180)
     joined = join_paths([c1, c2], preserve_moveto=False)
     # First vertex of second path should be skipped
     assert not np.allclose(joined.vertices[len(c1.vertices)], c2.vertices[0])
@@ -149,8 +149,8 @@ def test_join_paths_continuous_merge():
 
 def test_join_paths_preserves_disjoint():
     """When preserve_moveto=True, subpaths remain separate."""
-    c1 = ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
-    c2 = ellipse_or_arc_path(1, 0, 1.0, start_angle=90, end_angle=180)
+    c1 = basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
+    c2 = basic_ellipse_or_arc_path(1, 0, 1.0, start_angle=90, end_angle=180)
     joined = join_paths([c1, c2], preserve_moveto=True)
     # Total vertex count = sum of both
     assert len(joined.vertices) == len(c1.vertices) + len(c2.vertices)
@@ -158,8 +158,8 @@ def test_join_paths_preserves_disjoint():
 
 def test_join_paths_result_is_valid():
     """Resulting joined path must contain valid vertices and codes arrays."""
-    c1 = ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
-    c2 = ellipse_or_arc_path(1, 0, 1.0, start_angle=90, end_angle=180)
+    c1 = basic_ellipse_or_arc_path(0, 0, 1.0, start_angle=0, end_angle=90)
+    c2 = basic_ellipse_or_arc_path(1, 0, 1.0, start_angle=90, end_angle=180)
     joined = join_paths([c1, c2])
     assert joined.vertices.shape[1] == 2
     assert len(joined.codes) == len(joined.vertices)
@@ -168,7 +168,7 @@ def test_join_paths_result_is_valid():
 
 @pytest.mark.benchmark
 def test_perf_benchmark(benchmark):
-    result = benchmark(lambda: ellipse_or_arc_path(0, 0, 1.0, y_compress=0.7, start_angle=0, end_angle=270))
+    result = benchmark(lambda: basic_ellipse_or_arc_path(0, 0, 1.0, y_compress=0.7, start_angle=0, end_angle=270))
     assert isinstance(result, mplPath)
 
 
