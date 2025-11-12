@@ -674,14 +674,16 @@ def unit_triangle_path(
         base_angle       : int        = None,
         rng              : RNGBackend = None,
     ) -> tuple[mplPath, dict]:
-    """Generates vertices of a triangle inscribed into a unit circle.
+    """Generates vertices of a triangle inscribed in a unit circle.
 
     Reference triangle:
         Base = [(-1, 0), (1, 0)], top = (0, 1).
 
     Geometry overview:
-        - The top vertex is offset by +/-top_offset relative to reference (0, 1).
-        - Base vertices are symmetrically offset by +/-base_offset relative to (+/-1, 0).
+        - The top vertex is offset by +/-top_offset relative to the reference (0, 1),
+          controlling symmetry (Isosceles vs. Scalene).
+        - Base vertices are symmetrically offset by +/-base_offset relative to
+          (+/-1, 0), defining angular classification and regularity.
         - These offsets define all triangle classes:
             - Isosceles : top_offset  = 0
             - Right     : base_offset = 0
@@ -689,18 +691,21 @@ def unit_triangle_path(
             - Obtuse    : base_offset > 0
 
     Args:
-        equal_sides: 1, 2, or 3
-            - 3 : Equilateral
-            - 2 : Isosceles
-            - 1 : Scalene
-        angle_category: Nominal angular class (compared to 90deg):
+        equal_sides (int, optional): 1, 2, or 3.
+            - 3 - Equilateral
+            - 2 - Isosceles
+            - 1 - Scalene
+        angle_category (int, optional): Nominal angular class, compared to 90deg.
             <90 - Acute, =90 - Right, >90 - Obtuse
-        jitter_angle_deg: 3sigma angular jitter in degrees.
-        base_angle: Optional base rotation of figure (degrees).
-        rng: Optional RNG backend (RNG, random.Random, np.random.Generator).
+        jitter_angle_deg (int, optional): 3sigma angular jitter magnitude in degrees.
+        base_angle (int, optional): Global rotation of the triangle in degrees.
+        rng (RNGBackend, optional): Random number generator backend
+            (`RNG`, `random.Random`, or `np.random.Generator`).
 
     Returns:
-        (mplPath, dict): Triangle path and metadata.
+        tuple:
+            - mplPath: Matplotlib Path representing the triangle.
+            - dict: Metadata describing parameters and applied offsets.
     """
     # --- RNG setup ---------------------------------------------------------
     if rng is None:
