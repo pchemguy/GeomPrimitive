@@ -19,6 +19,7 @@ import os
 import time
 import random
 import threading
+from numbers import Real, Integral
 from typing import Any, TypeAlias, Union
 
 try:
@@ -90,49 +91,59 @@ class RNG:
 
     def random(self, *a, **kw) -> float:
         with self._lock:
+            out = self._rng.random(*a, **kw)
             if self._use_numpy:
-                return float(self._rng.random(*a, **kw))
-            return self._rng.random(*a, **kw)
+                if isinstance(out, Real):
+                    return float(out)
+                return out
+            return out
 
     def randint(self, a: int, b: int, **kw) -> int:
         with self._lock:
             if self._use_numpy:
                 out = self._rng.integers(a, b + 1, **kw)
-                # Convert 0-D ndarray to float for consistency
-                if np.isscalar(out) or (isinstance(out, np.ndarray) and out.shape == ()):
+                if isinstance(out, Real):
                     return int(out)
                 return out
-            return self._rng.randint(a, b)
+            return self._rng.randrange(a, b + 1)
 
-    def randrange(self, *a, **kw) -> int:
+    def randrange(self, a: int, b: int = None, **kw) -> int:
         with self._lock:
+            if b is None: a, b = 0, a
             if self._use_numpy:
-                return int(self._rng.integers(*a, **kw))
-            return self._rng.randrange(*a, **kw)
+                out = self._rng.integers(a, b, **kw)
+                if isinstance(out, Real):
+                    return int(out)
+                return out
+            return self._rng.randrange(a, b)
 
     def uniform(self, *a, **kw) -> Union[float, np.ndarray]:
         """Return a uniform random value or array, matching backend behavior."""
         with self._lock:
             out = self._rng.uniform(*a, **kw)
             if self._use_numpy:
-                # Convert 0-D ndarray to float for consistency
-                if isinstance(out, np.ndarray) and out.shape == ():
+                if isinstance(out, Real):
                     return float(out)
                 return out
             return out
     
     def choice(self, *a, **kw) -> Any:
         with self._lock:
+            out = self._rng.choice(*a, **kw)
             if self._use_numpy:
-                return self._rng.choice(*a, **kw)
-            return self._rng.choice(*a, **kw)
+                if isinstance(out, Integral):
+                    return int(out)
+                elif isinstance(out, Real):
+                    return float(out)
+                else:
+                    return out
+            return out
 
     def normal(self, *a, **kw) -> float:
         with self._lock:
             if self._use_numpy:
                 out = self._rng.normal(*a, **kw)
-                # Convert 0-D ndarray to float for consistency
-                if isinstance(out, np.ndarray) and out.shape == ():
+                if isinstance(out, Real):
                     return float(out)
                 return out
             return self._rng.normalvariate(*a, **kw)
@@ -141,8 +152,7 @@ class RNG:
         with self._lock:
             if self._use_numpy:
                 out = self._rng.normal(*a, **kw)
-                # Convert 0-D ndarray to float for consistency
-                if isinstance(out, np.ndarray) and out.shape == ():
+                if isinstance(out, Real):
                     return float(out)
                 return out
             return self._rng.normalvariate(*a, **kw)

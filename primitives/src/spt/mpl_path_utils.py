@@ -1531,7 +1531,7 @@ def demo():
 
     arc_shape, meta = elliptical_arc(
         canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
-        start_deg=None, end_deg=None, angle_deg=None, origin=(0, 0),
+        start_deg=0, end_deg=270, angle_deg=None, origin=(0, 0),
     )
     ax.add_patch(PathPatch(arc_shape, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
 
@@ -1540,41 +1540,54 @@ def demo():
     )
     ax.add_patch(PathPatch(rect_shape, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
 
-    triangle_shape = triangle(
+    triangle_shape, meta = triangle(
         canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
     )
     ax.add_patch(PathPatch(triangle_shape, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
-    
-    """
-
-    triangle = triangle_path(
-        canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
-    )
-    ax.add_patch(PathPatch(triangle, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
-
 
     x = np.linspace(-1, 1, 10)
     y = np.sin(np.pi * x)
     dy = np.cos(np.pi * x) * np.pi
-    function1 = random_srt_path(
-        bezier_from_xy_dy(x, y, dy=None, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    function1, meta = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=None, tension=0.25),
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=1,
+        angle_deg=None,
+        jitter_angle_deg=None,
+        origin=(0, 0),
+        rng=rng,
     )
-
     ax.add_patch(PathPatch(function1, edgecolor="gold", lw=2, facecolor="none", linestyle="solid"))
-    function2 = random_srt_path(
-        bezier_from_xy_dy(x, y, dy=dy, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+
+    function2, meta = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=dy, tension=0.25), 
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=1,
+        angle_deg=None,
+        jitter_angle_deg=None,
+        origin=(0, 0),
+        rng=rng,
     )
     ax.add_patch(PathPatch(function2, edgecolor="violet", lw=2, facecolor="none", linestyle="solid"))
-    
+
     x = np.linspace(0.1, 10, 100)
+    negx = np.linspace(-10, -0.1, 100)
+    negy = 1 / negx
     y = 1 / x
     dy = -1 / (x * x)
-    function3 = random_srt_path(
-        join_paths([bezier_from_xy_dy(-x, -y, dy=None, tension=0.25), bezier_from_xy_dy(x, y, dy=None, tension=0.25)], True), 
-        canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    function3, meta = random_srt_path(
+        join_paths([bezier_from_xy_dy(negx, negy, dy=None, tension=0.25), bezier_from_xy_dy(x, y, dy=None, tension=0.25)], True), 
+        canvas_x1x2=canvas_x1x2,
+        canvas_y1y2=canvas_y1y2,
+        y_compress=1,
+        angle_deg=None,
+        jitter_angle_deg=None,
+        origin=(0, 0),
+        rng=rng,
     )
     ax.add_patch(PathPatch(function3, edgecolor="magenta", lw=2, facecolor="none", linestyle="solid"))
-    """
 
     plt.show()
 
