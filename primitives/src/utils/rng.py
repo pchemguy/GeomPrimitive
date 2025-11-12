@@ -23,6 +23,8 @@ from typing import Any, TypeAlias, Union
 
 try:
   import numpy as np
+  from numpy.typing import NDArray
+
 except ImportError:
   np = None
 
@@ -77,8 +79,15 @@ class RNG:
                 self._rng.seed(seed_val)
 
     # -----------------------------------------------------------------
-    # Scalar random methods
+    # Basic random methods
     # -----------------------------------------------------------------
+    """
+    - If NumPy backend is used and returns NDarray - pass as is.
+    - If result is a scalar (0-D ndarray) - automatically converted to float.
+    - Otherwise returns Python float (stdlib backend).
+
+    """
+
     def random(self) -> float:
         with self._lock:
             if self._use_numpy:
@@ -97,12 +106,17 @@ class RNG:
                 return int(self._rng.integers(*a, **kw))
             return self._rng.randrange(*a, **kw)
 
-    def uniform(self, *a, **kw) -> float:
+    def uniform(self, *a, **kw) -> Union[float, np.ndarray]:
+        """Return a uniform random value or array, matching backend behavior."""
         with self._lock:
+            out = self._rng.uniform(*a, **kw)
             if self._use_numpy:
-                return float(self._rng.uniform(*a, **kw))
-            return self._rng.uniform(*a, **kw)
-
+                # Convert 0-D ndarray to float for consistency
+                if isinstance(out, np.ndarray) and out.shape == ():
+                    return float(out)
+                return out
+            return out
+    
     def choice(self, seq: list[Any]) -> Any:
         with self._lock:
             if self._use_numpy:

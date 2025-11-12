@@ -14,6 +14,7 @@ import threading
 import pytest
 
 import utils.rng as rng
+from utils.rng import RNG
 
 # Optional import of NumPy (tests still pass without it)
 try:
@@ -42,6 +43,18 @@ def fixed_rng():
 def fresh_rng():
     """Provide a new RNG seeded with PID/time entropy."""
     return rng.RNG()
+
+
+@pytest.fixture(scope="module")
+def std_rng():
+    """Standard-library RNG backend."""
+    return rng.RNG(seed=42, use_numpy=False)
+
+
+@pytest.fixture(scope="module")
+def np_rng():
+    """NumPy RNG backend."""
+    return rng.RNG(seed=42, use_numpy=True)
 
 
 # ---------------------------------------------------------------------
@@ -228,3 +241,57 @@ def test_perf_benchmark(benchmark):
     result = benchmark(lambda: [r.random() for _ in range(1000)])
     assert isinstance(result, list)
     assert len(result) == 1000
+
+
+# ---------------------------------------------------------------------
+# Tests: scalar behavior
+# ---------------------------------------------------------------------
+def test_uniform_scalar_stdlib(std_rng):
+    """Stdlib RNG should always return a Python float."""
+    val = std_rng.uniform(0, 1)
+    assert isinstance(val, float)
+    assert 0 <= val <= 1
+
+
+def test_uniform_scalar_numpy(np_rng):
+    """NumPy RNG with no size argument returns a float (converted from 0-D ndarray)."""
+    val = np_rng.uniform(0, 1)
+    assert isinstance(val, float)
+    assert 0 <= val <= 1
+
+
+# ---------------------------------------------------------------------
+# Tests: vectorized behavior
+# ---------------------------------------------------------------------
+def test_uniform_array_numpy(np_rng):
+    """NumPy RNG with size argument returns an ndarray of the correct shape and range."""
+    arr = np_rng.uniform(0, 1, size=(3, 2))
+    assert isinstance(arr, np.ndarray)
+    assert arr.shape == (3, 2)
+    assert np.all((arr >= 0) & (arr <= 1))
+
+
+# ---------------------------------------------------------------------
+# Tests: reproducibility
+# ---------------------------------------------------------------------
+def test_uniform_reproducible_between_instances():
+    """Two RNGs with same seed and backend must yield same uniform scalar."""
+    r1 = rng.RNG(seed=123, use_numpy=False)
+    r2 = rng.RNG(seed=123, use_numpy=False)
+    assert r1.uniform(0, 1) == r2.uniform(0, 1)
+
+    n1 = rng.RNG(seed=123, use_numpy=True)
+    n2 = rng.RNG(seed=123, use_numpy=True)
+    np.testing.assert_allclose(n1.uniform(0, 1, size=4), n2.uniform(0, 1, size=4))
+
+
+# ---------------------------------------------------------------------
+# Tests: shape edge cases
+# ---------------------------------------------------------------------
+@pytest.mark.parametrize("shape", [(1,), (2, 1), (1, 3), (4, 4)])
+def test_uniform_array_shapes(np_rng, shape):
+    """Ensure arbitrary shapes are supported."""
+    arr = np_rng.uniform(-5, 5, size=shape)
+    assert arr.shape == shape
+    assert np.all((arr >= -5) & (arr <= 5))
+

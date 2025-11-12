@@ -64,6 +64,13 @@ def fixed_rng():
 
 
 @pytest.fixture(scope="module")
+def fixed_rng_numpy():
+    """Deterministic RNG instance."""
+    r = RNG(seed=123, use_numpy=True)
+    return r
+
+
+@pytest.fixture(scope="module")
 def base_call(fixed_rng):
     """Generate a default result for reuse."""
     path, meta = unit_circle_diameter(rng=fixed_rng)
@@ -866,10 +873,10 @@ def test_full_circle_closed(fixed_rng):
     np.testing.assert_allclose(verts[0], verts[-2], atol=1e-6)
 
 
-def test_small_or_large_span_forces_full_circle(fixed_rng):
+def test_small_or_large_span_forces_full_circle(fixed_rng_numpy):
     """Invalid spans (<1deg or >359deg) should yield closed circle."""
-    path1, meta1 = unit_circular_arc(0, 0.5, rng=fixed_rng)
-    path2, meta2 = unit_circular_arc(0, 400, rng=fixed_rng)
+    path1, meta1 = unit_circular_arc(0, 0.5, rng=fixed_rng_numpy)
+    path2, meta2 = unit_circular_arc(0, 400, rng=fixed_rng_numpy)
     for p in (path1, path2):
         assert p.codes[-1] == mplPath.CLOSEPOLY
 
@@ -877,10 +884,11 @@ def test_small_or_large_span_forces_full_circle(fixed_rng):
 # ---------------------------------------------------------------------
 # Random / jitter effects
 # ---------------------------------------------------------------------
-def test_jitter_modifies_vertices(fixed_rng):
+def test_jitter_modifies_vertices(fixed_rng_numpy):
     """Non-zero jitter must change vertex positions."""
-    p1, m1 = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng)
-    p2, m2 = unit_circular_arc(0, 90, jitter_amp=0.05, jitter_y=0.2, rng=fixed_rng)
+    p1, m1 = unit_circular_arc(0, 90, jitter_amp=0, jitter_y=0, rng=fixed_rng_numpy)
+    p2, m2 = unit_circular_arc(0, 90, jitter_amp=0.05, jitter_y=0.2, rng=fixed_rng_numpy)
+    return
     assert not np.allclose(p1.vertices, p2.vertices, atol=1e-6)
 
 

@@ -539,11 +539,12 @@ def unit_circular_arc(
 
     # --- Y-axis multiplicative jitter ----------------------------------------
     if jitter_y:
-        verts[:, 1] *= 1 - np.random.uniform(0, 1) * jitter_y
+        verts[:, 1] *= 1 - rng.uniform(0, 1) * jitter_y
 
     # --- Additive jitter -----------------------------------------------------
     if jitter_amp:
-        verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
+        verts += rng.uniform(-1, 1, size=verts.shape) * jitter_amp
+        #verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
 
     path = mplPath(verts, codes)
 
