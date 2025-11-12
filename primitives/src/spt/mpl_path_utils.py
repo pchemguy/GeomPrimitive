@@ -251,13 +251,14 @@ def join_paths(
 # Applies random SRT transform to Path.
 # ---------------------------------------------------------------------------
 def random_srt_path(
-        shape       : mplPath,
-        canvas_x1x2 : PointXY,
-        canvas_y1y2 : PointXY,
-        y_compress  : float      = None,
-        angle_deg   : numeric    = None,
-        origin      : PointXY    = None,
-        rng         : RNGBackend = None,
+        shape            : mplPath,
+        canvas_x1x2      : PointXY,
+        canvas_y1y2      : PointXY,
+        y_compress       : float      = None,
+        angle_deg        : numeric    = None,
+        jitter_angle_deg : int        = JITTER_ANGLE_DEG,
+        origin           : PointXY    = None,
+        rng              : RNGBackend = None,
     ) -> tuple[mplPath, dict]:
     """Apply a random Scale-Rotate-Translate (SRT) transform to a Path so it fits
     inside a given canvas box with some jitter.
@@ -286,6 +287,8 @@ def random_srt_path(
             If non-zero, a small +/-JITTER_ANGLE_DEG jitter is added.
             Note, for non-zero angle, the value is rounded. To have jitter with
             0 deg, set it to abs() < 0.5 deg, such as 0.1.
+        jitter_angle_deg: Angular jitter amplitude in degrees.
+            Controls small random deviations around the base angle.
         origin:
             Optional rotation center (x, y) in path coordinates. If None, uses
             the path bounding-box center.
@@ -339,8 +342,7 @@ def random_srt_path(
     if not isinstance(angle_deg, (int, float)):
         angle_deg = rng.randrange(360)
     elif angle_deg != 0:
-        jitter = JITTER_ANGLE_DEG * normal3s()
-        angle_deg = float(round(angle_deg) + jitter)
+        angle_deg = round(angle_deg) + jitter_angle_deg * normal3s()
     # Normalize to [-180, 180)
     angle_deg = ((angle_deg + 180.0) % 360.0) - 180.0
     angle_rad = math.radians(angle_deg)
@@ -474,6 +476,8 @@ def unit_circular_arc(
     analytic 4/3*tan(Dtheta/4) handle length for optimum circular curvature.
     Additive and multiplicative jitter simulate hand-drawn irregularities.
 
+    Note: Uses vectorized random function - requires NumPy backend.
+
     Args:
         start_deg: Starting angle in degrees.
         end_deg: Ending angle in degrees.
@@ -544,7 +548,6 @@ def unit_circular_arc(
     # --- Additive jitter -----------------------------------------------------
     if jitter_amp:
         verts += rng.uniform(-1, 1, size=verts.shape) * jitter_amp
-        #verts += np.random.uniform(-1, 1, size=verts.shape) * jitter_amp
 
     path = mplPath(verts, codes)
 
@@ -1230,7 +1233,9 @@ def elliptical_arc(
     return arc_path
 
 
-
+# ---------------------------------------------------------------------------
+# Ellipse / Arc
+# ---------------------------------------------------------------------------
 def elliptical_arc(
         canvas_x1x2        : CoordRange = (0, 1023),
         canvas_y1y2        : CoordRange = (0, 1023),
@@ -1276,7 +1281,10 @@ def elliptical_arc(
     """
     # --- RNG setup ---------------------------------------------------------
     if rng is None:
-        rng = get_rng(thread_safe=True)
+        rng = get_rng(thread_safe=True, use_numpy=True)
+
+    if not isinstance(rng._rng, np.random.Generator):
+        raise TypeError(f"elliptical_arc requires np.random.Generator. Received '{type(rng._rng)}'")
 
     # --- Stage 1: base circular arc ---------------------------------------
     shape, shape_meta = unit_circular_arc(
@@ -1306,6 +1314,8 @@ def elliptical_arc(
     meta: dict = {
         "shape_kind": "circle",
         "shape_meta": {
+            "start_deg": start_deg,
+            "end_deg"  : end_deg,
         },
         "srt_meta": {
             "scale_x": srt_meta["scale_x"],
@@ -1319,14 +1329,75 @@ def elliptical_arc(
     }
     """
     meta = {
-        "start_deg": arc_meta.get("start_deg", start_deg),
-        "end_deg": arc_meta.get("end_deg", end_deg),
-        "span_deg": (arc_meta.get("end_deg", 0) or end_deg or 0)
-        - (arc_meta.get("start_deg", 0) or start_deg or 0),
-        "y_compress": srt_meta.get("y_compress", y_compress),
-        "angle_deg": srt_meta.get("angle_deg", angle_deg),
-        "origin": srt_meta.get("origin", origin),
-        "rng_seed": getattr(rng, "seed", None),
+        "method_kind" : "circle",
+        "shape_meta"  : shape_meta,
+        "srt_meta"    : srt_meta,
     }
 
     return shape_srt, meta
+
+
+def demo():
+    canvas_x1x2=(-10, 30)
+    canvas_y1y2=(-10, 20)
+        
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    ax.set_aspect("equal")
+    ax.grid(True, ls="--", alpha=0.5)
+    ax.set_xlim(*canvas_x1x2)
+    ax.set_ylim(*canvas_y1y2)
+
+    arc, meta = elliptical_arc(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2,
+        start_deg=0, end_deg=360, angle_deg=None
+    )
+    ax.add_patch(PathPatch(arc, edgecolor="blue", lw=2, facecolor="none", linestyle="--"))
+
+    
+    """
+    segment = line_path(
+        canvas_x1x2=canvas_x1x2, canvas_y1y2=canvas_y1y2, angle_deg=0, jitter_angle_deg=5
+    )
+    ax.add_patch(PathPatch(segment, edgecolor="green", lw=2, facecolor="none", linestyle="dashdot"))
+
+    polyline = polyline_path([(-5,5), (5,-5), (15,5), (-5,5)])
+    ax.add_patch(PathPatch(polyline, edgecolor="brown", lw=5, facecolor="none", linestyle="dotted"))
+
+    triangle = triangle_path(
+        canvas_x1x2, canvas_y1y2, equal_sides = None, angle_category = None, base_angle = None
+    )
+    ax.add_patch(PathPatch(triangle, edgecolor="orange", lw=3, facecolor="none", linestyle="dotted"))
+
+    rectangle = rectangle_path(
+        canvas_x1x2, canvas_y1y2, equal_sides = None, base_angle = None
+    )
+    ax.add_patch(PathPatch(rectangle, edgecolor="purple", lw=2, facecolor="none", linestyle="dashed"))
+
+    x = np.linspace(-1, 1, 10)
+    y = np.sin(np.pi * x)
+    dy = np.cos(np.pi * x) * np.pi
+    function1 = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=None, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function1, edgecolor="gold", lw=2, facecolor="none", linestyle="solid"))
+    function2 = random_srt_path(
+        bezier_from_xy_dy(x, y, dy=dy, tension=0.25), canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function2, edgecolor="violet", lw=2, facecolor="none", linestyle="solid"))
+    
+    x = np.linspace(0.1, 10, 100)
+    y = 1 / x
+    dy = -1 / (x * x)
+    function3 = random_srt_path(
+        join_paths([bezier_from_xy_dy(-x, -y, dy=None, tension=0.25), bezier_from_xy_dy(x, y, dy=None, tension=0.25)], True), 
+        canvas_x1x2, canvas_y1y2, None, None, (0, 0)
+    )
+    ax.add_patch(PathPatch(function3, edgecolor="magenta", lw=2, facecolor="none", linestyle="solid"))
+    """
+
+    plt.show()
+
+
+if __name__ == "__main__":
+    demo()
