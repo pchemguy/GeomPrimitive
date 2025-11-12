@@ -676,6 +676,19 @@ def unit_triangle_path(
     ) -> tuple[mplPath, dict]:
     """Generates vertices of a triangle inscribed into a unit circle.
 
+    Note, the reference triangle is the right triangle with base ((-1, 0), (1, 0))
+    and top at (0, 1). 
+    The full spectrum of triangle shapes can be achieved with base orientation fixed
+    parallel to X axis and allowing its ends to slide along the circle. The top vertex
+    remains above the base. The shape of the triangle is then determined by two angular
+    offsets: angular offset of the top vertex with repsect to reference. And equal in
+    magnitude. but of opposite signs offsets of the base with respect to reference.
+    All Isosceles triangles, including the regular, are obtained by keeping the top
+    vertex at reference (0, 1), top_offset=0. top_offset > 0 yield all scalene triangles.
+    Base locked at reference (base_offset=0) yields right triangles, base below reference
+    (base_offset<0 for (0, 1)) yields accute triangles, while the opposite yields obtuse
+    triangles.
+
     Args:
         equal_sides: 1, 2, or 3.
             - 3 -> Equilateral
