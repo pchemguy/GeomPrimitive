@@ -46,21 +46,27 @@ preserving simple, intuitive bounds on all grid perturbations.
 
 from __future__ import annotations
 
+__all__ = ["GridJitterConfig", "generate_grid_collections", "debug_dump_grid_info",]
+
+import os
+import sys
 import math
 import random
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from numbers import Real
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 from matplotlib.collections import LineCollection
 
-
-__all__ = ["GridJitterConfig", "generate_grid_collections"]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+from utils.rng import RNGBackend, RNG, get_rng
 
 BBoxTuple = Tuple[float, float, float, float]
-BBoxLike = Tuple[Tuple[float, float], Tuple[float, float]] | BBoxTuple
+BBoxLike = Union[Tuple[Tuple[float, float], Tuple[float, float]], BBoxTuple]
 
 
 @dataclass(frozen=True)
@@ -127,36 +133,23 @@ class GridJitterConfig:
     # Internal primitive: symmetric truncated normal in [-1, 1]
     # ---------------------------------------------------------------------------
     @staticmethod
-    def _sample_normal3s(rng: object) -> float:
+    def _sample_normal3s(rng: RNGBackend) -> float:
         """Return a symmetric truncated normal sample in [-1, 1].
 
         The RNG is probed in this order:
 
-            1) rng.normal3s()                           (custom fast path)
+            1) rng.normal()                            (custom)
             2) rng.normalvariate(0.0, 1/3)             (random.Random-like)
-            3) rng.normal(loc=0.0, scale=1/3)          (NumPy-like)
 
         Raises:
             TypeError: If no compatible method is found on the RNG.
         """
-        # 1) Custom fast path
-        if hasattr(rng, "normal3s"):
-            x = getattr(rng, "normal3s")()
-            return max(-1.0, min(1.0, float(x)))
+        if hasattr(rng, "normal"):            
+            sample = rng.normal(0, 1/3)
+        else:
+            sample = rng.normalvariate(0, 1/3)
 
-        # 2) Python random.Random style
-        if hasattr(rng, "normalvariate"):
-            x = getattr(rng, "normalvariate")(0.0, 1.0 / 3.0)
-            return max(-1.0, min(1.0, float(x)))
-
-        # 3) NumPy Generator / RandomState style
-        if hasattr(rng, "normal"):
-            x = getattr(rng, "normal")(loc=0.0, scale=1.0 / 3.0)
-            return max(-1.0, min(1.0, float(x)))
-
-        raise TypeError(
-            "RNG must provide one of: normal3s(), normalvariate(), or normal()."
-        )
+        return max(-1.0, min(1.0, float(sample)))
 
     # ---------------------------------------------------------------------------
     # Public sampling helpers: signed and one-sided jitters
@@ -500,6 +493,167 @@ def generate_grid_collections(
     y_minor_lc = LineCollection(y_minor_segments)
 
     return x_major_lc, x_minor_lc, y_major_lc, y_minor_lc
+
+
+def debug_dump_grid_info(
+    bbox: BBoxLike,
+    obliquity_deg  : float,
+    rotation_deg   : float,
+    x_major_step   : float,
+    x_minor_step   : float,
+    y_major_step   : float,
+    y_minor_step   : float,
+    jitter: GridJitterConfig = None,
+    rng: object = None,
+    file=None,
+) -> None:
+    """
+    Print a detailed diagnostic dump of grid construction internals.
+
+    Useful for debugging:
+
+      - coordinate-space (u,v) ranges
+      - line index ranges (k_min..k_max)
+      - candidate line coordinates
+      - which lines intersect the bbox
+      - drop/jitter masks
+      - final clipped segment counts
+      - numerical edge cases
+
+    Args:
+        bbox:
+            Bounding box in world coordinates.
+
+        obliquity_deg, rotation_deg:
+            Grid geometry parameters.
+
+        x_major_step, x_minor_step, y_major_step, y_minor_step:
+            Grid spacings.
+
+        jitter:
+            Optional jitter configuration.
+
+        rng:
+            Optional RNG for reproducible jitter.
+
+        file:
+            Optional file-like object to write output (default: sys.stdout).
+    """
+    if file is None:
+        file = sys.stdout
+
+    printf = lambda *a, **k: __builtins__["print"](*a, **k, file=file)
+
+    printf("\n================ GRID DEBUG DUMP ================")
+    printf(f"bbox = {bbox}")
+    printf(f"obliquity_deg = {obliquity_deg}")
+    printf(f"rotation_deg  = {rotation_deg}")
+    printf(f"x_major_step  = {x_major_step}")
+    printf(f"x_minor_step  = {x_minor_step}")
+    printf(f"y_major_step  = {y_major_step}")
+    printf(f"y_minor_step  = {y_minor_step}")
+    printf(f"jitter        = {jitter}")
+
+    # -----------------------------------------------------------
+    # 1) Recompute u/v ranges and basis vectors exactly like main
+    # -----------------------------------------------------------
+
+    x_min, y_min, x_max, y_max = _parse_bbox(bbox)
+
+    theta_rad = math.radians(rotation_deg)
+    alpha_rad = math.radians(obliquity_deg)
+
+    if rng is None:
+        rng = random.Random()
+
+    if jitter is not None and jitter.global_angle_deg > 0.0:
+        theta_rad += math.radians(jitter.jitter_angle_global(rng))
+        alpha_rad += math.radians(jitter.jitter_angle_global(rng))
+
+    ex = np.array([math.cos(theta_rad), math.sin(theta_rad)], dtype=float)
+    ey = np.array(
+        [math.cos(theta_rad + alpha_rad), math.sin(theta_rad + alpha_rad)],
+        dtype=float,
+    )
+
+    M = np.array([[ex[0], ey[0]], [ex[1], ey[1]]], dtype=float)
+    Minv = np.linalg.inv(M)
+
+    corners = np.array(
+        [
+            [x_min, y_min],
+            [x_max, y_min],
+            [x_min, y_max],
+            [x_max, y_max],
+        ],
+        dtype=float,
+    )
+    uv = corners @ Minv.T
+    u_vals = uv[:, 0]
+    v_vals = uv[:, 1]
+    u_min, u_max = float(u_vals.min()), float(u_vals.max())
+    v_min, v_max = float(v_vals.min()), float(v_vals.max())
+
+    printf("\n--- Coordinate-space (u,v) ranges ---")
+    printf(f"u_min={u_min:.6f}, u_max={u_max:.6f}")
+    printf(f"v_min={v_min:.6f}, v_max={v_max:.6f}")
+
+    # Helper to analyze a single line family
+    def analyze_family(name, coord_min, coord_max, step, fixed_vec, dir_vec):
+        printf(f"\n=== FAMILY: {name} ===")
+        if step <= 0:
+            printf("  step <= 0 - no lines")
+            return
+
+        k_min = int(math.floor(coord_min / step)) - 1
+        k_max = int(math.ceil(coord_max / step)) + 1
+
+        printf(f"  coord range: {coord_min:.3f} .. {coord_max:.3f}")
+        printf(f"  step       : {step}")
+        printf(f"  k_min={k_min}, k_max={k_max}, total candidates = {k_max-k_min+1}")
+
+        # All candidate raw coordinates
+        coords = np.arange(k_min, k_max + 1, dtype=float) * step
+        printf(f"  coords (raw): {coords}")
+
+        # Test intersection for each
+        def intersects(c0):
+            # same method _clip_infinite_line_to_bbox() uses
+            p0 = c0 * fixed_vec
+            d = dir_vec
+            x0, y0 = p0
+            dx, dy = d
+            eps = 1e-12
+            ts = []
+
+            if abs(dx) > eps:
+                for xb in (x_min, x_max):
+                    t = (xb - x0) / dx
+                    y = y0 + t * dy
+                    if y_min - eps <= y <= y_max + eps:
+                        ts.append(t)
+            if abs(dy) > eps:
+                for yb in (y_min, y_max):
+                    t = (yb - y0) / dy
+                    x = x0 + t * dx
+                    if x_min - eps <= x <= x_max + eps:
+                        ts.append(t)
+
+            return len(ts) >= 2
+
+        mask = [intersects(c) for c in coords]
+        printf(f"  intersects: {mask}")
+        printf(f"  kept coords: {[float(c) for c, m in zip(coords, mask) if m]}")
+
+    # -----------------------------------------------------------
+    # 2) Analyze each line family exactly as generator sees them
+    # -----------------------------------------------------------
+    analyze_family("X-MAJOR", u_min, u_max, x_major_step, ex, ey)
+    analyze_family("X-MINOR", u_min, u_max, x_minor_step, ex, ey)
+    analyze_family("Y-MAJOR", v_min, v_max, y_major_step, ey, ex)
+    analyze_family("Y-MINOR", v_min, v_max, y_minor_step, ey, ex)
+
+    printf("\n============== END DEBUG DUMP ==============\n")
 
 
 # =============================================================================

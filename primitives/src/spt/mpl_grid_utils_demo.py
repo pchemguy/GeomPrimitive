@@ -20,6 +20,7 @@ sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 
 from mpl_grid_utils import (
     generate_grid_collections,
+    debug_dump_grid_info,
     GridJitterConfig,
 )
 
@@ -79,6 +80,19 @@ def draw_grid(ax, preset_name, bbox=(-10, -10, 10, 10)):
 # Gallery
 # ---------------------------------------------------------------------------
 def demo0():
+
+    debug_dump_grid_info(
+        bbox=(-10,-10,10,10),
+        obliquity_deg=90,
+        rotation_deg=0,
+        x_major_step=5,
+        x_minor_step=2.5,
+        y_major_step=5,
+        y_minor_step=2.5,
+        jitter = GridJitterConfig()
+    )    
+        
+    
     presets = [
         "handwriting_synthetic",
         "engineering_paper",
@@ -159,13 +173,6 @@ def demo1():
 
 
 def demo2():
-    """
-    from mpl_grid_utils import (
-        generate_grid_collections,
-        GridJitterConfig,
-    )
-    """
-    
     fig, ax = plt.subplots(figsize=(6, 6))
     
     bbox = ((-10.0, -10.0), (10.0, 10.0))
