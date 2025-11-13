@@ -17,6 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+from utils.rng import RNGBackend, RNG, get_rng
 
 from mpl_grid_utils import (
     generate_grid_collections,
@@ -206,13 +207,26 @@ def demo2():
     ax.add_collection(y_major_lc)
     ax.add_collection(y_minor_lc)
     
-    ax.set_title("Defualt Jittered Oblique Grid")
+    ax.set_title("Default Jittered Oblique Grid")
     ax.set_xlim(-10, 10)
     ax.set_ylim(-10, 10)
     ax.set_aspect("equal", adjustable="box")
     
     plt.show()
 
+
+
+def demo3():
+    pass
+    """
+    lc.set(**{
+        "linewidths": 1.2,
+        "colors": "tab:blue",
+        "alpha": 0.6,
+        "linestyles": "--",
+        "zorder": 0,
+    })
+    """
 
 def main():
     demo0()
