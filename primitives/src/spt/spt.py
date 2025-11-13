@@ -39,8 +39,8 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
-from spt_lighting import spt_lighting
 from spt_texture  import spt_texture
+from spt_lighting import spt_lighting
 from spt_noise    import spt_noise
 from spt_geometry import spt_geometry
 from spt_color    import spt_vignette_and_color
@@ -71,7 +71,18 @@ class SPTPipeline:
 
     # ---- Stages ----
 
-    def stage1_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+    def stage1_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
+        """Applies paper texture"""
+        self.logger.debug(f"Running stage 2: Texture.")
+        meta: dict = {
+            "texture_strength": kwargs.get("texture_strength",
+                                            abs(self.clamped_normal(0.5, 2))),
+            "texture_scale":    kwargs.get("texture_scale",
+                                            abs(self.clamped_normal(1, 8))),
+        }
+        return meta, spt_texture(img, **meta)
+
+    def stage2_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies lighting gradient"""
         rng: RNG = self.__class__.rng                
         self.logger.debug(f"Running stage 1: Lighting.")
@@ -88,17 +99,6 @@ class SPTPipeline:
                                           self.clamped_normal(0.2, 0.5 * delta)),
         }
         return meta, spt_lighting(img, **meta)
-
-    def stage2_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
-        """Applies paper texture"""
-        self.logger.debug(f"Running stage 2: Texture.")
-        meta: dict = {
-            "texture_strength": kwargs.get("texture_strength",
-                                            abs(self.clamped_normal(0.5, 2))),
-            "texture_scale":    kwargs.get("texture_scale",
-                                            abs(self.clamped_normal(1, 8))),
-        }
-        return meta, spt_texture(img, **meta)
 
     def stage3_noise(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies noise"""
@@ -141,8 +141,8 @@ class SPTPipeline:
         runtime = {}
         images = {}
         stages = [
-            ("1 - Lighting", self.stage1_lighting),
-            ("2 - Texture",  self.stage2_texture),
+            ("1 - Texture",  self.stage1_texture),
+            ("2 - Lighting", self.stage2_lighting),
             ("3 - Noise",    self.stage3_noise),
             ("4 - Geometry", self.stage4_geometry),
             ("5 - Color",    self.stage5_color),

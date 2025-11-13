@@ -1,5 +1,5 @@
 """
-mpl_grid_utils.py
+mpl_grid_gen.py
 -----------------
 
 Utilities for generating flexible 2D grids with optional geometric distortion.
@@ -806,3 +806,4 @@ def _clip_infinite_line_to_bbox(
     p1 = np.array([x0 + t1 * dx, y0 + t1 * dy], dtype=float)
     p2 = np.array([x0 + t2 * dx, y0 + t2 * dy], dtype=float)
     return np.stack([p1, p2], axis=0)
+

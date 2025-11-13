@@ -1,6 +1,6 @@
 """
-mpl_grid_utils_demo.py
------------------
+mpl_grid_gen_demo.py
+--------------------
 
 Demonstration of jittered oblique grids using presets.
 
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from utils.rng import RNGBackend, RNG, get_rng
 
-from mpl_grid_utils import (
+from mpl_grid_gen import (
     generate_grid_collections,
     debug_dump_grid_info,
     GridJitterConfig,

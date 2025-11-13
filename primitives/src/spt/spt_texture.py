@@ -12,6 +12,7 @@ import sys
 import time
 import random
 import math
+from typing import Union
 import numpy as np
 import cv2
 
@@ -79,6 +80,111 @@ def spt_texture(img: ImageBGR,
     return out
 
 
+# ======================================================================
+#  Box blur (same algorithm as previous)
+# ======================================================================
+
+def _box_blur(img: ImageBGRF, radius: int) -> ImageBGRF:
+    """Cheap separable box filter using cumulative sums."""
+    if radius <= 0:
+        return img
+
+    h, w = img.shape
+    pad = radius
+
+    # Horizontal blur
+    tmp = np.pad(img, ((0, 0), (pad, pad)), mode="reflect")
+    csum = np.cumsum(tmp, axis=1)
+    left  = csum[:, :-2 * pad]
+    right = csum[:, 2 * pad :]
+    horz = (right - left) / (2 * pad)
+
+    # Vertical blur
+    tmp = np.pad(horz, ((pad, pad), (0, 0)), mode="reflect")
+    csum = np.cumsum(tmp, axis=0)
+    top  = csum[:-2 * pad, :]
+    bot  = csum[2 * pad :, :]
+    vert = (bot - top) / (2 * pad)
+    return vert
+
+
+# ======================================================================
+#  Additive "paper texture" modulation for an existing image
+# ======================================================================
+
+def spt_texture_additive(
+        img           : Union[ImageBGR, ImageBGRF],
+        *,
+        max_deviation : float = 0.05,
+        n_layers      : int   = 3,
+        base_radius   : int   = 1,
+        seed          : int   = None,
+    ) -> Union[ImageBGR, ImageBGRF]:
+    """
+    Apply *additive* paper-like brightness texture to an image (OpenCV BGR).
+
+    Employs:
+        - Multi-scale multi-radius smooth-noise accumulation
+        - Normalization to zero-mean and scaling by max_deviation
+        - Cumulative-sum box-blur routine
+    Adds generated noise field to the input BGR image.
+
+    Args:
+        img:
+            Input image in BGR uint8 or float32. Value range 0-255 or 0-1.
+        max_deviation:
+            Max absolute additive brightness variation (relative 0-1 scale).
+            For uint8 images this corresponds to +/-(255 * max_deviation) shifts.
+        n_layers:
+            Number of noise layers to accumulate (multi-scale).
+        base_radius:
+            Radius exponent base; actual radii are base_radius * (2**i).
+            Example: base_radius=2 -> radii = [2,4,8] for n_layers=3.
+        seed:
+            RNG seed.
+
+    Returns:
+        Image with additive paper modulation, same dtype as input.
+    """
+    if max_deviation <= 0 or n_layers <= 0:
+        return img
+
+    # --- Convert to float in [0,1] -------------------------------------
+    if img.dtype == np.uint8:
+        img_f = img.astype(np.float32) / 255.0
+    else:
+        img_f = img.astype(np.float32)
+        img_f = np.clip(img_f, 0.0, 1.0)
+
+    h, w = img_f.shape[:2]
+    rng = np.random.default_rng(seed)
+
+    # --- Accumulate multi-scale smooth noise field ----------------------
+    acc = np.zeros((h, w), dtype=np.float32)
+
+    for i in range(n_layers):
+        radius = base_radius * (2 ** i)   # same pattern: 2,4,8,... if base=2
+        noise = rng.normal(0.0, 1.0, size=(h, w)).astype(np.float32)
+        smooth = _box_blur(noise, radius)
+        acc += smooth
+
+    # --- Normalize noise field exactly like generate_paper_texture ------
+    acc -= acc.mean()
+    acc /= (acc.std() or 1.0)
+    acc *= float(max_deviation)
+
+    # --- Apply additive brightness modulation ---------------------------
+    # broadcast acc -> (H,W,1), add to all channels
+    out = img_f + acc[..., None]
+    out = np.clip(out, 0.0, 1.0)
+
+    # --- Convert back to original dtype --------------------------------
+    if img.dtype == np.uint8:
+        return (out * 255.0).astype(np.uint8)
+    else:
+        return out
+
+
 def main():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
@@ -98,9 +204,19 @@ def main():
         "texture_strength":   abs(max(-2, min(2, rng.normalvariate(0, 0.5)))),
         "texture_scale":      abs(max(-5, min(5, rng.normalvariate(0, 1)))),
     }
+    additive_props = {
+        "img"           : bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
+        "max_deviation" : 0.05,
+        "n_layers"      : 3,
+        "base_radius"   : 1,
+    }
     demos = {
         "BASELINE": base_rgba,
-        "RANDOM":   rgb_from_bgr(spt_texture(**random_props)),
+        "RANDOM"  : rgb_from_bgr(spt_texture(**random_props)),
+        "Additive": rgb_from_bgr(spt_texture_additive(**additive_props)),
     }
 
     default_props = {"img": base_bgr,}

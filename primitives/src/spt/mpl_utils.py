@@ -8,7 +8,7 @@ from __future__ import annotations
 __all__ = [
     "bgr_from_rgba", "rgb_from_bgr",
     "show_RGBx_grid", "render_scene",
-    "ImageBGR", "ImageRGB", "ImageRGBA", "ImageRGBx",
+    "ImageBGR", "ImageBGRF", "ImageRGB", "ImageRGBA", "ImageRGBx",
     "PAPER_COLORS", "DEFAULT_LINEWIDTHS",
 ]
 
@@ -34,9 +34,10 @@ else:
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
-ImageBGR:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) BGR order
-ImageRGB:  TypeAlias = NDArray[np.uint8]  # (H, W, 3) RGB order
-ImageRGBA: TypeAlias = NDArray[np.uint8]  # (H, W, 4) RGBA order
+ImageBGR:  TypeAlias = NDArray[np.uint8]    # (H, W, 3) BGR order
+ImageBGRF: TypeAlias = NDArray[np.float32]  # (H, W, 3) BGR order
+ImageRGB:  TypeAlias = NDArray[np.uint8]    # (H, W, 3) RGB order
+ImageRGBA: TypeAlias = NDArray[np.uint8]    # (H, W, 4) RGBA order
 ImageRGBx: TypeAlias = Union[ImageRGB, ImageRGBA] # Either RGB or RGBA
 
 DEFAULT_LINEWIDTHS = (1.0, 1.5, 2.0, 2.5, 3.0)

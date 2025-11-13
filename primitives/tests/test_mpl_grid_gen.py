@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from matplotlib.collections import LineCollection
 
-from mpl_grid_utils import GridJitterConfig, generate_grid_collections
+from mpl_grid_gen import GridJitterConfig, generate_grid_collections
 
 
 def test_jitter_config_validation_types_and_signs() -> None:
