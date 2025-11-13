@@ -2,9 +2,54 @@
 mpl_grid_utils.py
 -----------------
 
+Utilities for generating flexible 2D grids with optional geometric distortion.
+
+The generator produces four Matplotlib "LineCollection" objects corresponding
+to the four standard sub-grids:
+
+  - X-major lines  
+  - X-minor lines  
+  - Y-major lines  
+  - Y-minor lines  
+
+This layout generalizes the major/minor grid structure commonly found in
+spreadsheet applications, plotting libraries, and diagramming tools, while
+extending it to support **oblique (non-orthogonal)** and **rotated** grids.
+
+In addition to deterministic grid construction, the module provides a set of
+stochastic distortion mechanisms that can be applied independently to each
+sub-grid:
+
+  - **Angle jitter**
+      – Obliquity (inter-axis) angle  
+      – Global grid rotation angle  
+      – Individual line orientation
+
+  - **Spacing jitter**
+      – Randomized offsets of major/minor line positions
+
+  - **Line dropout**
+      – Random removal of individual grid lines
+
+All distortion parameters are expressed in terms of bounded symmetric or
+one-sided normal distributions.  Each parameter "K" defines both a
+3-sigma range and a hard cutoff, following one of the two patterns:
+
+  - Symmetric jitter:
+        "K * normal(0, 1/3)" clipped to "[-K, +K]"
+
+  - One-sided jitter (fractions, dropout rates):
+        "K * abs(normal(0, 1/3))" clipped to "[0, K]"
+
+These conventions ensure stable, statistically well-behaved distortions while
+preserving intuitive user-controlled bounds on all grid perturbations.
+
+________________________________________________________________________________________
+
 https://chatgpt.com/c/69120de6-5468-832d-8bff-88120cb94daa
 
-PROMPT
+LLM Code Generation PROMPT
+--------------------------
 
 Let's work on a flexible Matplotlib grid generator utility.
 Output:
@@ -23,6 +68,7 @@ lines.) I also want to jitter angles of individual lines symmetrically with
 a random fraction for each of the four types (selected fraction normally distributed
 with mu=0% and sigma=25%). I also want to randomly drop a fraction (mu=0%, sigma=5%)
 lines for each group.
+________________________________________________________________________________________
 """
 
 from __future__ import annotations
@@ -43,7 +89,7 @@ from numpy.typing import NDArray
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
-from utils.rng import RNGBackend
+from utils.rng import RNGBackend, RNG, get_rng
 
 BBoxBounds = Union[
     tuple[Real, Real, Real, Real,],
@@ -51,26 +97,27 @@ BBoxBounds = Union[
 ]
 
 
+# ---------------------------------------------------------------------------
+# Key grid distortion parameters
+# ---------------------------------------------------------------------------
 @dataclass
 class GridJitterConfig:
     """Configuration for grid-level and line-level jitter.
 
     Attributes:
-        global_angle_3sigma_deg:   3sigma for global jitter of (alpha, theta), degrees.
-        line_angle_3sigma_deg:     3sigma for per-line angle jitter, degrees.
-        line_offset_3sigma_factor: 3sigma for per-line offset jitter as a fraction of
-            the corresponding step (major/minor).
-        jitter_fraction_sigma:     sigma for the fraction of lines that receive per-line
-            jitter in each group (x_major, x_minor, y_major, y_minor). The fraction
-            itself is sampled as |N(0, jitter_fraction_sigma)| and clipped to [0, 1].
-        drop_fraction_sigma:       sigma for the fraction of lines randomly dropped in
-            each group, sampled as |N(0, drop_fraction_sigma)|, clipped to [0, 1].
+        global_angle_deg:     3sigma for global jitter of (alpha, theta), degrees.
+        line_angle_deg:       3sigma for per-line angle jitter, degrees.
+        line_offset_factor:   3sigma for per-line offset jitter as a fraction of
+                                  the corresponding grid spacing (major/minor).
+        line_offset_fraction: 3sigma for the fraction of lines that receive per-line
+                                  jitter in each group (x_major, x_minor, y_major, y_minor).
+        drop_fraction:        3sigma for the fraction of lines randomly dropped in each group.
     """
-    global_angle_3sigma_deg:   float = 5.0
-    line_angle_3sigma_deg:     float = 3.0
-    line_offset_3sigma_factor: float = 0.4
-    jitter_fraction_sigma:     float = 0.25
-    drop_fraction_sigma:       float = 0.05
+    global_angle_deg:     float = 6
+    line_angle_deg:       float = 3
+    line_offset_factor:   float = 0.4
+    line_offset_fraction: float = 0.25
+    drop_fraction:        float = 0.05
 
 
 def generate_grid_collections(
@@ -97,38 +144,41 @@ def generate_grid_collections(
             Rotation of the x-family axis in degrees (CCW, world coordinates).
             The y-family axis is at theta_deg + alpha_deg.
         x_major:
-            Step along the x-coordinate for major x-lines (world-independent).
+            X major spacing (world-independent).
         x_minor:
-            Step along the x-coordinate for minor x-lines.
+            X minor spacing
         y_major:
-            Step along the y-coordinate for major y-lines.
+            Y major spacing
         y_minor:
-            Step along the y-coordinate for minor y-lines.
+            Y minor spacing
         jitter:
             If provided, enables all jitter behavior controlled by GridJitterConfig.
             If None, the grid is perfectly regular (no jitter, no dropping).
         rng:
-            Optional NumPy random Generator. If None, a default_rng() is used.
+            Optional NumPy random Generator. If None, a custom thread-safe class RNG is used.
 
     Returns:
         (x_major_lc, x_minor_lc, y_major_lc, y_minor_lc)
         Each is a matplotlib.collections.LineCollection.
     """
-    x_min, y_min, x_max, y_max = _parse_bbox(bbox)
-
+    # --- RNG setup ---------------------------------------------------------
     if rng is None:
-        rng = np.random.default_rng()
+        rng = get_rng(thread_safe=True, use_numpy=True)
+    normal3s = getattr(
+        rng, "normal3s",
+        lambda: max(-1, min(1, float(rng.normalvariate(0, 1.0 / 3.0)))),
+    )
+
+    x_min, y_min, x_max, y_max = _parse_bbox(bbox)
 
     # ---------------------------------------------------------------------------
     # 1) Global angle jitter for alpha and theta
     # ---------------------------------------------------------------------------
-    if jitter is not None and jitter.global_angle_3sigma_deg > 0:
-        sigma_global_rad = math.radians(jitter.global_angle_3sigma_deg / 3.0)
-        theta = math.radians(theta_deg) + rng.normal(0.0, sigma_global_rad)
-        alpha = math.radians(alpha_deg) + rng.normal(0.0, sigma_global_rad)
-    else:
-        theta = math.radians(theta_deg)
-        alpha = math.radians(alpha_deg)
+    theta = math.radians(theta)
+    alpha = math.radians(alpha)
+    if jitter is not None and jitter.global_angle_deg > 0:
+        theta += math.radians(jitter.global_angle_deg * normal3s())
+        alpha += math.radians(jitter.global_angle_deg * normal3s())
 
     # Basis vectors for the oblique grid:
     # x-family coordinate axis (u) at angle theta
@@ -159,9 +209,9 @@ def generate_grid_collections(
     # 3) Common jitter sigmas for per-line effects
     # ---------------------------------------------------------------------------
     if jitter is not None:
-        line_angle_sigma_rad = math.radians(jitter.line_angle_3sigma_deg / 3.0)
+        line_angle_jitter_rad = math.radians(jitter.line_angle_deg)
     else:
-        line_angle_sigma_rad = 0.0
+        line_angle_jitter_rad = 0.0
 
     # ---------------------------------------------------------------------------
     # 4) Build each of the four line families
@@ -181,7 +231,7 @@ def generate_grid_collections(
         rng=rng,
         jitter=jitter,
         base_offset_step=x_major,
-        line_angle_sigma_rad=line_angle_sigma_rad,
+        line_angle_jitter_rad=line_angle_jitter_rad,
     )
 
     # X minor
@@ -195,7 +245,7 @@ def generate_grid_collections(
         rng=rng,
         jitter=jitter,
         base_offset_step=x_minor,
-        line_angle_sigma_rad=line_angle_sigma_rad,
+        line_angle_jitter_rad=line_angle_jitter_rad,
     )
 
     # Y major
@@ -209,7 +259,7 @@ def generate_grid_collections(
         rng=rng,
         jitter=jitter,
         base_offset_step=y_major,
-        line_angle_sigma_rad=line_angle_sigma_rad,
+        line_angle_jitter_rad=line_angle_jitter_rad,
     )
 
     # Y minor
@@ -223,7 +273,7 @@ def generate_grid_collections(
         rng=rng,
         jitter=jitter,
         base_offset_step=y_minor,
-        line_angle_sigma_rad=line_angle_sigma_rad,
+        line_angle_jitter_rad=line_angle_jitter_rad,
     )
 
     # ---------------------------------------------------------------------------
@@ -268,7 +318,7 @@ def _sample_fraction(rng: RNGBackend, sigma: float) -> float:
 def _build_line_family(coord_min: float, coord_max: float, step: float,
                        fixed_vec: NDArray, dir_vec: NDArray, bbox: BBoxBounds,
                        rng: RNGBackend, jitter: GridJitterConfig,
-                       base_offset_step: float, line_angle_sigma_rad: float,) -> NDArray:
+                       base_offset_step: float, line_angle_jitter_rad: float,) -> NDArray:
     """Generate clipped line segments for one family (major/minor X or Y).
 
     Args:
@@ -283,7 +333,7 @@ def _build_line_family(coord_min: float, coord_max: float, step: float,
         rng:       NumPy RNG.
         jitter:   Jitter configuration or None.
         base_offset_step:     The step size used to scale the offset jitter.
-        line_angle_sigma_rad: sigma for per-line angle jitter in radians.
+        line_angle_jitter_rad: sigma for per-line angle jitter in radians.
 
     Returns:
         segments: ndarray of shape (n_lines, 2, 2).
@@ -311,9 +361,9 @@ def _build_line_family(coord_min: float, coord_max: float, step: float,
     # Per-group jitter/drop fractions (independent for each of the 4 families)
     # ---------------------------------------------------------------------------
     if jitter is not None:
-        jitter_frac = _sample_fraction(rng, jitter.jitter_fraction_sigma)
-        drop_frac = _sample_fraction(rng, jitter.drop_fraction_sigma)
-        offset_sigma = (jitter.line_offset_3sigma_factor * base_offset_step) / 3.0
+        jitter_frac = _sample_fraction(rng, jitter.line_offset_fraction)
+        drop_frac = _sample_fraction(rng, jitter.drop_fraction)
+        offset_sigma = (jitter.line_offset_factor * base_offset_step) / 3.0
     else:
         jitter_frac = 0.0
         drop_frac = 0.0
@@ -356,8 +406,8 @@ def _build_line_family(coord_min: float, coord_max: float, step: float,
         if jitter is not None and jitter_mask[i]:
             if offset_sigma > 0:
                 c += rng.normal(0.0, offset_sigma)
-            if line_angle_sigma_rad > 0:
-                phi += rng.normal(0.0, line_angle_sigma_rad)
+            if line_angle_jitter_rad > 0:
+                phi += rng.normal(0.0, line_angle_jitter_rad)
 
         # Line direction in world coordinates
         d = np.array([math.cos(phi), math.sin(phi)], dtype=float)
