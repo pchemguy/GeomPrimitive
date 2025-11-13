@@ -59,6 +59,7 @@ from numbers import Real
 from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
 from matplotlib.collections import LineCollection
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -97,11 +98,11 @@ class GridJitterConfig:
             sub-grid.
     """
 
-    global_angle_deg: float = 6.0
-    line_angle_deg: float = 3.0
-    line_offset_factor: float = 0.4
-    line_offset_fraction: float = 0.25
-    drop_fraction: float = 0.05
+    global_angle_deg     : float = 6.0
+    line_angle_deg       : float = 3.0
+    line_offset_factor   : float = 0.4
+    line_offset_fraction : float = 0.25
+    drop_fraction        : float = 0.05
 
     def __post_init__(self) -> None:
         """Validate that all fields are non-negative Real and coerce to float."""
@@ -133,22 +134,12 @@ class GridJitterConfig:
     # Internal primitive: symmetric truncated normal in [-1, 1]
     # ---------------------------------------------------------------------------
     @staticmethod
-    def _sample_normal3s(rng: RNGBackend) -> float:
-        """Return a symmetric truncated normal sample in [-1, 1].
-
-        The RNG is probed in this order:
-
-            1) rng.normal()                            (custom)
-            2) rng.normalvariate(0.0, 1/3)             (random.Random-like)
-
-        Raises:
-            TypeError: If no compatible method is found on the RNG.
-        """
+    def normal3s(rng: RNGBackend) -> float:
+        """Return a symmetric truncated normal sample in [-1, 1]."""
         if hasattr(rng, "normal"):            
             sample = rng.normal(0, 1/3)
         else:
             sample = rng.normalvariate(0, 1/3)
-
         return max(-1.0, min(1.0, float(sample)))
 
     # ---------------------------------------------------------------------------
@@ -158,13 +149,13 @@ class GridJitterConfig:
         """Return a signed global angle jitter in degrees for alpha and theta."""
         if self.global_angle_deg <= 0.0:
             return 0.0
-        return self.global_angle_deg * self._sample_normal3s(rng)
+        return self.global_angle_deg * self.normal3s(rng)
 
     def jitter_line_angle(self, rng: object) -> float:
         """Return a per-line signed angle jitter in degrees."""
         if self.line_angle_deg <= 0.0:
             return 0.0
-        return self.line_angle_deg * self._sample_normal3s(rng)
+        return self.line_angle_deg * self.normal3s(rng)
 
     def jitter_line_offset(self, rng: object) -> float:
         """Return a signed offset coefficient in [-line_offset_factor, +line_offset_factor].
@@ -174,7 +165,7 @@ class GridJitterConfig:
         """
         if self.line_offset_factor <= 0.0:
             return 0.0
-        return self.line_offset_factor * self._sample_normal3s(rng)
+        return self.line_offset_factor * self.normal3s(rng)
 
     def jitter_offset_fraction(self, rng: object) -> float:
         """Return the fraction of lines that receive per-line jitter.
@@ -183,7 +174,7 @@ class GridJitterConfig:
         """
         if self.line_offset_fraction <= 0.0:
             return 0.0
-        return self.line_offset_fraction * abs(self._sample_normal3s(rng))
+        return self.line_offset_fraction * abs(self.normal3s(rng))
 
     def jitter_drop_fraction(self, rng: object) -> float:
         """Return the fraction of lines dropped in a sub-grid.
@@ -192,7 +183,7 @@ class GridJitterConfig:
         """
         if self.drop_fraction <= 0.0:
             return 0.0
-        return self.drop_fraction * abs(self._sample_normal3s(rng))
+        return self.drop_fraction * abs(self.normal3s(rng))
 
     # ---------------------------------------------------------------------------
     # Hand-drawn preset
@@ -220,131 +211,70 @@ class GridJitterConfig:
     # Style preset factory
     # ---------------------------------------------------------------------------
     @staticmethod
-    def preset(name: str, rng: Optional[object] = None) -> "GridJitterConfig":
+    def preset(name: str) -> "GridJitterConfig":
         """
-        Return a randomized jitter configuration corresponding to a named style.
+        Return a deterministic jitter configuration corresponding to a named style.
 
         Supported styles:
-            - "sketchy":       freehand draft look
-            - "technical":     clean but slightly imperfect
-            - "messy":         chaotic, jittery, high dropout
-            - "blueprint":     precise, low jitter, no dropout
-
-        Each style generates jitter parameters within controlled bounds to
-        keep the visual character consistent but non-repetitive.
-
-        Args:
-            name:
-                Name of style preset.
-            rng:
-                Optional RNG used to randomize parameters. If None, creates
-                a private random.Random() instance.
+            - "sketchy"
+            - "technical"
+            - "messy"
+            - "blueprint"
+            - "handwriting_synthetic"
+            - "engineering_paper"
+            - "architectural_drift"
+            - "printlike_subtle"
 
         Returns:
             A GridJitterConfig instance.
         """
-        if rng is None:
-            rng = random.Random()
 
         style = name.lower().strip()
 
-        # Convenience: bounded random generator
-        def r(min_v: float, max_v: float) -> float:
-            return min_v + (max_v - min_v) * rng.random()
-
         if style == "sketchy":
-            # Hand-drawn margin sketch, slightly irregular
-            return GridJitterConfig(
-                global_angle_deg=r(6, 15),
-                line_angle_deg=r(5, 12),
-                line_offset_factor=r(0.5, 0.9),
-                line_offset_fraction=r(0.30, 0.70),
-                drop_fraction=r(0.03, 0.10),
-            )
-
+            return GridJitterConfig(global_angle_deg=12.0, line_angle_deg=8.0,
+                line_offset_factor=0.8, line_offset_fraction=0.50, drop_fraction=0.07)
         if style == "technical":
-            # Like a slightly imperfect CAD printout
-            return GridJitterConfig(
-                global_angle_deg=r(0.5, 2.0),
-                line_angle_deg=r(0.5, 1.5),
-                line_offset_factor=r(0.05, 0.15),
-                line_offset_fraction=r(0.05, 0.15),
-                drop_fraction=r(0.0, 0.02),
-            )
-
+            return GridJitterConfig(global_angle_deg=1.5, line_angle_deg=1.0,
+                line_offset_factor=0.10, line_offset_fraction=0.10, drop_fraction=0.01)
         if style == "messy":
-            # Chaotic scribble mode
-            return GridJitterConfig(
-                global_angle_deg=r(10, 25),
-                line_angle_deg=r(10, 25),
-                line_offset_factor=r(0.8, 1.5),
-                line_offset_fraction=r(0.50, 1.00),
-                drop_fraction=r(0.10, 0.25),
-            )
-
+            return GridJitterConfig(global_angle_deg=20.0, line_angle_deg=18.0,
+                line_offset_factor=1.2, line_offset_fraction=0.80, drop_fraction=0.18)
         if style == "blueprint":
-            # clean technical drawing, crisp CAD feel
-            return GridJitterConfig(
-                global_angle_deg=r(0.0, 0.5),
-                line_angle_deg=r(0.0, 0.5),
-                line_offset_factor=r(0.0, 0.05),
-                line_offset_fraction=r(0.0, 0.05),
-                drop_fraction=r(0.0, 0.01),
-            )
-
+            return GridJitterConfig(global_angle_deg=0.3, line_angle_deg=0.3,
+                line_offset_factor=0.05, line_offset_fraction=0.05, drop_fraction=0.01)
         if style == "handwriting_synthetic":
-            return GridJitterConfig(
-                global_angle_deg=r(2.0, 6.0),
-                line_angle_deg=r(1.0, 4.0),
-                line_offset_factor=r(0.10, 0.30),
-                line_offset_fraction=r(0.20, 0.60),
-                drop_fraction=r(0.02, 0.07),
-            )
-
+            return GridJitterConfig(global_angle_deg=4.0, line_angle_deg=3.0,
+                line_offset_factor=0.20, line_offset_fraction=0.40, drop_fraction=0.05)
         if style == "engineering_paper":
-            return GridJitterConfig(
-                global_angle_deg=r(0.8, 2.0),
-                line_angle_deg=r(0.4, 1.2),
-                line_offset_factor=r(0.03, 0.08),
-                line_offset_fraction=r(0.05, 0.15),
-                drop_fraction=r(0.00, 0.01),
-            )
-
+            return GridJitterConfig(global_angle_deg=1.5, line_angle_deg=0.8,
+                line_offset_factor=0.06, line_offset_fraction=0.10, drop_fraction=0.01)
         if style == "architectural_drift":
-            return GridJitterConfig(
-                global_angle_deg=r(3.0, 8.0),      # drift mostly here
-                line_angle_deg=r(0.1, 0.5),
-                line_offset_factor=r(0.01, 0.05),
-                line_offset_fraction=r(0.02, 0.08),
-                drop_fraction=r(0.00, 0.00),
-            )
-
+            return GridJitterConfig(global_angle_deg=5.5, line_angle_deg=0.3,
+                line_offset_factor=0.03, line_offset_fraction=0.05, drop_fraction=0.00)
         if style == "printlike_subtle":
-            return GridJitterConfig(
-                global_angle_deg=r(0.0, 0.3),
-                line_angle_deg=r(0.0, 0.3),
-                line_offset_factor=r(0.00, 0.02),
-                line_offset_fraction=r(0.00, 0.05),
-                drop_fraction=r(0.00, 0.01),
-            )
+            return GridJitterConfig(global_angle_deg=0.15, line_angle_deg=0.15,
+                line_offset_factor=0.01, line_offset_fraction=0.02, drop_fraction=0.00)
 
         raise ValueError(
-            f"Unknown jitter preset '{name}'. "
-            "Valid presets are: sketchy, technical, messy, blueprint."
+            f"Unknown jitter preset '{name}'.\n"
+            "Valid presets: sketchy, technical, messy, blueprint, "
+            "handwriting_synthetic, engineering_paper, architectural_drift, "
+            "printlike_subtle."
         )
 
 
 def generate_grid_collections(
-    bbox: BBoxLike,
-    obliquity_deg: float,
-    rotation_deg:  float,
-    x_major_step:  float,
-    x_minor_step:  float,
-    y_major_step:  float,
-    y_minor_step:  float,
-    jitter: GridJitterConfig = None,
-    rng: object = None,
-) -> Tuple[LineCollection, LineCollection, LineCollection, LineCollection]:
+        bbox          : BBoxLike,
+        obliquity_deg : float,
+        rotation_deg  : float,
+        x_major_step  : float,
+        x_minor_step  : float,
+        y_major_step  : float,
+        y_minor_step  : float,
+        jitter        : GridJitterConfig = None,
+        rng           : RNGBackend       = None,
+    ) -> Tuple[LineCollection, LineCollection, LineCollection, LineCollection]:
     """Generate LineCollections for a 2D oblique grid with optional jitter.
 
     Args:
@@ -496,17 +426,17 @@ def generate_grid_collections(
 
 
 def debug_dump_grid_info(
-    bbox: BBoxLike,
-    obliquity_deg  : float,
-    rotation_deg   : float,
-    x_major_step   : float,
-    x_minor_step   : float,
-    y_major_step   : float,
-    y_minor_step   : float,
-    jitter: GridJitterConfig = None,
-    rng: object = None,
-    file=None,
-) -> None:
+        bbox          : BBoxLike,
+        obliquity_deg : float,
+        rotation_deg  : float,
+        x_major_step  : float,
+        x_minor_step  : float,
+        y_major_step  : float,
+        y_minor_step  : float,
+        jitter        : GridJitterConfig = None,
+        rng           : RNGBackend       = None,
+        file                             = None,
+    ) -> None:
     """
     Print a detailed diagnostic dump of grid construction internals.
 
@@ -579,15 +509,12 @@ def debug_dump_grid_info(
     M = np.array([[ex[0], ey[0]], [ex[1], ey[1]]], dtype=float)
     Minv = np.linalg.inv(M)
 
-    corners = np.array(
-        [
+    corners = np.array([
             [x_min, y_min],
             [x_max, y_min],
             [x_min, y_max],
             [x_max, y_max],
-        ],
-        dtype=float,
-    )
+    ], dtype=float)
     uv = corners @ Minv.T
     u_vals = uv[:, 0]
     v_vals = uv[:, 1]
@@ -663,11 +590,9 @@ def debug_dump_grid_info(
 
 def _parse_bbox(bbox: BBoxLike) -> BBoxTuple:
     """Normalize bbox into the form (x_min, y_min, x_max, y_max)."""
-    if (
-        isinstance(bbox, Sequence)
+    if (isinstance(bbox, Sequence)
         and len(bbox) == 2
-        and isinstance(bbox[0], Sequence)
-    ):
+        and isinstance(bbox[0], Sequence)):
         (x0, y0), (x1, y1) = bbox  # type: ignore[misc]
     elif isinstance(bbox, Sequence) and len(bbox) == 4:
         x0, y0, x1, y1 = bbox  # type: ignore[misc]
@@ -685,16 +610,16 @@ def _parse_bbox(bbox: BBoxLike) -> BBoxTuple:
 
 
 def _build_line_family(
-    coord_min: float,
-    coord_max: float,
-    step: float,
-    fixed_vec: np.ndarray,
-    dir_vec: np.ndarray,
-    bbox: BBoxTuple,
-    rng: object,
-    jitter: Optional[GridJitterConfig],
-    base_offset_step: float,
-) -> np.ndarray:
+        coord_min        : float,
+        coord_max        : float,
+        step             : float,
+        fixed_vec        : NDarray,
+        dir_vec          : NDarray,
+        bbox             : BBoxTuple,
+        rng              : RNGBackend,
+        jitter           : GridJitterConfig,
+        base_offset_step : float,
+    ) -> NDarray:
     """Generate clipped line segments for a single grid-line family.
 
     Args:
@@ -825,13 +750,13 @@ def _build_line_family(
 
 
 def _clip_infinite_line_to_bbox(
-    p0: np.ndarray,
-    d: np.ndarray,
-    x_min: float,
-    y_min: float,
-    x_max: float,
-    y_max: float,
-) -> Optional[np.ndarray]:
+        p0    : NDarray,
+        d     : NDarray,
+        x_min : float,
+        y_min : float,
+        x_max : float,
+        y_max : float,
+    ) -> NDarray:
     """Clip an infinite line to an axis-aligned bounding box.
 
     The infinite line is given by p(t) = p0 + t * d.
@@ -881,4 +806,3 @@ def _clip_infinite_line_to_bbox(
     p1 = np.array([x0 + t1 * dx, y0 + t1 * dy], dtype=float)
     p2 = np.array([x0 + t2 * dx, y0 + t2 * dy], dtype=float)
     return np.stack([p1, p2], axis=0)
-
