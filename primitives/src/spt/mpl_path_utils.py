@@ -323,6 +323,8 @@ def random_srt_path(
         raise TypeError(f"Expected mplPath, got {type(shape).__name__}")
     if not (isinstance(canvas_x1x2, tuple) and isinstance(canvas_y1y2, tuple)):
         raise TypeError("canvas_x1x2 and canvas_y1y2 must be tuples of floats")
+    if not origin is None and not isinstance(origin, tuple):
+        raise TypeError(f"origin must be tuples of floats, not '{type(origin).__name__}'")
 
     # --- RNG ---------------------------------------------------------------
     if rng is None:

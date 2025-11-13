@@ -32,6 +32,7 @@ __all__ = ["GridJitterConfig", "generate_grid_collections",]
 import os
 import sys
 import math
+from numbers import Integral, Real
 from dataclasses import dataclass
 from typing import Optional, Union
 
@@ -44,10 +45,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from utils.rng import RNGBackend
 
-numeric = Union[int, float]
-PointXY = tuple[numeric, numeric]
-BBoxBounds = tuple[PointXY, PointXY, PointXY, PointXY]
-BBox = Union[tuple[PointXY, PointXY], BBoxBounds]
+BBoxBounds = Union[
+    tuple[Real, Real, Real, Real,],
+    tuple[tuple[Real, Real], tuple[Real, Real],],
+]
 
 
 @dataclass
@@ -73,7 +74,7 @@ class GridJitterConfig:
 
 
 def generate_grid_collections(
-        bbox      : BBox,
+        bbox      : BBoxBounds,
         alpha_deg : float,
         theta_deg : float,
         x_major   : float,
@@ -431,14 +432,14 @@ def main():
     bbox = ((-10.0, -10.0), (10.0, 10.0))
     
     x_major_lc, x_minor_lc, y_major_lc, y_minor_lc = generate_grid_collections(
-      bbox=bbox,
-      alpha_deg=90.0,      # orthogonal
-      theta_deg=15.0,      # rotate grid 15deg CCW
-      x_major=2.0,
-      x_minor=0.5,
-      y_major=2.0,
-      y_minor=0.5,
-      jitter=GridJitterConfig(),  # enable jitter with defaults
+        bbox=bbox,
+        alpha_deg=90.0,      # orthogonal
+        theta_deg=15.0,      # rotate grid 15deg CCW
+        x_major=2.0,
+        x_minor=0.5,
+        y_major=2.0,
+        y_minor=0.5,
+        jitter=GridJitterConfig(),  # enable jitter with defaults
     )
     
     # Style the collections however you like

@@ -53,16 +53,17 @@ class RNG:
 
     def __init__(self, seed: int = None, use_numpy: bool = False):
         self._lock = threading.Lock()
-        seed_val = (seed or (os.getpid()
-                   ^ (time.time_ns() & 0xFFFFFFFF)
-                   ^ random.getrandbits(32)))
+        seed_val = (
+            seed or 
+            os.getpid() ^ (time.time_ns() & 0xFFFFFFFF) ^ random.getrandbits(32)
+        )
+
+        self._use_numpy = use_numpy
 
         if use_numpy and np is not None:
             self._rng: RNGBackend = np.random.default_rng(seed_val)
-            self._use_numpy = True
         else:
             self._rng: RNGBackend = random.Random(seed_val)
-            self._use_numpy = False
 
     # -----------------------------------------------------------------
     # Core seeding
@@ -70,9 +71,10 @@ class RNG:
     def seed(self, seed: int = None) -> None:
         """Reinitialize the RNG in place (preserves object identity)."""
         with self._lock:
-            seed_val = (seed or (os.getpid()
-                       ^ (time.time_ns() & 0xFFFFFFFF)
-                       ^ random.getrandbits(32)))
+            seed_val = (
+                seed or 
+                os.getpid() ^ (time.time_ns() & 0xFFFFFFFF) ^ random.getrandbits(32)
+            )
 
             if self._use_numpy and np is not None:
                 self._rng = np.random.default_rng(seed_val)
