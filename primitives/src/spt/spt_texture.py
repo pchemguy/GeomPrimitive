@@ -12,7 +12,6 @@ __all__ = [
     "spt_texture_combined",
     "spt_texture_fibers",
     "spt_texture_fold_crease",
-    "spt_texture_coffee_stains",
 ]
 
 import os
@@ -413,66 +412,6 @@ def spt_texture_fold_crease(
 
 
 # ======================================================================
-#  Stains / smudges
-# ======================================================================
-def spt_texture_coffee_stains(
-        img       : Union[ImageBGR, ImageBGRF],
-        *,
-        n_stains     : int                        = 1,
-        radius_range : Tuple[int, int]            = (25, 80),
-        amplitude    : float                      = 0.15,
-        color        : Tuple[float, float, float] = (0.25, 0.15, 0.05),  # brown
-        seed         : int                        = None,
-    ) -> Union[ImageBGR, ImageBGRF]:
-    """Add coffee-ring stains to the image."""
-
-    if n_stains <= 0 or amplitude <= 0:
-        return img
-
-    if img.dtype == np.uint8:
-        img_f = img.astype(np.float32) / 255.0
-    else:
-        img_f = img.astype(np.float32)
-
-    h, w = img_f.shape[:2]
-    rng = np.random.default_rng(seed)
-
-    y, x = np.mgrid[0:h, 0:w]
-    stains = np.zeros((h, w), np.float32)
-
-    for _ in range(n_stains):
-        # random center
-        cx = rng.uniform(0.2*w, 0.8*w)
-        cy = rng.uniform(0.2*h, 0.8*h)
-
-        # random radius
-        r = rng.uniform(*radius_range)
-
-        # distance to circle
-        d = np.sqrt((x - cx)**2 + (y - cy)**2)
-        ring = np.exp(-((d - r) / (0.10*r))**2)
-
-        # irregular mask
-        theta = np.arctan2(y - cy, x - cx)
-        mask = 0.5 + 0.5 * np.sin(3*theta + rng.uniform(0, 2*np.pi))
-
-        stains += ring * mask
-
-    stains = (stains - stains.min()) / (stains.max() - stains.min() + 1e-9)
-    stains *= amplitude
-
-    # brown stain modulation
-    color = np.array(color, np.float32).reshape(1,1,3)
-    out = img_f + stains[..., None] * color
-    out = np.clip(out, 0.0, 1.0)
-
-    if img.dtype == np.uint8:
-        return (out * 255).astype(np.uint8)
-    else:
-        return out
-
-
-# ======================================================================
 #  Additive "paper texture" modulation for an existing image
 # ======================================================================
 def spt_texture_additive(
@@ -742,18 +681,6 @@ def main():
     }
     demos["Crease"] = rgb_from_bgr(spt_texture_fold_crease(**crease_props))
 
-    stain_props = {
-        "img"          : bgr_from_rgba(render_scene(
-                             canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
-                             plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
-                         )),
-        "n_stains"     : 1,
-        "radius_range" : (25, 80),
-        "amplitude"    : 0.55,
-        "color"        : (1, 0.15, 0.05),
-    }
-    demos["Stains"] = rgb_from_bgr(spt_texture_coffee_stains(**stain_props))
-    
     show_RGBx_grid(demos, n_columns=4)
 
 
