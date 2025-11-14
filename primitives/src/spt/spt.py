@@ -39,7 +39,7 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
-from spt_texture  import spt_texture
+from spt_texture  import spt_texture, spt_texture_combined
 from spt_lighting import spt_lighting
 from spt_noise    import spt_noise
 from spt_geometry import spt_geometry
@@ -71,21 +71,31 @@ class SPTPipeline:
         return max(-amp, min(amp, cls.rng.normalvariate(0, sigma)))
 
     @classmethod
-    def normal3s(cls):
-        return max(-1, min(1, cls.rng.normalvariate(0, 1/3)))
+    def normal3s(cls, sf=1):
+        return sf * max(-1, min(1, cls.rng.normalvariate(0, 1/3)))
 
     # ---- Stages ----
 
     def stage1_texture(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies paper texture"""
         self.logger.debug(f"Running stage 2: Texture.")
+        rng: RNG = self.__class__.rng
+
         meta: dict = {
             "texture_strength": kwargs.get("texture_strength",
                                             abs(self.clamped_normal(0.5, 2))),
-            "texture_scale":    kwargs.get("texture_scale",
+            "texture_scale"   : kwargs.get("texture_scale",
                                             abs(self.clamped_normal(1, 8))),
         }
-        return meta, spt_texture(img, **meta)
+        meta_combined = {
+            "add_strength"  : kwargs.get("add_strength", abs(self.normal3s(0.5))),
+            "mul_strength"  : kwargs.get("mul_strength", abs(self.normal3s(0.5))),
+            "n_layers"      : kwargs.get("n_layers", rng.randint(2, 4)),
+            "base_radius"   : kwargs.get("base_radius", rng.randint(1, 8)),
+        }
+
+        #return spt_texture(img, **meta), meta
+        return spt_texture_combined(img, **meta_combined), meta
 
     def stage2_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies lighting gradient"""
@@ -103,7 +113,7 @@ class SPTPipeline:
             "brightness":     kwargs.get("brightness",
                                           self.clamped_normal(0.2, 0.5 * delta)),
         }
-        return meta, spt_lighting(img, **meta)
+        return spt_lighting(img, **meta), meta
 
     def stage3_noise(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies noise"""
@@ -116,7 +126,7 @@ class SPTPipeline:
             "speckle_var": kwargs.get("speckle_var", abs(self.clamped_normal(0.2))),
             "blur_sigma":  kwargs.get("blur_sigma", abs(self.clamped_normal(0.2))),
         }
-        return meta, spt_noise(img, **meta)
+        return spt_noise(img, **meta), meta
 
     def stage4_geometry(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies geometric effects."""
@@ -127,7 +137,7 @@ class SPTPipeline:
             "k1":     kwargs.get("k1",     self.clamped_normal(0.25)),
             "k2":     kwargs.get("k2",     self.clamped_normal(0.25)),
         }
-        return meta, spt_geometry(img, **meta)
+        return spt_geometry(img, **meta), meta
 
     def stage5_color(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies color effects."""
@@ -138,7 +148,7 @@ class SPTPipeline:
             "warm_strength":     kwargs.get("warm_strength",
                                              abs(self.clamped_normal(0.1, 0.5))),
         }
-        return meta, spt_vignette_and_color(img, **meta)
+        return spt_vignette_and_color(img, **meta), meta
 
     # ---- Pipeline ----
     def run(self, img: ImageBGR = None, **kwargs):
@@ -173,7 +183,7 @@ class SPTPipeline:
 
         for name, stage_fn in stages:
             t0 = time.perf_counter()
-            stage_meta, out_img = stage_fn(out_img, **kwargs)
+            out_img, stage_meta = stage_fn(out_img, **kwargs)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
             # Record metadata + timing

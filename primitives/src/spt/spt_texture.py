@@ -9,9 +9,9 @@ from __future__ import annotations
 
 __all__ = [
     "spt_texture",
+    "spt_texture_combined",
     "spt_texture_additive",
     "spt_texture_multiplicative",
-    "spt_texture_combined",
     "spt_texture_presets",
 ]
 
@@ -22,7 +22,7 @@ import random
 import math
 from typing import Union
 import numpy as np
-from numba import njit
+# from numba import njit
 import cv2
 
 import matplotlib as mpl
@@ -186,45 +186,47 @@ def _box_blur(img: ImageBGRF, radius: int) -> ImageBGRF:
     return vert
 
 
-# ======================================================================
-#  Numba - Reflect index i into range [0, n-1] like NumPy 'reflect'.
-# ======================================================================
-@njit
-def _reflect_index(i: int, n: int) -> int:
-    """Reflect index i into range [0, n-1] like NumPy 'reflect'."""
-    if i < 0:
-        return -i - 1
-    if i >= n:
-        return 2*n - i - 1
-    return i
-
-
-# ======================================================================
-#  Numba - Box blur - Fast approximation of a 2D blur
-# ======================================================================
-@njit
-def _box_blur_numba(img: np.ndarray, radius: int) -> np.ndarray:
-    h, w = img.shape
-    out_h = np.zeros((h, w), dtype=np.float32)
-    temp  = np.zeros((h, w), dtype=np.float32)
-
-    # Horizontal pass
-    for y in range(h):
-        for x in range(w):
-            s = 0.0
-            for k in range(x-radius, x+radius):
-                s += img[y, _reflect_index(k, w)]
-            temp[y, x] = s / (2 * radius)
-
-    # Vertical pass
-    for y in range(h):
-        for x in range(w):
-            s = 0.0
-            for k in range(y-radius, y+radius):
-                s += temp[_reflect_index(k, h), x]
-            out_h[y, x] = s / (2 * radius)
-
-    return out_h
+#  Quick preliminary tests did not show any noticable advantage.  
+#
+#  # ======================================================================  
+#  #  Numba - Reflect index i into range [0, n-1] like NumPy 'reflect'.      
+#  # ======================================================================  
+#  @njit                                                                     
+#  def _reflect_index(i: int, n: int) -> int:                                
+#      """Reflect index i into range [0, n-1] like NumPy 'reflect'."""       
+#      if i < 0:                                                             
+#          return -i - 1                                                     
+#      if i >= n:                                                            
+#          return 2*n - i - 1                                                
+#      return i                                                              
+#                                                                            
+#                                                                            
+#  # ======================================================================  
+#  #  Numba - Box blur - Fast approximation of a 2D blur                     
+#  # ======================================================================  
+#  @njit                                                                     
+#  def _box_blur_numba(img: np.ndarray, radius: int) -> np.ndarray:          
+#      h, w = img.shape                                                      
+#      out_h = np.zeros((h, w), dtype=np.float32)                            
+#      temp  = np.zeros((h, w), dtype=np.float32)                            
+#                                                                            
+#      # Horizontal pass                                                     
+#      for y in range(h):                                                    
+#          for x in range(w):                                                
+#              s = 0.0                                                       
+#              for k in range(x-radius, x+radius):                           
+#                  s += img[y, _reflect_index(k, w)]                         
+#              temp[y, x] = s / (2 * radius)                                 
+#                                                                            
+#      # Vertical pass                                                       
+#      for y in range(h):                                                    
+#          for x in range(w):                                                
+#              s = 0.0                                                       
+#              for k in range(y-radius, y+radius):                           
+#                  s += temp[_reflect_index(k, h), x]                        
+#              out_h[y, x] = s / (2 * radius)                                
+#                                                                            
+#      return out_h                                                          
 
 
 # ======================================================================
@@ -253,6 +255,8 @@ def spt_texture_additive(
         add_strength:
             Max absolute additive brightness variation (relative 0-1 scale).
             For uint8 images this corresponds to +/-(255 * add_strength) shifts.
+            NOTE: Because practical values are expected to be < 10% / 0.1,
+                  rescale supplied value by the ADD_SF factor.
         n_layers:
             Number of noise layers to accumulate (multi-scale).
         base_radius:
@@ -264,6 +268,7 @@ def spt_texture_additive(
     Returns:
         Image with additive paper modulation, same dtype as input.
     """
+    ADD_SF = 0.1
     if add_strength <= 0 or n_layers <= 0:
         return img
 
@@ -289,7 +294,7 @@ def spt_texture_additive(
     # --- Normalize noise field exactly like generate_paper_texture ------
     acc -= acc.mean()
     acc /= (acc.std() or 1.0)
-    acc *= float(add_strength)
+    acc *= float(add_strength * ADD_SF)
 
     # --- Apply additive brightness modulation ---------------------------
     # broadcast acc -> (H,W,1), add to all channels
@@ -309,7 +314,7 @@ def spt_texture_additive(
 def spt_texture_multiplicative(
         img           : Union[ImageBGR, ImageBGRF],
         *,
-        mult_strength : float = 0.05,
+        mul_strength : float = 0.05,
         n_layers      : int   = 3,
         base_radius   : int   = 1,
         seed          : int   = None,
@@ -318,12 +323,15 @@ def spt_texture_multiplicative(
     Multiplicative texture modulation using the same multi-scale box-blur noise.
 
     Multiplier field:
-        M(x,y) = 1 + mult_strength * N(x,y)
+        M(x,y) = 1 + mul_strength * MUL_SF * N(x,y)
     where N is zero-mean, std=1 noise after multi-scale smoothing.
+    NOTE: Because practical values are expected to be < 10% / 0.1,
+          rescale supplied value by the MUL_SF factor.
 
     Returns same dtype as input.
     """
-    if mult_strength <= 0 or n_layers <= 0:
+    MUL_SF = 0.1
+    if mul_strength <= 0 or n_layers <= 0:
         return img
 
     # Convert to float [0,1]
@@ -347,7 +355,7 @@ def spt_texture_multiplicative(
     acc -= acc.mean()
     acc /= (acc.std() or 1.0)
 
-    M = 1.0 + mult_strength * acc
+    M = 1.0 + mul_strength * MUL_SF * acc
     out = img_f * M[..., None]
     out = np.clip(out, 0.0, 1.0)
 
@@ -365,23 +373,26 @@ def spt_texture_combined(
         img           : Union[ImageBGR, ImageBGRF],
         *,
         add_strength  : float = 0.04,
-        mult_strength : float = 0.07,
+        mul_strength  : float = 0.07,
         n_layers      : int   = 3,
         base_radius   : int   = 1,
         seed          : int   = None,
     ) -> [ImageBGR, ImageBGRF]:
     """
     Combined additive + multiplicative paper texture.
-    Extremely realistic for scanned notebook pages.
 
     Combined model:
-        M(x,y) = mult_strength * N1
-        A(x,y) = add_strength  * N2
+        M(x,y) = mul_strength * N1
+        A(x,y) = add_strength  * ADD_SF * N2
         out    = img * (1 + M) + A
 
     N1, N2 are independent correlated noise fields.
+    NOTE: Because practical values are expected to be < 10% / 0.1,
+          rescale supplied value by MUL_SF and ADD_SF factors.
     """
-    if (add_strength <= 0 and mult_strength <= 0) or n_layers <= 0:
+    MUL_SF = 0.1
+    ADD_SF = 0.1
+    if (add_strength <= 0 and mul_strength <= 0) or n_layers <= 0:
         return img
 
     if img.dtype == np.uint8:
@@ -399,22 +410,20 @@ def spt_texture_combined(
         for i in range(n_layers):
             radius = base_radius * (2 ** i)
             noise = local_rng.normal(0, 1, size=(h, w)).astype(np.float32)
-            acc += _box_blur_numba(noise, radius)
+            acc += cv2.GaussianBlur(noise, (0, 0), radius)
+            # Note: Quick estimates show now advantage over the library call.
+            # acc += _box_blur_numba(noise, radius)
         acc -= acc.mean()
         acc /= (acc.std() or 1.0)
         return acc
 
-    noise_add  = smooth_noise(1000) if add_strength  > 0 else 0.0
-    noise_mult = smooth_noise(2000) if mult_strength > 0 else 0.0
+    noise_add = smooth_noise(1000)
+    noise_mul = smooth_noise(2000)
 
     # Apply combined texture
     out = img_f
-    if mult_strength > 0:
-        out = out * (1.0 + mult_strength * noise_mult[..., None])
-    if add_strength > 0:
-        out = out + (add_strength * noise_add[..., None])
-
-    out = np.clip(out, 0.0, 1.0)
+    out = np.clip((out * (1.0 + mul_strength * MUL_SF * noise_mul[..., None])
+                              + add_strength * ADD_SF * noise_add[..., None]), 0.0, 1.0)
 
     if img.dtype == np.uint8:
         return (out * 255).astype(np.uint8)
@@ -433,52 +442,24 @@ def spt_texture_presets(name: str) -> dict:
         cfg = spt_texture_presets("old_paper")
         img2 = spt_texture_combined(img, **cfg)        
     """
-    name = name.lower().strip()
+    MUL_SF = ADD_SF = 0.1
+    P = lambda a, m, nl, br, seed=None: {
+        "add_strength" : a / ADD_SF,
+        "mul_strength" : m / MUL_SF,
+        "n_layers"     : nl,
+        "base_radius"  : br,
+        "seed"         : seed,
+    }
 
-    if name == "old paper":
-        return dict(
-            add_strength=0.06,
-            mult_strength=0.10,
-            n_layers=4,
-            base_radius=3,
-            seed=None,
-        )
+    presets = {
+        "old paper"            : P(0.06,  0.10, 4, 3),
+        "scanned sheet"        : P(0.02,  0.12, 3, 2),
+        "notebook"             : P(0.045, 0.05, 3, 2),
+        "blueprint background" : P(0.02,  0.03, 4, 4),
+        "default"              : P(0.03,  0.04, 3, 2),
+    }    
 
-    if name == "scanned sheet":
-        return dict(
-            add_strength=0.02,
-            mult_strength=0.12,
-            n_layers=3,
-            base_radius=2,
-            seed=None,
-        )
-
-    if name == "notebook":
-        return dict(
-            add_strength=0.045,
-            mult_strength=0.05,
-            n_layers=3,
-            base_radius=2,
-            seed=None,
-        )
-
-    if name == "blueprint background":
-        return dict(
-            add_strength=0.02,
-            mult_strength=0.03,
-            n_layers=4,
-            base_radius=4,
-            seed=None,
-        )
-
-    # default clean paper
-    return dict(
-        add_strength=0.03,
-        mult_strength=0.04,
-        n_layers=3,
-        base_radius=2,
-            seed=None,
-    )
+    return presets.get(name.lower().strip(), presets["default"])
 
 
 def main():
@@ -532,7 +513,7 @@ def main():
                               canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
-        "add_strength"  : 0.04,
+        "add_strength"  : 0.4,
         "n_layers"      : 3,
         "base_radius"   : 2,
     }
@@ -543,7 +524,7 @@ def main():
                               canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
-        "mult_strength" : 0.07,
+        "mul_strength"  : 0.7,
         "n_layers"      : 3,
         "base_radius"   : 2,
     }
@@ -554,8 +535,8 @@ def main():
                               canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                               plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
                           )),
-        "add_strength"  : 0.04,
-        "mult_strength" : 0.05,
+        "add_strength"  : 0.4,
+        "mul_strength"  : 0.5,
         "n_layers"      : 3,
         "base_radius"   : 2,
     }
