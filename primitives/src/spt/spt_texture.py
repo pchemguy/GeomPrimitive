@@ -10,6 +10,7 @@ from __future__ import annotations
 __all__ = [
     "spt_texture",
     "spt_texture_combined",
+    "spt_texture_fibers",
     "spt_texture_additive",
     "spt_texture_multiplicative",
     "spt_texture_presets",
@@ -230,6 +231,189 @@ def _box_blur(img: ImageBGRF, radius: int) -> ImageBGRF:
 
 
 # ======================================================================
+#  Combined additive + multiplicative paper texture
+# ======================================================================
+def spt_texture_combined(
+        img           : Union[ImageBGR, ImageBGRF],
+        *,
+        add_strength  : float = 0.04,
+        mul_strength  : float = 0.07,
+        n_layers      : int   = 3,
+        base_radius   : int   = 1,
+        seed          : int   = None,
+    ) -> [ImageBGR, ImageBGRF]:
+    """
+    Combined additive + multiplicative paper texture.
+
+    Combined model:
+        M(x,y) = mul_strength * N1
+        A(x,y) = add_strength  * ADD_SF * N2
+        out    = img * (1 + M) + A
+
+    N1, N2 are independent correlated noise fields.
+    NOTE: Because practical values are expected to be < 10% / 0.1,
+          rescale supplied value by MUL_SF and ADD_SF factors.
+    """
+    MUL_SF = 0.1
+    ADD_SF = 0.1
+    if (add_strength <= 0 and mul_strength <= 0) or n_layers <= 0:
+        return img
+
+    if img.dtype == np.uint8:
+        img_f = img.astype(np.float32) / 255.0
+    else:
+        img_f = np.clip(img.astype(np.float32), 0, 1)
+
+    h, w = img_f.shape[:2]
+    rng = np.random.default_rng(seed)
+
+    # Generate two independent multi-scale noise fields
+    def smooth_noise(seed_offset: int):
+        acc = np.zeros((h, w), np.float32)
+        local_rng = np.random.default_rng(seed + seed_offset if seed is not None else None)
+        for i in range(n_layers):
+            radius = base_radius * (2 ** i)
+            noise = local_rng.normal(0, 1, size=(h, w)).astype(np.float32)
+            acc += cv2.GaussianBlur(noise, (0, 0), radius)
+            # Note: Quick estimates show now advantage over the library call.
+            # acc += _box_blur_numba(noise, radius)
+        acc -= acc.mean()
+        acc /= (acc.std() or 1.0)
+        return acc
+
+    noise_add = smooth_noise(1000)
+    noise_mul = smooth_noise(2000)
+
+    # Apply combined texture
+    out = img_f
+    out = np.clip((out * (1.0 + mul_strength * MUL_SF * noise_mul[..., None])
+                              + add_strength * ADD_SF * noise_add[..., None]), 0.0, 1.0)
+
+    if img.dtype == np.uint8:
+        return (out * 255).astype(np.uint8)
+    else:
+        return out
+
+
+# ======================================================================
+#  Paper fiber
+# ======================================================================
+def spt_texture_fibers(
+        img                    : Union[ImageBGR, ImageBGRF],
+        *,
+        fiber_strength         : float = 0.4,
+        fiber_orientation_deg  : float = 0.0,
+        sigma_long             : float = 12.0,
+        sigma_short            : float = 1.0,
+        seed                   : int   = None,
+    ) -> Union[ImageBGR, ImageBGRF]:
+    """
+    Add directional paper fibers via anisotropic blurring of noise.
+    
+    NOTE: Because practical values are expected to be < 10% / 0.1,
+          rescale supplied strength value by FIB_SF factor.    
+    """
+    FIB_SF = 0.1
+
+    if fiber_strength <= 0:
+        return img
+
+    if img.dtype == np.uint8:
+        img_f = img.astype(np.float32) / 255.0
+    else:
+        img_f = img.astype(np.float32)
+
+    h, w = img_f.shape[:2]
+    rng = np.random.default_rng(seed)
+
+    # white noise
+    noise = rng.normal(0, 1, size=(h, w)).astype(np.float32)
+
+    # Rotate noise so long-blur matches fiber direction
+    angle = fiber_orientation_deg
+    M = cv2.getRotationMatrix2D((w/2, h/2), angle, 1.0)
+    rot = cv2.warpAffine(noise, M, (w, h), flags=cv2.INTER_LINEAR)
+
+    # Anisotropic blur: long direction + short cross direction
+    fib = cv2.GaussianBlur(rot, (0,0), sigmaX=sigma_long, sigmaY=sigma_short)
+
+    # Rotate back
+    M2 = cv2.getRotationMatrix2D((w/2, h/2), -angle, 1.0)
+    fib = cv2.warpAffine(fib, M2, (w, h), flags=cv2.INTER_LINEAR)
+
+    # Normalize
+    fib -= fib.mean()
+    fib /= (fib.std() or 1.0)
+    fib *= fiber_strength * FIB_SF
+
+    out = img_f + fib[..., None]
+    out = np.clip(out, 0.0, 1.0)
+
+    if img.dtype == np.uint8:
+        return (out * 255).astype(np.uint8)
+    else:
+        return out
+
+
+# ======================================================================
+#  Paper fold / crease
+# ======================================================================
+def spt_texture_fold_crease(
+        img       : Union[ImageBGR, ImageBGRF],
+        *,
+        amplitude : float = 1.0,
+        sigma     : float = 12.0,
+        seed      : int   = None,
+    ) -> Union[ImageBGR, ImageBGRF]:
+    """
+    Simulate a paper fold by adding a crease line.
+    Bright center, slight dark overshoot on sides.
+    """
+    FOLD_SF = 0.1
+
+    if amplitude <= 0:
+        return img
+
+    if img.dtype == np.uint8:
+        img_f = img.astype(np.float32) / 255.0
+    else:
+        img_f = img.astype(np.float32)
+
+    h, w = img_f.shape[:2]
+    rng = np.random.default_rng(seed)
+
+    # Random line angle & offset
+    angle = rng.uniform(-0.4, 0.4)  # radians
+    offset = rng.uniform(-0.3, 0.3)  # relative 0-1
+
+    # Line normal vector pointing left/right
+    nx = np.cos(angle)
+    ny = np.sin(angle)
+
+    # Coordinates
+    y, x = np.mgrid[0:h, 0:w]
+    cx, cy = w/2, h/2
+
+    # Distance to crease line
+    d = (x - cx) * nx + (y - cy) * ny - offset * max(w, h)
+
+    # Gaussian lobe
+    crease = amplitude * FOLD_SF * np.exp(-(d / sigma) ** 2)
+
+    # Slight dark halo beyond the crease
+    halo = -0.6 * amplitude * FOLD_SF * np.exp(-((np.abs(d) - sigma*2) / (sigma*3)) ** 2)
+
+    texture = crease + halo
+    out = img_f + texture[..., None]
+    out = np.clip(out, 0.0, 1.0)
+
+    if img.dtype == np.uint8:
+        return (out * 255).astype(np.uint8)
+    else:
+        return out
+
+
+# ======================================================================
 #  Additive "paper texture" modulation for an existing image
 # ======================================================================
 def spt_texture_additive(
@@ -314,7 +498,7 @@ def spt_texture_additive(
 def spt_texture_multiplicative(
         img           : Union[ImageBGR, ImageBGRF],
         *,
-        mul_strength : float = 0.05,
+        mul_strength  : float = 0.05,
         n_layers      : int   = 3,
         base_radius   : int   = 1,
         seed          : int   = None,
@@ -360,71 +544,6 @@ def spt_texture_multiplicative(
     out = np.clip(out, 0.0, 1.0)
 
     # Return original dtype
-    if img.dtype == np.uint8:
-        return (out * 255).astype(np.uint8)
-    else:
-        return out
-
-
-# ======================================================================
-#  Combined additive + multiplicative paper texture
-# ======================================================================
-def spt_texture_combined(
-        img           : Union[ImageBGR, ImageBGRF],
-        *,
-        add_strength  : float = 0.04,
-        mul_strength  : float = 0.07,
-        n_layers      : int   = 3,
-        base_radius   : int   = 1,
-        seed          : int   = None,
-    ) -> [ImageBGR, ImageBGRF]:
-    """
-    Combined additive + multiplicative paper texture.
-
-    Combined model:
-        M(x,y) = mul_strength * N1
-        A(x,y) = add_strength  * ADD_SF * N2
-        out    = img * (1 + M) + A
-
-    N1, N2 are independent correlated noise fields.
-    NOTE: Because practical values are expected to be < 10% / 0.1,
-          rescale supplied value by MUL_SF and ADD_SF factors.
-    """
-    MUL_SF = 0.1
-    ADD_SF = 0.1
-    if (add_strength <= 0 and mul_strength <= 0) or n_layers <= 0:
-        return img
-
-    if img.dtype == np.uint8:
-        img_f = img.astype(np.float32) / 255.0
-    else:
-        img_f = np.clip(img.astype(np.float32), 0, 1)
-
-    h, w = img_f.shape[:2]
-    rng = np.random.default_rng(seed)
-
-    # Generate two independent multi-scale noise fields
-    def smooth_noise(seed_offset: int):
-        acc = np.zeros((h, w), np.float32)
-        local_rng = np.random.default_rng(seed + seed_offset if seed is not None else None)
-        for i in range(n_layers):
-            radius = base_radius * (2 ** i)
-            noise = local_rng.normal(0, 1, size=(h, w)).astype(np.float32)
-            acc += cv2.GaussianBlur(noise, (0, 0), radius)
-            # Note: Quick estimates show now advantage over the library call.
-            # acc += _box_blur_numba(noise, radius)
-        acc -= acc.mean()
-        acc /= (acc.std() or 1.0)
-        return acc
-
-    noise_add = smooth_noise(1000)
-    noise_mul = smooth_noise(2000)
-
-    # Apply combined texture
-    out = img_f
-    out = np.clip((out * (1.0 + mul_strength * MUL_SF * noise_mul[..., None])
-                              + add_strength * ADD_SF * noise_add[..., None]), 0.0, 1.0)
-
     if img.dtype == np.uint8:
         return (out * 255).astype(np.uint8)
     else:
@@ -490,7 +609,7 @@ def main():
     default_props = {"img": base_bgr,}
     demo_set = [
         {"texture_strength": 0.1, "texture_scale": 8},
-        {"texture_strength": 0.2, "texture_scale": 8},
+        #{"texture_strength": 0.2, "texture_scale": 8},
         #{"texture_strength": 0.4, "texture_scale": 8},
         #{"texture_strength": 0.8, "texture_scale": 8},
         {"texture_strength": 0.2, "texture_scale": 0.5},
@@ -541,6 +660,28 @@ def main():
         "base_radius"   : 2,
     }
     demos["Combined"] = rgb_from_bgr(spt_texture_combined(**combined_props))
+    
+    fiber_props = {
+        "img"           : bgr_from_rgba(render_scene(
+                              canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                              plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                          )),
+        "fiber_strength"        : 0.3, # 0.3 +/- 0.2 (uniform)
+        "fiber_orientation_deg" : 0.0,
+        "sigma_long"            : 10,  # 10 +/- 5    (uniform)
+        "sigma_short"           : 1,   #  1 +/- 0.5  (uniform)
+    }
+    demos["Fiber"] = rgb_from_bgr(spt_texture_fibers(**fiber_props))
+    
+    crease_props = {
+        "img"        : bgr_from_rgba(render_scene(
+                           canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                           plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                       )),
+        "amplitude"  : 1.0,
+        "sigma"      : 10,
+    }
+    demos["Crease"] = rgb_from_bgr(spt_texture_fold_crease(**crease_props))
     
     show_RGBx_grid(demos, n_columns=4)
 

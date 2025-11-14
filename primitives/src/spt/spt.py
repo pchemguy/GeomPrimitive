@@ -39,7 +39,9 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
-from spt_texture  import spt_texture, spt_texture_combined
+from spt_texture  import (
+    spt_texture, spt_texture_combined, spt_texture_fibers, spt_texture_fold_crease
+)
 from spt_lighting import spt_lighting
 from spt_noise    import spt_noise
 from spt_geometry import spt_geometry
@@ -81,21 +83,46 @@ class SPTPipeline:
         self.logger.debug(f"Running stage 2: Texture.")
         rng: RNG = self.__class__.rng
 
-        meta: dict = {
-            "texture_strength": kwargs.get("texture_strength",
-                                            abs(self.clamped_normal(0.5, 2))),
-            "texture_scale"   : kwargs.get("texture_scale",
-                                            abs(self.clamped_normal(1, 8))),
-        }
+        # meta: dict = {
+        #     "texture_strength": kwargs.get("texture_strength",
+        #                                    abs(self.clamped_normal(0.5, 2))),
+        #     "texture_scale"   : kwargs.get("texture_scale",
+        #                                    abs(self.clamped_normal(1, 8))),
+        # }
         meta_combined = {
             "add_strength"  : kwargs.get("add_strength", abs(self.normal3s(0.5))),
             "mul_strength"  : kwargs.get("mul_strength", abs(self.normal3s(0.5))),
             "n_layers"      : kwargs.get("n_layers", rng.randint(2, 4)),
             "base_radius"   : kwargs.get("base_radius", rng.randint(1, 8)),
         }
+        out = spt_texture_combined(img, **meta_combined)
 
-        #return spt_texture(img, **meta), meta
-        return spt_texture_combined(img, **meta_combined), meta
+        meta_fibers = None
+        if rng.choice((False, True)):
+            meta_fibers = {
+                "fiber_strength"        : kwargs.get("fiber_strength", abs(self.normal3s(0.4))),
+                "fiber_orientation_deg" : kwargs.get("fiber_orientation_deg", rng.randint(-90, 90)),
+                "sigma_long"            : kwargs.get("sigma_long", rng.uniform(5, 15)),
+                "sigma_short"           : kwargs.get("sigma_short", rng.uniform(0.5, 1.5)),
+            }
+            out = spt_texture_fibers(out, **meta_fibers)
+
+        meta_crease = None
+        if rng.choice((False, True)):
+            meta_crease = {
+                "amplitude" : kwargs.get("amplitude", rng.uniform(0, 1)),
+                "sigma"     : kwargs.get("sigma", rng.uniform(0, 10)),
+            }
+            out = spt_texture_fold_crease(out, **meta_crease)
+        
+        meta = {
+            "base"   : meta_combined,
+            "fibers" : meta_fibers,
+            "crease" : meta_crease,
+        }
+
+        # return spt_texture(img, **meta), meta
+        return out, meta
 
     def stage2_lighting(self, img: ImageBGR, **kwargs) -> tuple[dict, ImageBGR]:
         """Applies lighting gradient"""
