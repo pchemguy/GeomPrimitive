@@ -66,8 +66,13 @@ class SPTPipeline:
         """Re-seed the internal RNG (for deterministic replay)."""
         cls.rng.seed(seed)
 
-    def clamped_normal(self, sigma=1, amp=1):
-        return max(-amp, min(amp, self.__class__.rng.normalvariate(0, sigma)))
+    @classmethod
+    def clamped_normal(cls, sigma=1, amp=1):
+        return max(-amp, min(amp, cls.rng.normalvariate(0, sigma)))
+
+    @classmethod
+    def normal3s(cls):
+        return max(-1, min(1, cls.rng.normalvariate(0, 1/3)))
 
     # ---- Stages ----
 
