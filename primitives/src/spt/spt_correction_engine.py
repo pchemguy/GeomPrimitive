@@ -96,10 +96,10 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
 # Geometry: lens distortion + rolling shutter
 # ---------------------------------------------------------------------------
 def apply_radial_distortion(
-    img: np.ndarray,
-    k1: float,
-    k2: float = 0.0,
-) -> np.ndarray:
+        img: ImageRGBF,
+        k1: float,
+        k2: float = 0.0,
+    ) -> ImageRGBF:
     """Apply simple radial lens distortion in RGB float space.
   
     Args:
@@ -111,7 +111,6 @@ def apply_radial_distortion(
         Distorted image, RGB float [0, 1].
     """
     h, w = img.shape[:2]
-    # Normalized coordinates: [-1,1]
     yy, xx = np.indices((h, w))
     x = (xx - w / 2) / (w / 2)
     y = (yy - h / 2) / (h / 2)
@@ -123,8 +122,15 @@ def apply_radial_distortion(
 
     map_x = (x_dist * (w / 2) + w / 2).astype(np.float32)
     map_y = (y_dist * (h / 2) + h / 2).astype(np.float32)
-
-    return cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+  
+    # remap expects BGR/whatever, but we only care about spatial mapping
+    return cv2.remap(
+               (img * 255.0).astype(np.uint8),
+               map_x,
+               map_y,
+               interpolation=cv2.INTER_LINEAR,
+               borderMode=cv2.BORDER_REFLECT,
+           ).astype(np.float32) / 255.0
 
 
 def apply_rolling_shutter_skew(
