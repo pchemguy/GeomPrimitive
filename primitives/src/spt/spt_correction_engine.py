@@ -1,6 +1,60 @@
 """
 spt_correction_engine.py
 -----------
+
+## Camera-like “Correction Engine” - concrete implementation
+
+Self-contained Correction Engine:
+
+ - RGB float [0,1] in/out
+
+simulates:  
+ 1. lens distortion (radial) + optional rolling shutter skew
+ 2. CFA + demosaicing artifacts (using OpenCV Bayer demosaicing)
+ 3. PRNU and row/column FPN
+ 4. brightness- & ISO-dependent shot/read noise
+ 6. ISP-style denoise + sharpening
+ 8. vignette & slight color bias (smartphone / lab camera)
+ 9. JPEG roundtrip (mild compression, configurable)
+
+
+### Correction engine steps:
+
+1. **Lens Model Injection**  
+    * chromatic aberration
+    * realistic PSF
+    * slight field curvature blur
+    * rolling shutter skew
+2. **CFA & Demosaicing Simulation**
+    * convert to virtual-Bayer RAW
+    * apply CFA
+    * demosaic using bilinear or VNG
+    * introduces CFA artifacts
+3. **PRNU & Fixed-Pattern Noise**
+    * row/column banding
+    * pixel response non-uniformity
+4. **Shot + Read Noise Model**
+    * brightness-dependent Poisson
+    * Gaussian read noise
+    * color-correlated noise
+5. **ISO adaptive noise shaping**
+    * noise greater in shadows
+    * noise smaller in highlights
+6. **ISP Denoiser Simulation**
+    * wavelet-like
+    * patch-dependent
+7. **Sharpening + Halos**
+    * DOG-based halo
+    * edge overshoot/undershoot
+8. **Vignette & Tone Curve**
+    * highlight rolloff
+    * mild channel color shift
+9. **JPEG Simulation**
+    * DCT quantization
+    * block grid
+    * subtle quantization ghosts
+10. **Metadata removal or injection** (optional)
+
 """
 
 from __future__ import annotations
@@ -92,8 +146,13 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
     return camera_profile
 
 
+def uint8_from_float32(img_f: Union[ImageRGBF, ImageBGRF]) -> Union[ImageRGB, ImageBGR]:
+    """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8."""
+    return (np.clip(img_f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
+
 # ---------------------------------------------------------------------------
-# Geometry: lens distortion + rolling shutter
+# Lens Model Injection: radial distortion + rolling shutter
 # ---------------------------------------------------------------------------
 def apply_radial_distortion(
         img: ImageRGBF,
@@ -103,7 +162,7 @@ def apply_radial_distortion(
     """Apply simple radial lens distortion in RGB float space.
   
     Args:
-        img_rgb: Input image in RGB float [0, 1], shape (H, W, 3).
+        img: Input image in RGB float [0, 1], shape (H, W, 3).
         k1: Quadratic radial distortion coefficient.
         k2: Quartic radial distortion coefficient.
   
@@ -124,22 +183,27 @@ def apply_radial_distortion(
     map_y = (y_dist * (h / 2) + h / 2).astype(np.float32)
   
     # remap expects BGR/whatever, but we only care about spatial mapping
-    return cv2.remap(
-               (img * 255.0).astype(np.uint8),
-               map_x,
-               map_y,
-               interpolation=cv2.INTER_LINEAR,
-               borderMode=cv2.BORDER_REFLECT,
-           ).astype(np.float32) / 255.0
+    out = cv2.remap((img * 255.0).astype(np.uint8), map_x, map_y,
+               interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
+          ).astype(np.float32) / 255.0
+
+    return out
 
 
 def apply_rolling_shutter_skew(
-    img: np.ndarray,
-    strength: float = 0.0,
-) -> np.ndarray:
-    """Simple rolling-shutter horizontal skew.
-    strength > 0 -> right skew; strength < 0 -> left."""
-    if abs(strength) < 1e-4:
+        img: ImageRGBF,
+        strength: float = 0.0,
+    ) -> ImageRGBF:
+    """Apply simple rolling-shutter-like skew in RGB float.
+    
+    Args:
+        img: RGB float image in [0, 1].
+        strength: Horizontal skew fraction, e.g. 0.03. Positive -> skew right.
+    
+    Returns:
+        Skewed RGB float image.
+    """
+    if abs(strength) < 1e-5:
         return img
 
     h, w = img.shape[:2]
@@ -148,3 +212,34 @@ def apply_rolling_shutter_skew(
         shift = int(strength * (y / h) * w)
         out[y] = np.roll(img[y], shift, axis=0)
     return out
+
+# ---------------------------------------------------------------------------
+# CFA & Demosaicing
+# ---------------------------------------------------------------------------
+def simulate_cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
+    """Simulate Bayer CFA and demosaicing to introduce CFA artifacts.
+    
+    Args:
+        img: RGB float [0, 1].
+    
+    Returns:
+        Demosaiced RGB float [0, 1].
+    """
+    img_u8 = uint8_from_float32(img)
+    
+    h, w, _ = img_u8.shape
+    R, G, B = img_u8[..., 0], img_u8[..., 1], img_u8[..., 2]
+    
+    # RGGB CFA pattern
+    mosaic = np.zeros((h, w), dtype=np.uint8)
+    # R at (0,0) modulo 2
+    mosaic[0::2, 0::2] = R[0::2, 0::2]  # R
+    # G at (0,1) and (1,0)
+    mosaic[0::2, 1::2] = G[0::2, 1::2]  # G
+    mosaic[1::2, 0::2] = G[1::2, 0::2]  # G
+    # B at (1,1)
+    mosaic[1::2, 1::2] = B[1::2, 1::2]  # B
+    
+    bgr_dm = cv2.cvtColor(mosaic, cv2.COLOR_BayerRG2BGR)
+    rgb_dm_u8 = cv2.cvtColor(bgr_dm, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    return rgb_dm
