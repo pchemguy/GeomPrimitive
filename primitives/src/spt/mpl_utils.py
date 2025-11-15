@@ -17,7 +17,7 @@ import sys
 import time
 import random
 import math
-from typing import TypeAlias, Sequence, Union
+from typing import TypeAlias, Literal, Sequence, Union
 from functools import lru_cache, cache
 import numpy as np
 from numpy.typing import NDArray
@@ -81,6 +81,17 @@ def bgr_from_rgba(rgba: ImageRGBA) -> ImageBGR:
 def rgb_from_bgr(bgr: ImageBGR) -> ImageRGB:
     """Convert BGR (OpenCV) to RGB (Matplotlib)."""
     return bgr[..., ::-1]
+
+
+def rgbf_from_rgba(rgba: ImageRGBA) -> ImageRGBF:
+    """Convert RGBA uint8 -> RGB float32 in [0, 1]."""
+    return rgba[..., :3].astype(np.float32) / 255.0
+
+
+def rgb_from_rgbf(rgbf: ImageRGBF) -> ImageRGB:
+    """Convert RGB float32 in [0, 1] -> RGB uint8."""
+    # Clip to avoid rounding issues if upstream overshoots
+    return (np.clip(rgbf, 0.0, 1.0) * 255.0).astype(np.uint8)
 
 
 def show_RGBx_grid(images: dict[str, ImageRGBx], title_style: dict = None, 

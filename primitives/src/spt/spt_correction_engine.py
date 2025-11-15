@@ -14,6 +14,11 @@ from typing import Literal, Optional, Tuple
 import numpy as np
 import cv2
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+
+from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA
+
 
 CameraKind = Literal["smartphone", "compact"]
 ISOLevel = Literal["low", "mid", "high"]
@@ -21,6 +26,20 @@ ISOLevel = Literal["low", "mid", "high"]
 
 @dataclass
 class CameraProfile:
+    """Camera-like behavior configuration.
+  
+    Attributes:
+        kind: Camera category ('smartphone' or 'compact').
+        base_prnu_strength: Base multiplicative per-pixel PRNU amplitude.
+        base_fpn_row: Row-wise fixed-pattern noise amplitude.
+        base_fpn_col: Column-wise fixed-pattern noise amplitude.
+        base_read_noise: Additive read noise (std) in linear RGB domain.
+        base_shot_noise: Base scale for brightness-dependent shot noise.
+        sharpening_amount: Unsharp-mask strength for ISP sharpening.
+        vignette_strength: Vignetting strength (center-to-edge).
+        color_warmth: Warm bias, positive shifts towards warmer tones.
+        jpeg_quality: JPEG quality for optional roundtrip (higher = less compressed).
+    """
     kind: CameraKind
     base_prnu_strength: float
     base_fpn_row: float
@@ -33,7 +52,7 @@ class CameraProfile:
     jpeg_quality: int
 
 
-SMARTPHONE_PROFILE = CameraProfile(
+SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
     kind="smartphone",
     base_prnu_strength=0.003,
     base_fpn_row=0.002,
@@ -46,7 +65,7 @@ SMARTPHONE_PROFILE = CameraProfile(
     jpeg_quality=88,
 )
 
-COMPACT_PROFILE = CameraProfile(
+COMPACT_PROFILE: CameraProfile = CameraProfile(
     kind="compact",
     base_prnu_strength=0.004,
     base_fpn_row=0.003,
@@ -59,7 +78,7 @@ COMPACT_PROFILE = CameraProfile(
     jpeg_quality=90,
 )
 
-CAMERA_PROFILES = {
+CAMERA_PROFILES: dict[CameraKind, CameraProfile] = {
     "smartphone": SMARTPHONE_PROFILE,
     "compact"   : COMPACT_PROFILE,
 }
@@ -72,17 +91,3 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
     return camera_profile
 
 
-def bgr_to_rgb_float(img_bgr: np.ndarray) -> np.ndarray:
-    if img_bgr.dtype == np.uint8:
-        img = img_bgr.astype(np.float32) / 255.0
-    else:
-        img = img_bgr.astype(np.float32)
-        img = np.clip(img, 0.0, 1.0)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    return img
-
-
-def rgb_float_to_bgr_uint8(img_rgb: np.ndarray) -> np.ndarray:
-    img = np.clip(img_rgb, 0.0, 1.0)
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    return (img * 255.0 + 0.5).astype(np.uint8)
