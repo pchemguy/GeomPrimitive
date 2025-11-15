@@ -80,11 +80,11 @@ from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA
 
 
 ISOLevel = Literal["low", "mid", "high"]
-ISO_SF: dict[ISOLevel, float] = {
+ISO_SF: dict[ISOLevel, float] = MappingProxyType({
     "low"  : 0.6, 
     "mid"  : 1.0, 
     "high" : 1.6,
-}
+})
 
 CameraKind = Literal["smartphone", "compact"]
 
@@ -145,10 +145,10 @@ COMPACT_PROFILE: CameraProfile = CameraProfile(
 )
 
 
-CAMERA_PROFILES: dict[CameraKind, CameraProfile] = {
+CAMERA_PROFILES: dict[CameraKind, CameraProfile] = MappingProxyType({
     "smartphone": SMARTPHONE_PROFILE,
     "compact"   : COMPACT_PROFILE,
-}
+})
 
 
 def get_camera_profile(kind: CameraKind) -> CameraProfile:
@@ -256,3 +256,8 @@ def simulate_cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     bgr_dm = cv2.cvtColor(mosaic, cv2.COLOR_BayerRG2BGR)
     rgb_dm_u8 = cv2.cvtColor(bgr_dm, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
     return rgb_dm
+
+
+# ---------------------------------------------------------------------------
+# 
+# ---------------------------------------------------------------------------
