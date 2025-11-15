@@ -259,5 +259,92 @@ def simulate_cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
 
 
 # ---------------------------------------------------------------------------
-# 
+# Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent)
 # ---------------------------------------------------------------------------
+def add_sensor_noise(
+        img       : ImageRGBF,
+        profile   : CameraProfile,
+        iso_level : ISOLevel,
+        rng       : np.random.Generator,
+    ) -> ImageRGBF:
+    """Add sensor-like noise (PRNU, FPN, shot, read) in RGB float space."""
+    h, w, _ = img.shape
+
+    # ISO scaling factors
+    iso_factor = ISOLevels.get(iso_level.strip().lower(), 1.0)
+
+    # PRNU
+    prnu_strength = profile.base_prnu_strength * iso_factor
+    prnu_map = rng.normal(1.0, prnu_strength, size=(h, w, 1)).astype(np.float32)
+
+    # Row/column FPN
+    row_pattern = rng.normal(0.0, profile.base_fpn_row * iso_factor, size=(h, 1, 1)
+                            ).astype(np.float32)
+    col_pattern = rng.normal(0.0, profile.base_fpn_col * iso_factor, size=(1, w, 1)
+                            ).astype(np.float32)
+    fpn = 1.0 + row_pattern + col_pattern
+
+    img = np.clip(img * prnu_map * fpn, 0.0, 1.0)
+
+    # Shot noise (brightness dependent)
+    shot_sigma = profile.base_shot_noise * iso_factor
+    shot_noise = np.sqrt(img) + rng.normal(0.0, shot_sigma, size=img.shape
+                                          ).astype(np.float32)
+
+    # Read noise (additive)
+    read_sigma = profile.base_read_noise * iso_factor
+    read_noise = rng.normal(0.0, read_sigma, size=img.shape).astype(np.float32)
+
+    noisy = img + shot_noise + read_noise
+    return np.clip(noisy, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# ISP denoise + sharpening
+# ---------------------------------------------------------------------------
+def isp_denoise_and_sharpen(
+        img     : ImageRGBF,
+        profile : CameraProfile,
+    ) -> ImageRGBF:
+    """Approximate ISP denoising + sharpening."""
+    img_u8 = uint8_from_float32(img)
+    
+    # Bilateral denoise (simple ISP-like noise reduction)
+    den = cv2.bilateralFilter(img_u8, d=5, sigmaColor=20, sigmaSpace=5)
+    den_f = den.astype(np.float32) / 255.0
+    
+    # Unsharp mask
+    blur = cv2.GaussianBlur(den_f, (0, 0), sigmaX=1.0)
+    amt = profile.sharpening_amount
+    sharp = np.clip(den_f + amt * (den_f - blur), 0.0, 1.0)
+    return sharp
+
+
+# ---------------------------------------------------------------------------
+# Vignette + color warmth
+# ---------------------------------------------------------------------------
+def apply_vignette_and_color(
+        img     : ImageRGBF,
+        profile : CameraProfile,
+    ) -> ImageRGBF:
+    """Apply vignetting and mild color bias in RGB float space."""
+    h, w, _ = img.shape
+    yy, xx = np.indices((h, w))
+    cx, cy = w / 2, h / 2
+    r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    r_norm = r / (r.max() + 1e-8)
+    
+    vig_strength = profile.vignette_strength
+    vign = 1.0 - vig_strength * (r_norm**2)
+    vign = vign.astype(np.float32)[..., None]
+    
+    img_v = img * vign
+    
+    warm = profile.color_warmth
+    if warm != 0.0:
+        img_v[..., 0] = np.clip(img_v[..., 0] + warm * 0.03, 0.0, 1.0)  # R
+        img_v[..., 2] = np.clip(img_v[..., 2] - warm * 0.03, 0.0, 1.0)  # B
+    
+    return np.clip(img_v, 0.0, 1.0)
+
+
