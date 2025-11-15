@@ -18,6 +18,7 @@ import time
 import random
 import math
 from typing import TypeAlias, Sequence, Union
+from functools import lru_cache, cache
 import numpy as np
 from numpy.typing import NDArray
 from skimage import util, exposure
@@ -162,24 +163,30 @@ def render_scene(width_mm: float = 100,
         RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
     """
     rng = random.Random(os.getpid() ^ int(time.time()))
-
-    fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4), dpi=dpi)
-
     bg_n = len(PAPER_COLORS)
+    if not (canvas_bg_idx is None or canvas_bg_idx in range(bg_n)):
+        canvas_bg_idx = rng.randrange(bg_n)
+    if not (plot_bg_idx is None or plot_bg_idx in range(bg_n)):
+        plot_bg_idx = rng.randrange(bg_n)
+    return render_scene_cached(width_mm, height_mm, dpi, canvas_bg_idx, plot_bg_idx)
 
+
+def render_scene_cached(width_mm: float = 100, 
+                        height_mm: float = 80,
+                        dpi: int = 200,
+                        canvas_bg_idx: int = None,
+                        plot_bg_idx: int = None) -> ImageRGBA:
+    """Render an ideal grid + primitives scene via Matplotlib.
+
+    Returns:
+        RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
+    """    
+    fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4), dpi=dpi)
     if not canvas_bg_idx is None:
-        if (not isinstance(canvas_bg_idx, int)
-            or canvas_bg_idx >= bg_n or canvas_bg_idx < 0 ):
-            canvas_bg_idx = rng.randrange(len(PAPER_COLORS))
+        fig.patch.set_facecolor(PAPER_COLORS[canvas_bg_idx])
         if canvas_bg_idx == 0:
             fig.patch.set_alpha(0.0)
-        else:
-            fig.patch.set_facecolor(PAPER_COLORS[canvas_bg_idx])
-
     if not plot_bg_idx is None:
-        if (not isinstance(plot_bg_idx, int)
-            or plot_bg_idx >= bg_n or plot_bg_idx < 0):
-            plot_bg_idx = rng.randrange(len(PAPER_COLORS))
         ax.set_facecolor(PAPER_COLORS[plot_bg_idx])
 
     ax.set_xlim(0, width_mm)
