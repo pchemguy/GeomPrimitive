@@ -93,7 +93,7 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
 
 
 # ---------------------------------------------------------------------------
-# Lens distortion + rolling shutter
+# Geometry: lens distortion + rolling shutter
 # ---------------------------------------------------------------------------
 def apply_radial_distortion(
     img: np.ndarray,
