@@ -1,92 +1,87 @@
 """
 spt_correction_engine.py
------------
+------------------------
 
-## Camera-like “Correction Engine” - concrete implementation
+Ref: https://chatgpt.com/c/69172a6a-b78c-8326-b080-7b02e61b4730
 
-Self-contained Correction Engine:
+Camera-Like Correction Engine (Internal ISP Simulator)
+===============================================================
 
- - RGB float [0,1] in/out
+This module implements a self-contained, physically-motivated camera
+simulation pipeline (“Correction Engine”) designed to inject the kinds
+of imperfections, artifacts, and statistics that are present in real
+laboratory photographs acquired using smartphones or compact cameras.
+
+Each methods implements a particular task, taking and returning the
+image being processed as RGB float32 in [0, 1]. Individual methods
+convert from RGBf and back as necessary.
+
+The goal is to ensure that synthetic images produced by rendering
+systems (e.g., Matplotlib, synthetic textures, geometric overlays) will
+exhibit realistic photographic traces — including optical distortions,
+CFA/demosaicing artifacts, sensor noise, ISP processing, color
+characteristics, and JPEG quantization — so that forensic tools and
+ML pipelines cannot easily distinguish real lab photos from synthetic
+data, thus reducing the risks of artificial biases if generated images
+are used for AI training.
 
 
-### Correction engine steps:
+Pipeline Overview
+-----------------
 
-1. **Lens Model Injection**  
-    * chromatic aberration
-    * realistic PSF
-    * slight field curvature blur
-    * rolling shutter skew
+The Correction Engine consists of the following sequential stages:
+
+1. **Optical Lens Model**
+   - Radial distortion (barrel/pincushion)
+   - Rolling-shutter geometric skew
+   - (Extensible to chromatic aberration or PSF blurring)
+
 2. **CFA & Demosaicing Simulation**
-    * convert to virtual-Bayer RAW
-    * apply CFA
-    * demosaic using bilinear or VNG
-    * introduces CFA artifacts
+   - Convert RGB into virtual Bayer RAW (RGGB)
+   - Apply bilinear/VNG demosaicing
+   - Introduces zippering, color moire, and channel-correlated artifacts
 
-3. **PRNU & Fixed-Pattern Noise + ISO adaptive noise shaping**
-    * row/column banding
-    * pixel response non-uniformity
-    * noise greater in shadows
-    * noise smaller in highlights
-4. **Shot + Read Noise Model**
-    * brightness-dependent Poisson
-    * Gaussian read noise
-    * color-correlated noise
+3. **Sensor Pattern Noise (ISO-dependent)**
+   - PRNU: pixel-level multiplicative gain variations
+   - FPN: row/column banding patterns
+   - Proper ISO scaling factors
 
-5. **ISP Denoiser Simulation**
-    * wavelet-like
-    * patch-dependent
-6. **Sharpening + Halos**
-    * DOG-based halo
-    * edge overshoot/undershoot
-7. **Vignette & Tone Curve**
-    * highlight rolloff
-    * mild channel color shift
-8. **JPEG Simulation**
-    * DCT quantization
-    * block grid
-    * subtle quantization ghosts
-9. **Metadata removal or injection** (optional)
+4. **Shot Noise + Read Noise**
+   - Brightness-dependent Poisson noise
+   - Additive Gaussian read noise
+   - Correct linear-RGB distribution
+
+5. **ISP Denoising + Sharpening**
+   - Bilateral denoiser (approximates smartphone denoise)
+   - Unsharp mask halo formation (edge overshoot/undershoot)
+
+6. **Vignetting & Color Tone**
+   - Optical falloff simulated via radial mask
+   - Mild color warmth/bias (e.g. phone LED tint)
+
+7. **JPEG Simulation (optional)**
+   - Roundtrip through JPEG at configurable quality
+   - Introduces DCT blocking, grid patterns, and quantization ghosts
+
+8. **Metadata Injection / Removal (future extension)**
 
 
-### Methods Summary
+Design Notes
+------------
 
-1. **Lens distortion (radial)**
-   **Entry**; radial_distortion
-   **Controls**:
-    - k1 - Range: [-0.2, 0.2]. Disable - k1=0.
-    - k2 - Range: [-0.02, 0.02]. Disable - k2=0
-2. **Rolling shutter skew**
-   **Entry**; rolling_shutter_skew
-   **Controls**:
-    - strength - Range: [0, 0.05]. Disable - strength=0.
-3. **CFA + Demosaicing**
-   **Entry**; cfa_and_demosaic
-   **Controls**:
-    - None - Range: on/off. Disable: TODO: Add flag at composition point.
-4. **Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent)**
-   **Entry**; sensor_noise
-   **Controls**:
-    - General (scales all noise amplitudes): iso_level - Range: [0.5, 2]. Disable all noises - iso_level=0
-    - PRNU: profile.base_prnu_strength - Range: [0, 0.01]. Disable - profile.base_prnu_strength=0
-    - FPN:
-        - profile.base_fpn_row - Range: [0, 0.01]. Disable - profile.base_fpn_row=0
-        - profile.base_fpn_col - Range: [0, 0.01]. Disable - profile.base_fpn_col=0
-    - short: profile.base_shot_noise - Range: [0, 0.02]. Disable - profile.base_shot_noise=0
-    - read: profile.base_read_noise - Range: [0, 0.01]. Disable - profile.base_read_noise=0
-5. **ISP denoise + sharpening**
-   **Entry**; isp_denoise_and_sharpen
-   **Controls**:
-    - Sharpen: profile.sharpening_amount - TODO: Range/Disable - needs clarification
-    - Additional controls - TODO: needs clarification.
-6. **Vignette + Color warmth**
-   **Entry**; vignette_and_color
-   **Controls**:
-    - Vignette: profile.vignette_strength - Range: [0, 0.5]. Disable - profile.vignette_strength=0
-    - warmth: profile.color_warmth - Range: [0, 0.2]. Disable - profile.color_warmth=0
-7. **JPEG round-trip**
-   **Entry**; jpeg_roundtrip
-   **Controls**:
-    - None - Range: on/off. Disable - apply_jpeg=False (composition point).
+- All steps operate in **linear RGB**, not sRGB. Real photon noise,
+  PRNU, and demosaicing must be applied before gamma/tone curves.
+
+- The engine is parameterized via `CameraProfile`, allowing different
+  "personalities": smartphone-like, compact-camera-like, noisy, clean,
+  etc.
+
+- Every stage can be disabled by setting its coefficients to zero.
+
+- This module is intentionally modular: adding PSF blur, chromatic
+  aberration, local tone mapping, or more sophisticated denoisers is
+  straightforward.
+
 """
 
 from __future__ import annotations
@@ -158,7 +153,7 @@ SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
     base_read_noise=0.002,   # low
     base_shot_noise=0.01,    # medium
     sharpening_amount=0.6,
-    vignette_strength=0.3,
+    vignette_strength=0.2,
     color_warmth=0.1,
     jpeg_quality=88,
 )
@@ -172,7 +167,7 @@ COMPACT_PROFILE: CameraProfile = CameraProfile(
     base_read_noise=0.003,   # slightly higher
     base_shot_noise=0.012,
     sharpening_amount=0.4,
-    vignette_strength=0.2,
+    vignette_strength=0.1,
     color_warmth=0.05,
     jpeg_quality=90,
 )
@@ -186,7 +181,7 @@ CAMERA_PROFILES: dict[CameraKind, CameraProfile] = MappingProxyType({
 
 def get_camera_profile(kind: CameraKind) -> CameraProfile:
     camera_profile = CAMERA_PROFILES.get(kind.strip().lower())
-    if camera_profile is None
+    if camera_profile is None:
         raise ValueError(f"Unknown camera kind: {kind}")
     return camera_profile
 
@@ -230,7 +225,7 @@ def radial_distortion(
     map_y = ((y * radial + 1) * (h / 2)).astype(np.float32)
   
     # remap expects BGR/whatever, but we only care about spatial mapping
-    out = cv2.remap((img * 255.0).astype(np.uint8), map_x, map_y,
+    out = cv2.remap((img * 255.0 + 0.5).astype(np.uint8), map_x, map_y,
                interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT,
           ).astype(np.float32) / 255.0
 
@@ -256,11 +251,26 @@ def rolling_shutter_skew(
         return img
 
     h, w = img.shape[:2]
-    out = np.zeros_like(img)
-    for y in range(h):
-        shift = int(strength * (y / h) * w)
-        out[y] = np.roll(img[y], shift, axis=0)
-    return out
+
+    # Generate per-row fractional shift (float, not int)
+    # amount(y) = strength * (y/h) * w   (like your loop)
+    y = np.linspace(0, 1, h, dtype=np.float32)
+    shift_x = (strength * y * w).astype(np.float32)  # shape (H,)
+
+    # Build mapping grid for cv2.remap
+    xx, yy = np.meshgrid(np.arange(w, dtype=np.float32),
+                         np.arange(h, dtype=np.float32))
+
+    # shift each row by fractional amount
+    map_x = xx + shift_x[:, None]      # broadcast shift per row
+    map_y = yy
+
+    # Border interpolation: reflect is realistic for rolling shutter artifacts
+    warped = cv2.remap(uint8_from_float32(img), map_x, map_y,
+                       interpolation=cv2.INTER_LINEAR,
+                       borderMode=cv2.BORDER_REFLECT)
+
+    return warped.astype(np.float32) / 255.0
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +302,7 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     
     bgr_dm = cv2.cvtColor(mosaic, cv2.COLOR_BayerRG2BGR)
     rgb_dm_u8 = cv2.cvtColor(bgr_dm, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    return rgb_dm
+    return rgb_dm_u8
 
 
 # ---------------------------------------------------------------------------
@@ -311,50 +321,54 @@ def sensor_noise(
     if isinstance(iso_level, Real):
         iso_factor = abs(iso_level)
     else:
-        iso_factor = ISOLevels.get(iso_level.strip().lower(), 1.0)
+        iso_factor = ISO_SF.get(iso_level.strip().lower(), 1.0)
 
     if iso_factor < EPSILON:
         return img
 
-    # PRNU
-    if prnu_strength > EPSILON:
+    # PRNU - pixel-level gain variation
+    if profile.base_prnu_strength > EPSILON:
         prnu_strength = profile.base_prnu_strength * iso_factor
-        prnu_map = rng.normal(1.0, prnu_strength, size=(h, w, 1)).astype(np.float32)
+        prnu_map = rng.normal(loc=1.0, scale=prnu_strength, size=(h, w, 1)
+                             ).astype(np.float32)
     else:
-        prnu_map = 1
+        prnu_map = np.ones((h, w, 1), dtype=np.float32)
 
-    # Row/column FPN
+    # Row FPN - row-wise additive banding
     if profile.base_fpn_row > EPSILON:
         fpn_row = profile.base_fpn_row * iso_factor
-        row_pattern = rng.normal(0.0, fpn_row, size=(h, 1, 1)).astype(np.float32)
+        row_pattern = rng.normal(loc=0.0, scale=fpn_row, size=(h, 1, 1)
+                                ).astype(np.float32)
     else:
-        row_pattern = 0
-
+        row_pattern = np.zeros((h, 1, 1), dtype=np.float32)    
+    
+    # Column FPN - column-wise additive banding
     if profile.base_fpn_col > EPSILON:
         fpn_col = profile.base_fpn_col * iso_factor
-        col_pattern = rng.normal(0.0, fpn_col, size=(1, w, 1)).astype(np.float32)
+        col_pattern = rng.normal(loc=0.0, scale=fpn_col, size=(1, w, 1)
+                                ).astype(np.float32)
     else:
-        col_pattern = 0
-    fpn = 1.0 + row_pattern + col_pattern
+        col_pattern = np.zeros((1, w, 1), dtype=np.float32)
 
-    img = np.clip(img * prnu_map * fpn, 0.0, 1.0)
+    fpn = 1.0 + row_pattern + col_pattern
+    base = img * prnu_map * fpn
 
     # Shot noise (brightness dependent)
     if profile.base_shot_noise > EPSILON:
         shot_sigma = profile.base_shot_noise * iso_factor
-        shot_noise = (np.sqrt(img) * 
+        shot_noise = (np.sqrt(base) * 
                       rng.normal(0.0, shot_sigma, size=img.shape).astype(np.float32))
     else:
-        shot_noise = 0
+        shot_noise = np.zeros_like(img)
 
     # Read noise (additive)
     if profile.base_read_noise > EPSILON:
         read_sigma = profile.base_read_noise * iso_factor
         read_noise = rng.normal(0.0, read_sigma, size=img.shape).astype(np.float32)
     else:
-        read_noise = 0
+        read_noise = np.zeros_like(img)
 
-    noisy = np.clip(img + shot_noise + read_noise, 0.0, 1.0)
+    noisy = np.clip(base + shot_noise + read_noise, 0.0, 1.0)
     return noisy
 
 
