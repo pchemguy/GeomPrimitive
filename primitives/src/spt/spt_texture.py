@@ -680,7 +680,7 @@ def main():
         "sigma"      : 10,
     }
     demos["Crease"] = rgb_from_bgr(spt_texture_fold_crease(**crease_props))
-
+   
     show_RGBx_grid(demos, n_columns=4)
 
 
