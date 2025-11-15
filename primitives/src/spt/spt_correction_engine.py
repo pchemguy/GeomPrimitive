@@ -11,6 +11,7 @@ import time
 import random
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
+
 import numpy as np
 import cv2
 
@@ -91,3 +92,43 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
     return camera_profile
 
 
+# ---------------------------------------------------------------------------
+# Lens distortion + rolling shutter
+# ---------------------------------------------------------------------------
+def apply_radial_distortion(
+    img: np.ndarray,
+    k1: float,
+    k2: float = 0.0,
+) -> np.ndarray:
+    h, w = img.shape[:2]
+    # Normalized coordinates: [-1,1]
+    yy, xx = np.indices((h, w))
+    x = (xx - w / 2) / (w / 2)
+    y = (yy - h / 2) / (h / 2)
+    r2 = x * x + y * y
+
+    radial = 1 + k1 * r2 + k2 * r2 * r2
+    x_dist = x * radial
+    y_dist = y * radial
+
+    map_x = (x_dist * (w / 2) + w / 2).astype(np.float32)
+    map_y = (y_dist * (h / 2) + h / 2).astype(np.float32)
+
+    return cv2.remap(img, map_x, map_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+
+def apply_rolling_shutter_skew(
+    img: np.ndarray,
+    strength: float = 0.0,
+) -> np.ndarray:
+    """Simple rolling-shutter horizontal skew.
+    strength > 0 -> right skew; strength < 0 -> left."""
+    if abs(strength) < 1e-4:
+        return img
+
+    h, w = img.shape[:2]
+    out = np.zeros_like(img)
+    for y in range(h):
+        shift = int(strength * (y / h) * w)
+        out[y] = np.roll(img[y], shift, axis=0)
+    return out
