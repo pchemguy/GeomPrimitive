@@ -152,41 +152,68 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
     ax.add_collection(lc_major)
 
 
-def render_scene(width_mm: float = 100, 
-                 height_mm: float = 80,
-                 dpi: int = 200,
-                 canvas_bg_idx: int = None,
-                 plot_bg_idx: int = None) -> ImageRGBA:
-    """Render an ideal grid + primitives scene via Matplotlib.
-
-    Returns:
-        RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
+# ----------------------------------------------------------------------
+# Public API (randomized selection)
+# ----------------------------------------------------------------------
+def render_scene(
+        width_mm      : float = 100, 
+        height_mm     : float = 80,
+        dpi           : int   = 200,
+        canvas_bg_idx : int   = None,
+        plot_bg_idx   : int   = None,
+    ) -> ImageRGBA:
     """
+    Renders a dummy Matplotlib scene as RGBA.
+
+    Public API - returns a (possibly random) scene.
+    Randomizes background choices if invalid or None.
+    Wraps the cached renderer.
+    """
+    
+    """Public entry - randomizes missing bg indices, then uses the cached renderer."""
+
     rng = random.Random(os.getpid() ^ int(time.time()))
+
+    # Assign random backgrounds where needed
     bg_n = len(PAPER_COLORS)
-    if not (canvas_bg_idx is None or canvas_bg_idx in range(bg_n)):
+    if canvas_bg_idx is None or canvas_bg_idx not in range(bg_n):
         canvas_bg_idx = rng.randrange(bg_n)
-    if not (plot_bg_idx is None or plot_bg_idx in range(bg_n)):
+
+    if plot_bg_idx is None or plot_bg_idx not in range(bg_n):
         plot_bg_idx = rng.randrange(bg_n)
+
+    # Call the deterministic, cached version
     return render_scene_cached(width_mm, height_mm, dpi, canvas_bg_idx, plot_bg_idx)
 
 
-def render_scene_cached(width_mm: float = 100, 
-                        height_mm: float = 80,
-                        dpi: int = 200,
-                        canvas_bg_idx: int = None,
-                        plot_bg_idx: int = None) -> ImageRGBA:
-    """Render an ideal grid + primitives scene via Matplotlib.
+# ----------------------------------------------------------------------
+# Cache renderer
+# ----------------------------------------------------------------------
+@lru_cache(maxsize=None)
+def render_scene_cached(
+        width_mm      : float = 100, 
+        height_mm     : float = 80,
+        dpi           : int   = 200,
+        canvas_bg_idx : int   = None,
+        plot_bg_idx   : int   = None,
+    ) -> ImageRGBA:
+    """
+    LRU-cached deterministic renderer.
+    
+    Render an ideal grid + primitives scene via Matplotlib.
 
     Returns:
         RGBA numpy array (H x W x 4), to be passed into SyntheticPhotoProcessor.
     """    
     fig, ax = plt.subplots(figsize=(width_mm / 25.4, height_mm / 25.4), dpi=dpi)
-    if not canvas_bg_idx is None:
-        fig.patch.set_facecolor(PAPER_COLORS[canvas_bg_idx])
+
+    if canvas_bg_idx is not None:
         if canvas_bg_idx == 0:
             fig.patch.set_alpha(0.0)
-    if not plot_bg_idx is None:
+        else:
+            fig.patch.set_facecolor(PAPER_COLORS[canvas_bg_idx])
+
+    if plot_bg_idx is not None:
         ax.set_facecolor(PAPER_COLORS[plot_bg_idx])
 
     ax.set_xlim(0, width_mm)
@@ -198,10 +225,7 @@ def render_scene_cached(width_mm: float = 100,
     #ax.margins(x=0, y=0)
     
     # Grid (1mm + 10mm thicker lines)
-
-    add_grid(ax, width_mm=100, height_mm=80)
-
-    # Primitives: square, circle, triangle
+    add_grid(ax, width_mm=width_mm, height_mm=height_mm)
 
     ax.add_patch(plt.Rectangle((30, 30), 20, 20, edgecolor="red", fill=False, lw=2))
     ax.add_patch(plt.Rectangle((10, 50), 20, 20, edgecolor="cyan", fill=False, lw=2))
