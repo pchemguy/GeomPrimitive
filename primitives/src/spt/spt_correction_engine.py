@@ -11,11 +11,13 @@ Self-contained Correction Engine:
 simulates:  
  1. lens distortion (radial) + optional rolling shutter skew
  2. CFA + demosaicing artifacts (using OpenCV Bayer demosaicing)
- 3. PRNU and row/column FPN
+ 
+ 3. PRNU and row/column FPN + ISO adaptive noise shaping
  4. brightness- & ISO-dependent shot/read noise
- 6. ISP-style denoise + sharpening
- 8. vignette & slight color bias (smartphone / lab camera)
- 9. JPEG roundtrip (mild compression, configurable)
+
+ 5. ISP-style denoise + sharpening
+ 7. vignette & slight color bias (smartphone / lab camera)
+ 8. JPEG roundtrip (mild compression, configurable)
 
 
 ### Correction engine steps:
@@ -30,30 +32,31 @@ simulates:
     * apply CFA
     * demosaic using bilinear or VNG
     * introduces CFA artifacts
-3. **PRNU & Fixed-Pattern Noise**
+
+3. **PRNU & Fixed-Pattern Noise + ISO adaptive noise shaping**
     * row/column banding
     * pixel response non-uniformity
+    * noise greater in shadows
+    * noise smaller in highlights
 4. **Shot + Read Noise Model**
     * brightness-dependent Poisson
     * Gaussian read noise
     * color-correlated noise
-5. **ISO adaptive noise shaping**
-    * noise greater in shadows
-    * noise smaller in highlights
-6. **ISP Denoiser Simulation**
+
+5. **ISP Denoiser Simulation**
     * wavelet-like
     * patch-dependent
-7. **Sharpening + Halos**
+6. **Sharpening + Halos**
     * DOG-based halo
     * edge overshoot/undershoot
-8. **Vignette & Tone Curve**
+7. **Vignette & Tone Curve**
     * highlight rolloff
     * mild channel color shift
-9. **JPEG Simulation**
+8. **JPEG Simulation**
     * DCT quantization
     * block grid
     * subtle quantization ghosts
-10. **Metadata removal or injection** (optional)
+9. **Metadata removal or injection** (optional)
 
 """
 
@@ -65,6 +68,7 @@ import time
 import random
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
+from types import MappingProxyType
 
 import numpy as np
 import cv2
@@ -75,8 +79,14 @@ sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA
 
 
-CameraKind = Literal["smartphone", "compact"]
 ISOLevel = Literal["low", "mid", "high"]
+ISO_SF: dict[ISOLevel, float] = {
+    "low"  : 0.6, 
+    "mid"  : 1.0, 
+    "high" : 1.6,
+}
+
+CameraKind = Literal["smartphone", "compact"]
 
 
 @dataclass
@@ -120,6 +130,7 @@ SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
     jpeg_quality=88,
 )
 
+
 COMPACT_PROFILE: CameraProfile = CameraProfile(
     kind="compact",
     base_prnu_strength=0.004,
@@ -132,6 +143,7 @@ COMPACT_PROFILE: CameraProfile = CameraProfile(
     color_warmth=0.05,
     jpeg_quality=90,
 )
+
 
 CAMERA_PROFILES: dict[CameraKind, CameraProfile] = {
     "smartphone": SMARTPHONE_PROFILE,
@@ -146,7 +158,7 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
     return camera_profile
 
 
-def uint8_from_float32(img_f: Union[ImageRGBF, ImageBGRF]) -> Union[ImageRGB, ImageBGR]:
+def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
     """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8."""
     return (np.clip(img_f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
@@ -212,6 +224,7 @@ def apply_rolling_shutter_skew(
         shift = int(strength * (y / h) * w)
         out[y] = np.roll(img[y], shift, axis=0)
     return out
+
 
 # ---------------------------------------------------------------------------
 # CFA & Demosaicing

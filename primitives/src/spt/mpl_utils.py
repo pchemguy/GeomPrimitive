@@ -88,7 +88,7 @@ def rgbf_from_rgba(rgba: ImageRGBA) -> ImageRGBF:
     return rgba[..., :3].astype(np.float32) / 255.0
 
 
-def uint8_from_float32(img_f: Union[ImageRGBF, ImageBGRF]) -> Union[ImageRGB, ImageBGR]:
+def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
     """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8."""
     return (np.clip(img_f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
@@ -283,6 +283,7 @@ def main():
         ] = render_scene(canvas_bg_idx=color_idx, plot_bg_idx=color_idx)
 
     show_RGBx_grid(demos)
+
 
 if __name__ == "__main__":
     main()
