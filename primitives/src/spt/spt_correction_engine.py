@@ -71,3 +71,18 @@ def get_camera_profile(kind: CameraKind) -> CameraProfile:
         raise ValueError(f"Unknown camera kind: {kind}")
     return camera_profile
 
+
+def bgr_to_rgb_float(img_bgr: np.ndarray) -> np.ndarray:
+    if img_bgr.dtype == np.uint8:
+        img = img_bgr.astype(np.float32) / 255.0
+    else:
+        img = img_bgr.astype(np.float32)
+        img = np.clip(img, 0.0, 1.0)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
+
+
+def rgb_float_to_bgr_uint8(img_rgb: np.ndarray) -> np.ndarray:
+    img = np.clip(img_rgb, 0.0, 1.0)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    return (img * 255.0 + 0.5).astype(np.uint8)
