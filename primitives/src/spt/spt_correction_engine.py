@@ -62,6 +62,8 @@ simulates:
 
 from __future__ import annotations
 
+__all__ = [apply_camera_model]
+
 import os
 import sys
 import time
@@ -79,6 +81,7 @@ sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA
 
 
+EPSILON = 1e-8
 ISOLevel = Literal["low", "mid", "high"]
 ISO_SF: dict[ISOLevel, float] = MappingProxyType({
     "low"  : 0.6, 
@@ -166,13 +169,15 @@ def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
 # ---------------------------------------------------------------------------
 # Lens Model Injection: radial distortion + rolling shutter
 # ---------------------------------------------------------------------------
-def apply_radial_distortion(
+def radial_distortion(
         img: ImageRGBF,
         k1: float,
         k2: float = 0.0,
     ) -> ImageRGBF:
     """Apply simple radial lens distortion in RGB float space.
   
+    Disable effect by setting k1=0 and k2=0.
+    
     Args:
         img: Input image in RGB float [0, 1], shape (H, W, 3).
         k1: Quadratic radial distortion coefficient.
@@ -181,6 +186,9 @@ def apply_radial_distortion(
     Returns:
         Distorted image, RGB float [0, 1].
     """
+    if abs(k1) < EPSILON and abs(k2) < EPSILON:
+        return img
+
     h, w = img.shape[:2]
     yy, xx = np.indices((h, w))
     x = (xx - w / 2) / (w / 2)
@@ -188,11 +196,8 @@ def apply_radial_distortion(
     r2 = x * x + y * y
 
     radial = 1 + k1 * r2 + k2 * r2 * r2
-    x_dist = x * radial
-    y_dist = y * radial
-
-    map_x = (x_dist * (w / 2) + w / 2).astype(np.float32)
-    map_y = (y_dist * (h / 2) + h / 2).astype(np.float32)
+    map_x = ((x * radial + 1) * (w / 2)).astype(np.float32)
+    map_y = ((y * radial + 1) * (h / 2)).astype(np.float32)
   
     # remap expects BGR/whatever, but we only care about spatial mapping
     out = cv2.remap((img * 255.0).astype(np.uint8), map_x, map_y,
@@ -202,11 +207,13 @@ def apply_radial_distortion(
     return out
 
 
-def apply_rolling_shutter_skew(
+def rolling_shutter_skew(
         img: ImageRGBF,
         strength: float = 0.0,
     ) -> ImageRGBF:
     """Apply simple rolling-shutter-like skew in RGB float.
+    
+    Disable effect by setting strength=0.
     
     Args:
         img: RGB float image in [0, 1].
@@ -215,7 +222,7 @@ def apply_rolling_shutter_skew(
     Returns:
         Skewed RGB float image.
     """
-    if abs(strength) < 1e-5:
+    if abs(strength) < EPSILON:
         return img
 
     h, w = img.shape[:2]
@@ -229,7 +236,7 @@ def apply_rolling_shutter_skew(
 # ---------------------------------------------------------------------------
 # CFA & Demosaicing
 # ---------------------------------------------------------------------------
-def simulate_cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
+def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     """Simulate Bayer CFA and demosaicing to introduce CFA artifacts.
     
     Args:
@@ -261,7 +268,7 @@ def simulate_cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
 # ---------------------------------------------------------------------------
 # Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent)
 # ---------------------------------------------------------------------------
-def add_sensor_noise(
+def sensor_noise(
         img       : ImageRGBF,
         profile   : CameraProfile,
         iso_level : ISOLevel,
@@ -278,34 +285,31 @@ def add_sensor_noise(
     prnu_map = rng.normal(1.0, prnu_strength, size=(h, w, 1)).astype(np.float32)
 
     # Row/column FPN
-    row_pattern = rng.normal(0.0, profile.base_fpn_row * iso_factor, size=(h, 1, 1)
-                            ).astype(np.float32)
-    col_pattern = rng.normal(0.0, profile.base_fpn_col * iso_factor, size=(1, w, 1)
-                            ).astype(np.float32)
+    fpn_row = profile.base_fpn_row * iso_factor
+    fpn_col = profile.base_fpn_col * iso_factor
+    row_pattern = rng.normal(0.0, fpn_row, size=(h, 1, 1)).astype(np.float32)
+    col_pattern = rng.normal(0.0, fpn_col, size=(1, w, 1)).astype(np.float32)
     fpn = 1.0 + row_pattern + col_pattern
 
     img = np.clip(img * prnu_map * fpn, 0.0, 1.0)
 
     # Shot noise (brightness dependent)
     shot_sigma = profile.base_shot_noise * iso_factor
-    shot_noise = np.sqrt(img) + rng.normal(0.0, shot_sigma, size=img.shape
-                                          ).astype(np.float32)
+    shot_noise = (np.sqrt(img) + 
+                  rng.normal(0.0, shot_sigma, size=img.shape).astype(np.float32))
 
     # Read noise (additive)
     read_sigma = profile.base_read_noise * iso_factor
     read_noise = rng.normal(0.0, read_sigma, size=img.shape).astype(np.float32)
 
-    noisy = img + shot_noise + read_noise
-    return np.clip(noisy, 0.0, 1.0)
+    noisy = np.clip(img + shot_noise + read_noise, 0.0, 1.0)
+    return noisy
 
 
 # ---------------------------------------------------------------------------
 # ISP denoise + sharpening
 # ---------------------------------------------------------------------------
-def isp_denoise_and_sharpen(
-        img     : ImageRGBF,
-        profile : CameraProfile,
-    ) -> ImageRGBF:
+def isp_denoise_and_sharpen(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
     """Approximate ISP denoising + sharpening."""
     img_u8 = uint8_from_float32(img)
     
@@ -315,24 +319,20 @@ def isp_denoise_and_sharpen(
     
     # Unsharp mask
     blur = cv2.GaussianBlur(den_f, (0, 0), sigmaX=1.0)
-    amt = profile.sharpening_amount
-    sharp = np.clip(den_f + amt * (den_f - blur), 0.0, 1.0)
+    sharp = np.clip(den_f + profile.sharpening_amount * (den_f - blur), 0.0, 1.0)
     return sharp
 
 
 # ---------------------------------------------------------------------------
 # Vignette + color warmth
 # ---------------------------------------------------------------------------
-def apply_vignette_and_color(
-        img     : ImageRGBF,
-        profile : CameraProfile,
-    ) -> ImageRGBF:
+def vignette_and_color(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
     """Apply vignetting and mild color bias in RGB float space."""
     h, w, _ = img.shape
     yy, xx = np.indices((h, w))
     cx, cy = w / 2, h / 2
     r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-    r_norm = r / (r.max() + 1e-8)
+    r_norm = r / (r.max() + EPSILON)
     
     vig_strength = profile.vignette_strength
     vign = 1.0 - vig_strength * (r_norm**2)
@@ -348,3 +348,86 @@ def apply_vignette_and_color(
     return np.clip(img_v, 0.0, 1.0)
 
 
+# ---------------------------------------------------------------------------
+# JPEG round-trip - injects realistic DCT/blockiness
+# ---------------------------------------------------------------------------
+def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
+    """Run image through JPEG encode/decode to add DCT artifacts.
+    
+    Args:
+        img: RGB float [0, 1].
+        quality: JPEG quality (e.g., 85–95).
+    
+    Returns:
+        RGB float [0, 1] after JPEG roundtrip.
+    """
+    bgr = cv2.cvtColor(uint8_from_float32(img), cv2.COLOR_RGB2BGR)
+
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)]
+    ok, buf = cv2.imencode(".jpg", bgr, encode_param)
+    if not ok:
+      # Fallback: return original if encoding fails.
+      return img
+    
+    bgr_jpeg = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+    rgb_jpeg = cv2.cvtColor(bgr_jpeg, cv2.COLOR_BGR2RGB)
+    return rgb_jpeg.astype(np.float32) / 255.0
+
+
+# ---------------------------------------------------------------------------
+# Correction Engine
+# ---------------------------------------------------------------------------
+def apply_camera_model(
+        img              : ImageRGBF,
+        camera_kind      : CameraKind          = "smartphone",
+        iso_level        : ISOLevel            = "mid",
+        lens_k1          : float               = -0.15,
+        lens_k2          : float               = 0.02,
+        rolling_strength : float               = 0.03,
+        apply_jpeg       : bool                = True,
+        rng              : np.random.Generator = None,
+    ) -> ImageRGBF:
+    """Camera-like correction engine.
+
+    Args:
+        img: Input RGB float image in [0, 1].
+        camera_kind: 'smartphone' or 'compact'.
+        iso_level: 'low', 'mid', or 'high' ISO behavior.
+        enable_lens_distortion: Whether to apply radial distortion.
+        lens_k1: Primary radial distortion coefficient.
+        lens_k2: Secondary radial distortion coefficient.
+        rolling_strength: Skew magnitude, e.g. ~0.02–0.05.
+        apply_jpeg: Whether to run a JPEG roundtrip for DCT artifacts.
+        rng: Optional NumPy Generator. If None, a default RNG is created.
+
+    Returns:
+        RGB float image in [0, 1] with camera-like artifacts.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    profile = get_camera_profile(camera_kind)
+
+    img = np.clip(img.astype(np.float32), 0.0, 1.0)
+
+    # 1) Lens geometry in linear RGB
+    img = radial_distortion(img, k1=lens_k1, k2=lens_k2)
+    img = rolling_shutter_skew(img, strength=rolling_strength)
+
+    # 2) CFA + demosaic
+    img = cfa_and_demosaic(img)
+
+    # 3) Sensor noise (PRNU + FPN + shot / read)
+    img = sensor_noise(img, profile=profile, iso_level=iso_level, rng=rng)
+
+    # 4) ISP denoise + sharpening
+    img = isp_denoise_and_sharpen(img, profile=profile)
+
+    # 5) Vignette + color bias
+    img = vignette_and_color(img, profile=profile)
+
+    # 6) Optional JPEG roundtrip
+    if apply_jpeg:
+        img = jpeg_roundtrip(img, quality=profile.jpeg_quality)
+
+    return np.clip(img, 0.0, 1.0)
