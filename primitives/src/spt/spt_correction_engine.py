@@ -100,6 +100,16 @@ def apply_radial_distortion(
     k1: float,
     k2: float = 0.0,
 ) -> np.ndarray:
+    """Apply simple radial lens distortion in RGB float space.
+  
+    Args:
+        img_rgb: Input image in RGB float [0, 1], shape (H, W, 3).
+        k1: Quadratic radial distortion coefficient.
+        k2: Quartic radial distortion coefficient.
+  
+    Returns:
+        Distorted image, RGB float [0, 1].
+    """
     h, w = img.shape[:2]
     # Normalized coordinates: [-1,1]
     yy, xx = np.indices((h, w))
