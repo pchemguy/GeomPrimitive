@@ -8,17 +8,6 @@ Self-contained Correction Engine:
 
  - RGB float [0,1] in/out
 
-simulates:  
- 1. lens distortion (radial) + optional rolling shutter skew
- 2. CFA + demosaicing artifacts (using OpenCV Bayer demosaicing)
- 
- 3. PRNU and row/column FPN + ISO adaptive noise shaping
- 4. brightness- & ISO-dependent shot/read noise
-
- 5. ISP-style denoise + sharpening
- 7. vignette & slight color bias (smartphone / lab camera)
- 8. JPEG roundtrip (mild compression, configurable)
-
 
 ### Correction engine steps:
 
@@ -58,6 +47,46 @@ simulates:
     * subtle quantization ghosts
 9. **Metadata removal or injection** (optional)
 
+
+### Methods Summary
+
+1. **Lens distortion (radial)**
+   **Entry**; radial_distortion
+   **Controls**:
+    - k1 - Range: [-0.2, 0.2]. Disable - k1=0.
+    - k2 - Range: [-0.02, 0.02]. Disable - k2=0
+2. **Rolling shutter skew**
+   **Entry**; rolling_shutter_skew
+   **Controls**:
+    - strength - Range: [0, 0.05]. Disable - strength=0.
+3. **CFA + Demosaicing**
+   **Entry**; cfa_and_demosaic
+   **Controls**:
+    - None - Range: on/off. Disable: TODO: Add flag at composition point.
+4. **Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent)**
+   **Entry**; sensor_noise
+   **Controls**:
+    - General (scales all noise amplitudes): iso_level - Range: [0.5, 2]. Disable all noises - iso_level=0
+    - PRNU: profile.base_prnu_strength - Range: [0, 0.01]. Disable - profile.base_prnu_strength=0
+    - FPN:
+        - profile.base_fpn_row - Range: [0, 0.01]. Disable - profile.base_fpn_row=0
+        - profile.base_fpn_col - Range: [0, 0.01]. Disable - profile.base_fpn_col=0
+    - short: profile.base_shot_noise - Range: [0, 0.02]. Disable - profile.base_shot_noise=0
+    - read: profile.base_read_noise - Range: [0, 0.01]. Disable - profile.base_read_noise=0
+5. **ISP denoise + sharpening**
+   **Entry**; isp_denoise_and_sharpen
+   **Controls**:
+    - Sharpen: profile.sharpening_amount - TODO: Range/Disable - needs clarification
+    - Additional controls - TODO: needs clarification.
+6. **Vignette + Color warmth**
+   **Entry**; vignette_and_color
+   **Controls**:
+    - Vignette: profile.vignette_strength - Range: [0, 0.5]. Disable - profile.vignette_strength=0
+    - warmth: profile.color_warmth - Range: [0, 0.2]. Disable - profile.color_warmth=0
+7. **JPEG round-trip**
+   **Entry**; jpeg_roundtrip
+   **Controls**:
+    - None - Range: on/off. Disable - apply_jpeg=False (composition point).
 """
 
 from __future__ import annotations
@@ -71,6 +100,7 @@ import random
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
 from types import MappingProxyType
+from numbers import Real
 
 import numpy as np
 import cv2
@@ -271,36 +301,58 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
 def sensor_noise(
         img       : ImageRGBF,
         profile   : CameraProfile,
-        iso_level : ISOLevel,
+        iso_level : ISOLevel | Real,
         rng       : np.random.Generator,
     ) -> ImageRGBF:
     """Add sensor-like noise (PRNU, FPN, shot, read) in RGB float space."""
     h, w, _ = img.shape
 
     # ISO scaling factors
-    iso_factor = ISOLevels.get(iso_level.strip().lower(), 1.0)
+    if isinstance(iso_level, Real):
+        iso_factor = abs(iso_level)
+    else:
+        iso_factor = ISOLevels.get(iso_level.strip().lower(), 1.0)
+
+    if iso_factor < EPSILON:
+        return img
 
     # PRNU
-    prnu_strength = profile.base_prnu_strength * iso_factor
-    prnu_map = rng.normal(1.0, prnu_strength, size=(h, w, 1)).astype(np.float32)
+    if prnu_strength > EPSILON:
+        prnu_strength = profile.base_prnu_strength * iso_factor
+        prnu_map = rng.normal(1.0, prnu_strength, size=(h, w, 1)).astype(np.float32)
+    else:
+        prnu_map = 1
 
     # Row/column FPN
-    fpn_row = profile.base_fpn_row * iso_factor
-    fpn_col = profile.base_fpn_col * iso_factor
-    row_pattern = rng.normal(0.0, fpn_row, size=(h, 1, 1)).astype(np.float32)
-    col_pattern = rng.normal(0.0, fpn_col, size=(1, w, 1)).astype(np.float32)
+    if profile.base_fpn_row > EPSILON:
+        fpn_row = profile.base_fpn_row * iso_factor
+        row_pattern = rng.normal(0.0, fpn_row, size=(h, 1, 1)).astype(np.float32)
+    else:
+        row_pattern = 0
+
+    if profile.base_fpn_col > EPSILON:
+        fpn_col = profile.base_fpn_col * iso_factor
+        col_pattern = rng.normal(0.0, fpn_col, size=(1, w, 1)).astype(np.float32)
+    else:
+        col_pattern = 0
     fpn = 1.0 + row_pattern + col_pattern
 
     img = np.clip(img * prnu_map * fpn, 0.0, 1.0)
 
     # Shot noise (brightness dependent)
-    shot_sigma = profile.base_shot_noise * iso_factor
-    shot_noise = (np.sqrt(img) + 
-                  rng.normal(0.0, shot_sigma, size=img.shape).astype(np.float32))
+    if profile.base_shot_noise > EPSILON:
+        shot_sigma = profile.base_shot_noise * iso_factor
+        shot_noise = (np.sqrt(img) * 
+                      rng.normal(0.0, shot_sigma, size=img.shape).astype(np.float32))
+    else:
+        shot_noise = 0
 
     # Read noise (additive)
-    read_sigma = profile.base_read_noise * iso_factor
-    read_noise = rng.normal(0.0, read_sigma, size=img.shape).astype(np.float32)
+    if profile.base_read_noise > EPSILON:
+        read_sigma = profile.base_read_noise * iso_factor
+        read_noise = rng.normal(0.0, read_sigma, size=img.shape).astype(np.float32)
+    else:
+        read_noise = 0
 
     noisy = np.clip(img + shot_noise + read_noise, 0.0, 1.0)
     return noisy
@@ -310,10 +362,9 @@ def sensor_noise(
 # ISP denoise + sharpening
 # ---------------------------------------------------------------------------
 def isp_denoise_and_sharpen(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
-    """Approximate ISP denoising + sharpening."""
-    img_u8 = uint8_from_float32(img)
-    
+    """Approximate ISP denoising + sharpening."""   
     # Bilateral denoise (simple ISP-like noise reduction)
+    img_u8 = uint8_from_float32(img)
     den = cv2.bilateralFilter(img_u8, d=5, sigmaColor=20, sigmaSpace=5)
     den_f = den.astype(np.float32) / 255.0
     
@@ -334,9 +385,7 @@ def vignette_and_color(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
     r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
     r_norm = r / (r.max() + EPSILON)
     
-    vig_strength = profile.vignette_strength
-    vign = 1.0 - vig_strength * (r_norm**2)
-    vign = vign.astype(np.float32)[..., None]
+    vign = (1.0 - profile.vignette_strength * r_norm**2).astype(np.float32)[..., None]
     
     img_v = img * vign
     
