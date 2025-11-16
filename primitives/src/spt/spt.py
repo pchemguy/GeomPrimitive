@@ -39,6 +39,7 @@ from mpl_utils import (
     # Constants
     PAPER_COLORS,
 )
+
 from spt_texture  import (
     spt_texture, spt_texture_combined, spt_texture_fibers, spt_texture_fold_crease
 )

@@ -92,26 +92,46 @@ __all__ = ["apply_camera_model"]
 
 import os
 import sys
+import time
 from dataclasses import dataclass
 from numbers import Real
+import random
 from types import MappingProxyType
 from typing import Literal, Optional
 
 import cv2
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+
+import matplotlib as mpl
+import spt_config
+if __name__ == "__main__":
+    spt_config.BATCH_MODE = False
+else:
+    if spt_config.BATCH_MODE:
+        # Use a non-interactive backend (safe for multiprocessing workers)
+        mpl.use("Agg")
+import matplotlib.pyplot as plt
+
 # ---------------------------------------------------------------------------
 # Local imports (type aliases from your mpl_utils)
 # ---------------------------------------------------------------------------
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+from utils.rng import RNG, get_rng
+from utils.logging_utils import configure_logging
 
-import spt_config
-if __name__ == "__main__":
-    spt_config.BATCH_MODE = False
-
-from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA 
+from mpl_utils import (
+    # Conversion helpers
+    bgr_from_rgba, rgb_from_bgr, rgbf_from_rgba, rgb_from_rgbf,
+    # Rendering helpers
+    show_RGBx_grid, render_scene,
+    # Type aliases
+    ImageBGR, ImageRGB, ImageRGBA, ImageRGBx,
+    # Constants
+    PAPER_COLORS,
+)
 
 # ---------------------------------------------------------------------------
 # Constants and type aliases
@@ -126,8 +146,8 @@ ISO_SF: MappingProxyType = MappingProxyType({
     "high": 1.6,
 })
 
-CameraKind = Literal["smartphone", "compact"]
-ToneMode = Literal["reinhard", "filmic"]
+CameraKind = ["smartphone", "compact"]
+ToneMode = ["reinhard", "filmic"]
 
 
 @dataclass
@@ -152,7 +172,7 @@ class CameraProfile:
         jpeg_quality: JPEG quality for optional roundtrip (higher = less compressed).
     """
 
-    kind: CameraKind
+    kind: str
     base_prnu_strength: float
     base_fpn_row: float
     base_fpn_col: float
@@ -211,7 +231,7 @@ CAMERA_PROFILES: MappingProxyType = MappingProxyType({
 })
 
 
-def get_camera_profile(kind: CameraKind | str) -> CameraProfile:
+def get_camera_profile(kind: str) -> str:
     """Return camera profile for a given camera kind."""
     key = str(kind).strip().lower()
     camera_profile = CAMERA_PROFILES.get(key)
@@ -629,7 +649,7 @@ def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
 def apply_camera_model(
         img: ImageRGBF,
         correction_profile: CameraProfile = None,
-        camera_kind: CameraKind = "smartphone",
+        camera_kind: str = "smartphone",
         iso_level: ISOLevel | Real = "mid",
         lens_k1: float = -0.15,
         lens_k2: float = 0.02,
@@ -690,10 +710,91 @@ def apply_camera_model(
     return rescale_imgf(img)
 
 
+def demo_setup(title: str, demo_set: dict) -> dict:
+    demo_set = [
+        {"tilt_x":  0.20,  "tilt_y":  0.20},
+        {"tilt_x":  0.20,  "tilt_y":  0.40},
+        {"tilt_x": -0.80,  "tilt_y":  0.80},
+        {"tilt_x":  1.00,  "tilt_y": -1.00},
+        {"k1":  0.2,  "k2": 0.05},
+        {"k1":  0.5,  "k2": 0.05},
+        {"k1":  1.0,  "k2": 0.05},
+        {"k1": -0.5,  "k2": 0.05},
+        {"k1":  0.1,  "k2": 0.1},
+        {"k1":  0.1,  "k2": 0.2},
+        {"k1":  0.1,  "k2": 0.5},
+        {"k1":  0.1,  "k2": 0.8},
+    ]
+
+
+
+def demo():
+    # ----------------------------------------------------------------------
+    base_rgba: ImageRGBA = render_scene()
+    base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
+    base_rgbf: ImageRGBF = rgbf_from_rgba(base_rgba)
+
+    rng = random.Random(os.getpid() ^ int(time.time()))
+
+    img_rnd = rgbf_from_rgba(render_scene(
+                  canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
+                  plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
+              ))
+    random_props = {
+        "img":            img_rnd,
+    }
+
+    demos = {
+        "BASELINE": img_rnd,
+    }
+
+    default_prof = {
+        "base_prnu_strength": 0, # [0, 0.01]
+        "base_fpn_row"      : 0, # [0, 0.01]
+        "base_fpn_col"      : 0, # [0, 0.01]
+        "base_read_noise"   : 0, # [0, 0.01]
+        "base_shot_noise"   : 0, # [0, 0.03]
+        "denoise_strength"  : 0, # [0, 1]
+        "blur_sigma"        : 0, # [0, 3]
+        "sharpening_amount" : 0, # [0, 1]
+        "tone_strength"     : 0, # [0, 1]
+        "scurve_strength"   : 0, # [0, 0.5]
+        "vignette_strength" : 0, # [0, 0.5]
+        "color_warmth"      : 0, # [0, 0.2]
+    }
+    default_props = {
+        "iso_level"         : 1, # [0, 2]
+        "rolling_strength"  : 0, # [0, 0.05]
+        "lens_k1"           : 0, # [-0.2, 0.2]
+        "lens_k2"           : 0, # [-0.02, 0.02]
+        "apply_jpeg"        : False,
+        "cfa_enabled"       : False,
+    }
+
+    for custom_props in demo_set:
+        title = title
+        for key, val in custom_props.items():
+            title.append(f"key: '{key}': val '{val}'")
+        title = "".join(title)
+        print(title)
+        demos[title] = rgb_from_rgbf(
+            spt_geometry(**{**default_props, **custom_props})
+        )
+
+    show_RGBx_grid(demos, n_columns=4)
+
+
 # ---------------------------------------------------------------------------
-# Interactive Demo (Optimized Real-Time UI)
+# Interactive Demo
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    pass
+    #demo()
+  
+  
+  
+  
+def dummy():  
   import matplotlib.pyplot as plt
   from matplotlib.widgets import Slider, RadioButtons, CheckButtons
   import time

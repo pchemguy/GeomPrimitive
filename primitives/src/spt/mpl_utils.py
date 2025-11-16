@@ -6,7 +6,7 @@ mpl_utils.py
 from __future__ import annotations
 
 __all__ = [
-    "bgr_from_rgba", "rgb_from_bgr",
+    "bgr_from_rgba", "rgb_from_bgr", "rgbf_from_rgba", "rgb_from_rgbf",
     "show_RGBx_grid", "render_scene",
     "ImageBGR", "ImageBGRF", "ImageRGB", "ImageRGBF", "ImageRGBA", "ImageRGBx",
     "PAPER_COLORS", "DEFAULT_LINEWIDTHS",
@@ -88,15 +88,10 @@ def rgbf_from_rgba(rgba: ImageRGBA) -> ImageRGBF:
     return rgba[..., :3].astype(np.float32) / 255.0
 
 
-def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
-    """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8."""
-    return (np.clip(img_f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-
-
-#def rgb_from_rgbf(rgbf: ImageRGBF) -> ImageRGB:
-#    """Convert RGB float32 in [0, 1] -> RGB uint8."""
-#    # Clip to avoid rounding issues if upstream overshoots
-#    return (np.clip(rgbf, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+def rgb_from_rgbf(rgbf: ImageRGBF) -> ImageRGB:
+    """Convert RGB float32 in [0, 1] -> RGB uint8."""
+    # Clip to avoid rounding issues if upstream overshoots
+    return (np.clip(rgbf, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
 
 
 def show_RGBx_grid(images: dict[str, ImageRGBx], title_style: dict = None, 

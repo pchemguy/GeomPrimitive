@@ -52,9 +52,11 @@ Usage:
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
+import random
+from numbers import Real
 from typing import Literal, Optional
 
-from spt_correction_engine import CameraProfile, ToneMode
+from spt_correction_engine import CameraProfile, ToneMode, CameraKind
 
 __all__ = [
     "random_camera_profile",
@@ -62,79 +64,65 @@ __all__ = [
     "synthetic_lab_camera",
 ]
 
-# ---------------------------------------------------------------------------
-# Sampling helpers
-# ---------------------------------------------------------------------------
-
-def rand_uniform(rng, a, b):
-    return float(rng.uniform(a, b))
-
-def rand_bool(rng, p_true=0.5):
-    return bool(rng.random() < p_true)
-
-def rand_enum(rng, enum_list):
-    return rng.choice(enum_list)
 
 # ---------------------------------------------------------------------------
 # Ranges for all parameters (from the master table)
 # ---------------------------------------------------------------------------
 PARAM_RANGES = {
-    "k1": (-0.20, 0.20),
-    "k2": (-0.02, 0.02),
-    "rolling_strength": (0.0, 0.05),
+    "k1"               : (-0.20, 0.20),
+    "k2"               : (-0.02, 0.02),
+    "rolling_strength" : (0.0, 0.05),
 
     # Sensor noise
-    "prnu": (0.0, 0.010),
-    "fpn_row": (0.0, 0.010),
-    "fpn_col": (0.0, 0.010),
-    "shot_noise": (0.0, 0.030),
-    "read_noise": (0.0, 0.008),
+    "prnu"             : (0.0, 0.010),
+    "fpn_row"          : (0.0, 0.010),
+    "fpn_col"          : (0.0, 0.010),
+    "shot_noise"       : (0.0, 0.030),
+    "read_noise"       : (0.0, 0.008),
 
     # ISP
-    "denoise_strength": (0.0, 1.0),
-    "blur_sigma": (0.5, 3.0),
-    "sharpen": (0.0, 1.0),
+    "denoise_strength" : (0.0, 1.0),
+    "blur_sigma"       : (0.5, 3.0),
+    "sharpening_amount": (0.0, 1.0),
 
     # Tone
-    "tone_strength": (0.0, 0.80),
-    "scurve_strength": (0.0, 0.40),
+    "tone_strength"    : (0.0, 0.80),
+    "scurve_strength"  : (0.0, 0.50),
 
     # Vignette + color
     "vignette_strength": (0.0, 0.50),
-    "color_warmth": (0.0, 0.20),
+    "color_warmth"     : (0.0, 0.20),
 
     # JPEG
-    "jpeg_quality": (70, 98),
+    "jpeg_quality"     : (70, 98),
 
     # ISO
-    "iso_float": (0.5, 2.0),
+    "iso_sf"           : (0.5, 2.0),
 }
 
-TONE_MODES = ["reinhard", "filmic"]
-CAMERA_KINDS = ["smartphone", "compact"]
 
 # ---------------------------------------------------------------------------
 # Physical interaction tuning functions
 # ---------------------------------------------------------------------------
 
-def apply_physical_interactions(params, rng):
+def apply_physical_interactions(params, iso: float, k1: float):
     """
     Modify sampled parameters so they exhibit realistic ISP-sensor interactions.
     This ensures distributions match real image statistics.
     """
-
-    iso = params["iso_level"]
-
-    # Noise scales with ISO
-    params["base_prnu_strength"] *= iso
-    params["base_fpn_row"] *= iso
-    params["base_fpn_col"] *= iso
-    params["base_shot_noise"] *= iso
-    params["base_read_noise"] *= iso
+    if not isinstance(iso, Real):
+        raise ValueError(f"Numeric iso must be provided.")
+    
+    # Noise scales with ISO - commented out as applied by the engine
+    # params["base_prnu_strength"] *= iso
+    # params["base_fpn_row"] *= iso
+    # params["base_fpn_col"] *= iso
+    # params["base_shot_noise"] *= iso
+    # params["base_read_noise"] *= iso
 
     # Denoise vs ISO
     params["denoise_strength"] = np.clip(
-        params["denoise_strength"] + 0.3 * (iso - 1.0), 0.0, 1.0
+        params["denoise_strength"] + 0.3 * (iso - 1.0), *PARAM_RANGES["denoise_strength"]
     )
 
     # Sharpen decreases if denoise is high (avoid watercolor halos)
@@ -143,20 +131,18 @@ def apply_physical_interactions(params, rng):
 
     # Tone mapping stronger at higher ISO
     params["tone_strength"] = np.clip(
-        params["tone_strength"] + 0.2 * (iso - 1.0), 0.0, 0.8
+        params["tone_strength"] + 0.2 * (iso - 1.0), *PARAM_RANGES["tone_strength"]
     )
 
     # S-curve moderate coupling
     params["scurve_strength"] = np.clip(
-        params["scurve_strength"] + 0.1 * (iso - 1.0), 0.0, 0.4
+        params["scurve_strength"] + 0.1 * (iso - 1.0), *PARAM_RANGES["scurve_strength"]
     )
 
     # Vignette slightly correlates with lens distortion magnitude
-    k1_mag = abs(params["k1"])
+    k_norm = min(1.0, abs(k1) / PARAM_RANGES["k1"][1])
     params["vignette_strength"] = np.clip(
-        params["vignette_strength"] + 0.5 * k1_mag,
-        0.0,
-        PARAM_RANGES["vignette_strength"][1],
+        params["vignette_strength"] + 0.05 * k_norm, *PARAM_RANGES["vignette_strength"]
     )
 
     # Compact cameras tend to be milder overall
@@ -172,7 +158,8 @@ def apply_physical_interactions(params, rng):
 # Main API
 # ---------------------------------------------------------------------------
 
-def random_camera_profile(kind: Optional[str] = None, seed: Optional[int] = None) -> CameraProfile:
+def random_camera_profile(kind: str = None, iso: float = None, k1: float = None,
+                          seed: int = None) -> CameraProfile:
     """
     Generate a physically plausible randomized CameraProfile for use with
     apply_camera_model().
@@ -184,76 +171,48 @@ def random_camera_profile(kind: Optional[str] = None, seed: Optional[int] = None
     Returns:
         CameraProfile with randomized parameters.
     """
-
-    rng = np.random.default_rng(seed)
+    rng = random.Random(seed)
 
     # Pick camera kind
     if kind is None:
-        kind = rng.choice(CAMERA_KINDS)
+        kind = rng.choice(CameraKind)
     else:
         kind = str(kind).lower().strip()
 
-    # ISO as continuous float
-    iso = rand_uniform(rng, *PARAM_RANGES["iso_float"])
-
     # Base parameter sampling
-    params = {
-        "kind": kind,
-        "iso_level": iso,
-
-        # optics
-        "k1": rand_uniform(rng, *PARAM_RANGES["k1"]),
-        "k2": rand_uniform(rng, *PARAM_RANGES["k2"]),
-        "rolling_strength": rand_uniform(rng, *PARAM_RANGES["rolling_strength"]),
+    prof_dict = {
+        "kind"                : kind,
 
         # sensor base noise
-        "base_prnu_strength": rand_uniform(rng, *PARAM_RANGES["prnu"]),
-        "base_fpn_row": rand_uniform(rng, *PARAM_RANGES["fpn_row"]),
-        "base_fpn_col": rand_uniform(rng, *PARAM_RANGES["fpn_col"]),
-        "base_shot_noise": rand_uniform(rng, *PARAM_RANGES["shot_noise"]),
-        "base_read_noise": rand_uniform(rng, *PARAM_RANGES["read_noise"]),
+        "base_prnu_strength"  : rng.uniform(*PARAM_RANGES["prnu"]),
+        "base_fpn_row"        : rng.uniform(*PARAM_RANGES["fpn_row"]),
+        "base_fpn_col"        : rng.uniform(*PARAM_RANGES["fpn_col"]),
+        "base_shot_noise"     : rng.uniform(*PARAM_RANGES["shot_noise"]),
+        "base_read_noise"     : rng.uniform(*PARAM_RANGES["read_noise"]),
 
         # ISP
-        "denoise_strength": rand_uniform(rng, *PARAM_RANGES["denoise_strength"]),
-        "blur_sigma": rand_uniform(rng, *PARAM_RANGES["blur_sigma"]),
-        "sharpening_amount": rand_uniform(rng, *PARAM_RANGES["sharpen"]),
+        "denoise_strength"    : rng.uniform(*PARAM_RANGES["denoise_strength"]),
+        "blur_sigma"          : rng.uniform(*PARAM_RANGES["blur_sigma"]),
+        "sharpening_amount"   : rng.uniform(*PARAM_RANGES["sharpening_amount"]),
 
         # tone mapping
-        "tone_strength": rand_uniform(rng, *PARAM_RANGES["tone_strength"]),
-        "scurve_strength": rand_uniform(rng, *PARAM_RANGES["scurve_strength"]),
-        "tone_mode": rand_enum(rng, TONE_MODES),
+        "tone_strength"       : rng.uniform(*PARAM_RANGES["tone_strength"]),
+        "scurve_strength"     : rng.uniform(*PARAM_RANGES["scurve_strength"]),
+        "tone_mode"           : rng.choice(ToneMode),
 
         # lens falloff and color
-        "vignette_strength": rand_uniform(rng, *PARAM_RANGES["vignette_strength"]),
-        "color_warmth": rand_uniform(rng, *PARAM_RANGES["color_warmth"]),
+        "vignette_strength"   : rng.uniform(*PARAM_RANGES["vignette_strength"]),
+        "color_warmth"        : rng.uniform(*PARAM_RANGES["color_warmth"]),
 
         # JPEG
-        "jpeg_quality": int(rand_uniform(rng, *PARAM_RANGES["jpeg_quality"])),
+        "jpeg_quality"        : rng.randint(*PARAM_RANGES["jpeg_quality"]),
     }
 
     # Apply physical dependencies
-    params = apply_physical_interactions(params, rng)
+    prof_dict = apply_physical_interactions(prof_dict, iso=iso, k1=k1)
 
     # Build CameraProfile
-    prof = CameraProfile(
-        kind=kind,
-        base_prnu_strength=params["base_prnu_strength"],
-        base_fpn_row=params["base_fpn_row"],
-        base_fpn_col=params["base_fpn_col"],
-        base_read_noise=params["base_read_noise"],
-        base_shot_noise=params["base_shot_noise"],
-        denoise_strength=params["denoise_strength"],
-        blur_sigma=params["blur_sigma"],
-        sharpening_amount=params["sharpening_amount"],
-        tone_strength=params["tone_strength"],
-        scurve_strength=params["scurve_strength"],
-        tone_mode=params["tone_mode"],
-        vignette_strength=params["vignette_strength"],
-        color_warmth=params["color_warmth"],
-        jpeg_quality=params["jpeg_quality"],
-    )
-
-    prof.iso_level = iso
+    prof = CameraProfile(**prof_dict)
   
     return prof
 
@@ -261,12 +220,13 @@ def random_camera_profile(kind: Optional[str] = None, seed: Optional[int] = None
 # Convenience: generate lens parameters separate from correction_profile
 # ---------------------------------------------------------------------------
 
-def random_lens_params(seed: Optional[int] = None):
-    rng = np.random.default_rng(seed)
+def random_lens_params(seed: int = None) -> dict:
+    rng = random.Random(seed)
     return {
-        "k1": rand_uniform(rng, *PARAM_RANGES["k1"]),
-        "k2": rand_uniform(rng, *PARAM_RANGES["k2"]),
-        "rolling_strength": rand_uniform(rng, *PARAM_RANGES["rolling_strength"]),
+        "k1"              : rng.uniform(*PARAM_RANGES["k1"]),
+        "k2"              : rng.uniform(*PARAM_RANGES["k2"]),
+        "rolling_strength": rng.uniform(*PARAM_RANGES["rolling_strength"]),
+        "iso_level"       : rng.uniform(*PARAM_RANGES["iso_sf"]),
     }
 
 
@@ -285,10 +245,10 @@ if not _logger.handlers:
 # High-Level Synthetic Lab Camera Wrapper
 # ---------------------------------------------------------------------------
 
-def synthetic_lab_camera(img, kind: str | None = None, seed: int | None = None,
-                          rng: np.random.Generator | None = None,
-                          metadata_format: str = "dict",
-                          **lens_overrides):
+def synthetic_lab_camera(img, kind: str = None, seed: int = None,
+                         rng: np.random.Generator = None,
+                         metadata_format: str = "dict",
+                         **lens_overrides):
     """
     High-level API: automatically generates a random camera correction_profile,
     lens parameters, and applies the correction engine.
@@ -310,20 +270,23 @@ def synthetic_lab_camera(img, kind: str | None = None, seed: int | None = None,
     _logger.info("Generating synthetic camera correction_profile...")
 
     local_rng = rng if rng is not None else np.random.default_rng(seed)
-    correction_profile = random_camera_profile(kind=kind, seed=seed)
-    lens_params = random_lens_params(seed=seed)
 
+    lens_params = random_lens_params(seed=seed)
     # Overrides
     for key, val in lens_overrides.items():
         if key in lens_params:
             lens_params[key] = float(val)
+    correction_profile = random_camera_profile(
+        kind=kind, iso=lens_params["iso_level"], k1=lens_params["k1"], seed=seed)
+
 
     _logger.info("Applying camera model...")
 
     out = apply_camera_model(
         img,
+        correction_profile=correction_profile,
         camera_kind=correction_profile.kind,
-        iso_level=correction_profile.iso_level,
+        iso_level=lens_params["iso_level"],
         lens_k1=lens_params["k1"],
         lens_k2=lens_params["k2"],
         rolling_strength=lens_params["rolling_strength"],
@@ -332,10 +295,8 @@ def synthetic_lab_camera(img, kind: str | None = None, seed: int | None = None,
     )
 
     meta = {
-        "iso_level": correction_profile.iso_level,
-        "rolling_strength": lens_params.get("rolling_strength"),
         "camera_profile": correction_profile.__dict__,
-        "lens_params": lens_params,
+        **lens_params,
     }
 
     if metadata_format == "json":
@@ -352,7 +313,8 @@ if __name__ == "__main__":
     import time as _time
     from pathlib import Path as _Path
 
-    _outdir = _Path("_sptcam_test"); _outdir.mkdir(exist_ok=True)
+    _outdir = _Path("_sptcam_test")
+    _outdir.mkdir(exist_ok=True)
 
     COLORS = {
         "white": (1.0,1.0,1.0),
