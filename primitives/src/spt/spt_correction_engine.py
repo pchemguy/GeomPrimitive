@@ -150,6 +150,43 @@ CameraKind = ["smartphone", "compact"]
 ToneMode = ["reinhard", "filmic"]
 
 
+# ---------------------------------------------------------------------------
+# Ranges for all parameters (from the master table)
+# ---------------------------------------------------------------------------
+PARAM_RANGES = {
+    "k1"                 : (-0.20, 0.20), # Norm 3*sigma
+    "k2"                 : (-0.02, 0.02), # Norm 3*sigma
+    "rolling_strength"   : (0.0, 0.03),   # Norm 3*sigma
+
+    # Sensor noise
+    "base_prnu_strength" : (0.0, 0.010),
+    "base_fpn_row"       : (0.0, 0.010),
+    "base_fpn_col"       : (0.0, 0.010),
+    "base_read_noise"    : (0.0, 0.030),
+    "base_shot_noise"    : (0.0, 0.008),
+
+    # ISP
+    "denoise_strength"   : (0.0, 1.0),
+    "blur_sigma"         : (0.5, 3.0),
+    "sharpening_amount"  : (0.0, 1.0),
+
+    # Tone
+    "tone_strength"      : (0.0, 0.80),
+    "scurve_strength"    : (0.0, 0.50),
+
+    # Vignette + color
+    "vignette_strength"  : (0.0, 0.50),
+    "color_warmth"       : (0.0, 0.20),
+
+    # JPEG
+    "jpeg_quality"     : (70, 98),
+
+    # ISO
+    "iso_sf"           : (0.5, 2.0),
+}
+    
+
+
 @dataclass
 class CameraProfile:
     """Camera-like behavior configuration.
@@ -172,21 +209,21 @@ class CameraProfile:
         jpeg_quality: JPEG quality for optional roundtrip (higher = less compressed).
     """
 
-    kind: str
-    base_prnu_strength: float
-    base_fpn_row: float
-    base_fpn_col: float
-    base_read_noise: float
-    base_shot_noise: float
-    denoise_strength: float
-    blur_sigma: float
-    sharpening_amount: float
-    tone_strength: float
-    scurve_strength: float
-    tone_mode: ToneMode
-    vignette_strength: float
-    color_warmth: float
-    jpeg_quality: int
+    kind              : str      = "smartphone"
+    base_prnu_strength: float    = 0
+    base_fpn_row      : float    = 0
+    base_fpn_col      : float    = 0
+    base_read_noise   : float    = 0
+    base_shot_noise   : float    = 0
+    denoise_strength  : float    = 0
+    blur_sigma        : float    = 0
+    sharpening_amount : float    = 0
+    tone_strength     : float    = 0
+    scurve_strength   : float    = 0
+    tone_mode         : ToneMode = "filmic"
+    vignette_strength : float    = 0
+    color_warmth      : float    = 0
+    jpeg_quality      : int      = 90
 
 
 SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
@@ -296,8 +333,8 @@ def radial_distortion(img: ImageRGBF, k1: float, k2: float = 0.0) -> ImageRGBF:
 
     warped = cv2.remap(uint8_from_float32(img), map_x, map_y,
                   interpolation=cv2.INTER_LINEAR,
-                  borderMode=cv2.BORDER_REFLECT,
-             )
+                  borderMode=cv2.BORDER_CONSTANT,
+                  borderValue=(255, 255, 255))
     return warped.astype(np.float32) / 255.0
 
 
@@ -349,8 +386,6 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     Returns:
         Demosaiced RGB float [0, 1].
     """
-    return img
-
     img_u8 = uint8_from_float32(img)
 
     h, w, _ = img_u8.shape
@@ -359,7 +394,7 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     B = img_u8[..., 2]
 
     # RGGB CFA pattern
-    mosaic = np.zeros((h, w), dtype=np.float32)
+    mosaic = np.zeros((h, w), dtype=np.uint8)
     # R at (0,0) modulo 2
     mosaic[0::2, 0::2] = R[0::2, 0::2]
     # G at (0,1) and (1,0)
@@ -368,10 +403,9 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     # B at (1,1)
     mosaic[1::2, 1::2] = B[1::2, 1::2]
 
-    bgr_dm = cv2.cvtColor(mosaic, cv2.COLOR_BayerRG2BGR)
-    rgb_dm = cv2.cvtColor(bgr_dm, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    # NOTE: cv2.COLOR_BayerRG2BGR returns RGB, not BGR
+    rgb_dm = cv2.cvtColor(mosaic, cv2.COLOR_BayerRG2BGR).astype(np.float32) / 255.0
     return rgb_dm
-
 
 # ---------------------------------------------------------------------------
 # Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent)
@@ -651,8 +685,8 @@ def apply_camera_model(
         correction_profile: CameraProfile = None,
         camera_kind: str = "smartphone",
         iso_level: ISOLevel | Real = "mid",
-        lens_k1: float = -0.15,
-        lens_k2: float = 0.02,
+        k1: float = -0.15,
+        k2: float = 0.02,
         rolling_strength: float = 0.03,
         apply_jpeg: bool = True,
         cfa_enabled: bool = True,
@@ -664,8 +698,8 @@ def apply_camera_model(
         img: Input RGB float image in [0, 1].
         camera_kind: 'smartphone' or 'compact'.
         iso_level: 'low', 'mid', 'high' or a numeric ISO factor.
-        lens_k1: Primary radial distortion coefficient.
-        lens_k2: Secondary radial distortion coefficient.
+        k1: Primary radial distortion coefficient.
+        k2: Secondary radial distortion coefficient.
         rolling_strength: Skew magnitude, e.g. ~0.02-0.05.
         apply_jpeg: Whether to run a JPEG roundtrip for DCT artifacts.
         rng: Optional NumPy Generator. If None, a default RNG is created.
@@ -684,7 +718,7 @@ def apply_camera_model(
     img = rescale_imgf(img.astype(np.float32))
 
     # 1) Lens geometry in linear RGB
-    img = radial_distortion(img, k1=lens_k1, k2=lens_k2)
+    img = radial_distortion(img, k1=k1, k2=k2)
     img = rolling_shutter_skew(img, strength=rolling_strength)
 
     # 2) CFA + demosaic
@@ -710,28 +744,20 @@ def apply_camera_model(
     return rescale_imgf(img)
 
 
-def demo_setup(title: str, demo_set: dict) -> dict:
-    demo_set = [
-        {"tilt_x":  0.20,  "tilt_y":  0.20},
-        {"tilt_x":  0.20,  "tilt_y":  0.40},
-        {"tilt_x": -0.80,  "tilt_y":  0.80},
-        {"tilt_x":  1.00,  "tilt_y": -1.00},
-        {"k1":  0.2,  "k2": 0.05},
-        {"k1":  0.5,  "k2": 0.05},
-        {"k1":  1.0,  "k2": 0.05},
-        {"k1": -0.5,  "k2": 0.05},
-        {"k1":  0.1,  "k2": 0.1},
-        {"k1":  0.1,  "k2": 0.2},
-        {"k1":  0.1,  "k2": 0.5},
-        {"k1":  0.1,  "k2": 0.8},
-    ]
+# ---------------------------------------------------------------------------
+# Demos
+# ---------------------------------------------------------------------------
 
+def round_sig(x, sig=3):
+    x = float(x)
+    if x == 0:
+        return 0.0
+    return round(x, sig - int(np.floor(np.log10(abs(x)))) - 1)
 
 
 def demo():
     # ----------------------------------------------------------------------
     base_rgba: ImageRGBA = render_scene()
-    base_bgr:  ImageBGR  = bgr_from_rgba(base_rgba)
     base_rgbf: ImageRGBF = rgbf_from_rgba(base_rgba)
 
     rng = random.Random(os.getpid() ^ int(time.time()))
@@ -748,39 +774,153 @@ def demo():
         "BASELINE": img_rnd,
     }
 
-    default_prof = {
+    default_core = {
+        # 3) Sensor noise
+
         "base_prnu_strength": 0, # [0, 0.01]
         "base_fpn_row"      : 0, # [0, 0.01]
         "base_fpn_col"      : 0, # [0, 0.01]
         "base_read_noise"   : 0, # [0, 0.01]
         "base_shot_noise"   : 0, # [0, 0.03]
+
+        # 4) ISP denoise + sharpen
+
         "denoise_strength"  : 0, # [0, 1]
         "blur_sigma"        : 0, # [0, 3]
         "sharpening_amount" : 0, # [0, 1]
+
+        # 5) Tone mapping
+        
         "tone_strength"     : 0, # [0, 1]
         "scurve_strength"   : 0, # [0, 0.5]
+
+        # 6) Vignette + color warmth
+
         "vignette_strength" : 0, # [0, 0.5]
         "color_warmth"      : 0, # [0, 0.2]
     }
-    default_props = {
+
+    default_extras = {
         "iso_level"         : 1, # [0, 2]
+    
         "rolling_strength"  : 0, # [0, 0.05]
-        "lens_k1"           : 0, # [-0.2, 0.2]
-        "lens_k2"           : 0, # [-0.02, 0.02]
+
+        # 1) Lens geometry
+
+        "k1"                : 0, # [-0.2, 0.2]
+        "k2"                : 0, # [-0.02, 0.02]
+
+        # 7) JPEG
+
         "apply_jpeg"        : False,
+
+        # 2) CFA + demosaic (always on, to keep realism)
+
         "cfa_enabled"       : False,
     }
 
-    for custom_props in demo_set:
-        title = title
-        for key, val in custom_props.items():
-            title.append(f"key: '{key}': val '{val}'")
-        title = "".join(title)
-        print(title)
-        demos[title] = rgb_from_rgbf(
-            spt_geometry(**{**default_props, **custom_props})
-        )
+    # ---------------------------------------------------------------------------
+    # Demo Sets
+    # ---------------------------------------------------------------------------
+    
 
+    # 1) Lens geometry
+    # ----------------
+    varname = "k1"
+    stepcount = 9
+    (mn, mx) = PARAM_RANGES[varname]
+    span = mx - mn + EPSILON
+
+    custom_extras_k1 = [
+        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+    ]
+    
+    varname = "k2"
+    stepcount = 9
+    (mn, mx) = PARAM_RANGES[varname]
+    span = mx - mn + EPSILON
+
+    custom_extras_k2 = [
+        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+    ]
+
+    varname = "rolling_strength"
+    stepcount = 9
+    (mn, mx) = PARAM_RANGES[varname]
+    span = mx - mn + EPSILON
+
+    custom_extras_rolling_strength = [
+        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+    ]
+ 
+    # 2) CFA + demosaic
+    # -----------------
+    custom_extras_cfa_enabled = [
+        {"cfa_enabled": True}
+    ]
+ 
+#     # 3) Sensor noise
+#     iso_val = sliders["ISO"].val
+#     if iso_val < 0:
+#       iso_val = 0.0
+#     img = sensor_noise(img, profile=profile, iso_level=iso_val, rng=rng)
+# 
+#     # 4) ISP denoise + sharpen
+#     img = isp_denoise_and_sharpen(img, profile=profile)
+# 
+#     # 5) Tone mapping
+#     img = tone_mapping(img, profile=profile)
+# 
+#     # 6) Vignette + color warmth
+#    img = vignette_and_color(img, profile=profile)
+#
+#    # JPEG intentionally skipped in interactive mode
+    
+    
+    
+    custom_core_prnu = [
+        {"base_prnu_strength": 0.000},
+        {"base_prnu_strength": 0.002},
+        {"base_prnu_strength": 0.004},
+        {"base_prnu_strength": 0.006},
+        {"base_prnu_strength": 0.008},
+        {"base_prnu_strength": 0.010},
+    ]
+
+    # ---------------------------------------------------------------------------
+    # Demo Runner
+    # ---------------------------------------------------------------------------
+
+    custom_core   = [{}] #custom_core_prnu
+    custom_extras = custom_extras_cfa_enabled
+    
+    print(custom_core)
+    if len(custom_core) > 1:
+        for custom_props in custom_core:
+            title = []
+            for key, val in custom_props.items():
+                title.append(f"key: '{key}': val '{val}'")
+            title = "".join(title)
+            print(title)
+            demos[title] = rgb_from_rgbf(apply_camera_model(
+                img=img_rnd,
+                correction_profile=CameraProfile(**{**default_core, **custom_props}),
+                **{**default_extras, **custom_extras[0]}
+            ))
+    else:
+        for custom_props in custom_extras:
+            title = []
+            for key, val in custom_props.items():
+                title.append(f"key: '{key}': val '{val}'")
+            title = "".join(title)
+            print(title)
+            demos[title] = rgb_from_rgbf(apply_camera_model(
+                img=img_rnd,
+                correction_profile=CameraProfile(**{**default_core, **custom_core[0]}),
+                **{**default_extras, **custom_props}
+            ))
+
+ 
     show_RGBx_grid(demos, n_columns=4)
 
 
@@ -788,8 +928,7 @@ def demo():
 # Interactive Demo
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    pass
-    #demo()
+    demo()
   
   
   
