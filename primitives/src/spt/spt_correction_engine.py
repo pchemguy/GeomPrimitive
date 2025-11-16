@@ -105,8 +105,11 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
 
-from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA 
+import spt_config
+if __name__ == "__main__":
+    spt_config.BATCH_MODE = False
 
+from mpl_utils import ImageBGR, ImageBGRF, ImageRGB, ImageRGBF, ImageRGBA 
 
 # ---------------------------------------------------------------------------
 # Constants and type aliases
@@ -156,9 +159,9 @@ class CameraProfile:
     denoise_strength: float
     blur_sigma: float
     sharpening_amount: float
-    tone_strength: float = 0.5
-    scurve_strength: float = 0.2
-    tone_mode: ToneMode = "reinhard"
+    tone_strength: float
+    scurve_strength: float
+    tone_mode: ToneMode
     vignette_strength: float
     color_warmth: float
     jpeg_quality: int
@@ -171,7 +174,7 @@ SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
     base_fpn_col=0.002,
     base_read_noise=0.002,  # low
     base_shot_noise=0.01,  # medium
-    denoise_strength0.6,
+    denoise_strength=0.6,
     blur_sigma=1,
     sharpening_amount=0.6,
     tone_strength=0.55,
@@ -189,7 +192,7 @@ COMPACT_PROFILE: CameraProfile = CameraProfile(
     base_fpn_col=0.003,
     base_read_noise=0.003,  # slightly higher
     base_shot_noise=0.012,
-    denoise_strength0.4,
+    denoise_strength=0.4,
     blur_sigma=1,
     sharpening_amount=0.4,
     tone_strength=0.35,
@@ -312,6 +315,8 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     Returns:
         Demosaiced RGB float [0, 1].
     """
+    return img
+
     img_u8 = uint8_from_float32(img)
 
     h, w, _ = img_u8.shape
@@ -320,7 +325,7 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
     B = img_u8[..., 2]
 
     # RGGB CFA pattern
-    mosaic = np.zeros((h, w), dtype=np.uint8)
+    mosaic = np.zeros((h, w), dtype=np.float32)
     # R at (0,0) modulo 2
     mosaic[0::2, 0::2] = R[0::2, 0::2]
     # G at (0,1) and (1,0)
@@ -349,7 +354,7 @@ def sensor_noise(
 
     # ISO scaling factor
     if isinstance(iso_level, Real):
-        iso_factor = float(abs(iso_level))
+        iso_factor = float(np.clip(abs(iso_level), 0.0, 3.0))
     else:
         key = str(iso_level).strip().lower()
         iso_factor = ISO_SF.get(key, 1.0)
@@ -424,9 +429,9 @@ def isp_denoise_and_sharpen(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF
     ISP processing stage: denoising (bilateral) + unsharp-mask sharpening.
 
     Controls:
-        denoise_strength: 0..1 – more = stronger noise reduction & smoothing
-        blur_sigma:       0.5..3 – radius of unsharp-mask blur kernel
-        sharpening_amount:0..1 – strength of sharpening (halos)
+        denoise_strength: 0..1 - more = stronger noise reduction & smoothing
+        blur_sigma:       0.5..3 - radius of unsharp-mask blur kernel
+        sharpening_amount:0..1 - strength of sharpening (halos)
     """
 
     img_u8 = uint8_from_float32(img)
@@ -510,7 +515,7 @@ def tone_mapping(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
     """Combined tone-mapping stage."""
     tone_strength = profile.tone_strength
     scurve_strength = profile.scurve_strength
-    tone_mode = profile.scurve_strength
+    tone_mode = profile.tone_mode
     if tone_mode == "filmic":
         img = tone_map_filmic(img, tone_strength)
     else:
@@ -578,12 +583,14 @@ def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
 
 def apply_camera_model(
         img: ImageRGBF,
+        correction_profile: CameraProfile = None,
         camera_kind: CameraKind = "smartphone",
         iso_level: ISOLevel | Real = "mid",
         lens_k1: float = -0.15,
         lens_k2: float = 0.02,
         rolling_strength: float = 0.03,
         apply_jpeg: bool = True,
+        cfa_enabled: bool = True,
         rng: np.random.Generator = None,
     ) -> ImageRGBF:
     """Camera-like correction engine.
@@ -604,7 +611,11 @@ def apply_camera_model(
     if rng is None:
         rng = np.random.default_rng()
 
-    profile = get_camera_profile(camera_kind)
+    if correction_profile is None:
+        profile = get_camera_profile(camera_kind)
+    else:
+        profile = correction_profile
+
     img = np.clip(img.astype(np.float32), 0.0, 1.0)
 
     # 1) Lens geometry in linear RGB
@@ -612,7 +623,8 @@ def apply_camera_model(
     img = rolling_shutter_skew(img, strength=rolling_strength)
 
     # 2) CFA + demosaic
-    img = cfa_and_demosaic(img)
+    if cfa_enabled:
+        img = cfa_and_demosaic(img)
 
     # 3) Sensor noise (PRNU + FPN + shot / read)
     img = sensor_noise(img, profile=profile, iso_level=iso_level, rng=rng)
@@ -621,12 +633,7 @@ def apply_camera_model(
     img = isp_denoise_and_sharpen(img, profile=profile)
 
     # 4.5) Tone mapping
-    img = tone_mapping(
-        img,
-        base_strength=profile.tone_strength,
-        scurve_strength=profile.scurve_strength,
-        mode=profile.tone_mode,
-    )
+    img = tone_mapping(img, profile)
 
     # 5) Vignette + color bias
     img = vignette_and_color(img, profile=profile)
@@ -636,3 +643,217 @@ def apply_camera_model(
         img = jpeg_roundtrip(img, quality=profile.jpeg_quality)
 
     return np.clip(img, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Interactive Demo (Optimized Real-Time UI)
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+  import matplotlib.pyplot as plt
+  from matplotlib.widgets import Slider, RadioButtons, CheckButtons
+  import time
+
+  # ---- Background colors -------------------------------------------------
+  COLORS = {
+      "red": (1.0, 0.0, 0.0),
+      "green": (0.0, 1.0, 0.0),
+      "blue": (0.0, 0.0, 1.0),
+      "white": (1.0, 1.0, 1.0),
+      "cornsilk": (1.0, 0.9725, 0.8627),
+      "ivory": (1.0, 1.0, 0.9412),
+      "oldlace": (0.992, 0.961, 0.902),
+      "floralwhite": (1.0, 0.9804, 0.9412),
+      "whitesmoke": (0.9608, 0.9608, 0.9608),
+  }
+
+  H, W = 512, 512
+  init_color = "white"
+  base_img = np.ones((H, W, 3), dtype=np.float32)
+  base_img[:] = COLORS[init_color]
+
+  fig, ax = plt.subplots(figsize=(7, 7))
+  plt.subplots_adjust(left=0.32, bottom=0.05)
+  disp = ax.imshow(base_img, vmin=0, vmax=1)
+  ax.set_axis_off()
+
+  # ---- Collapsible Panels via CheckButtons -------------------------------
+  panel_ax = plt.axes([0.02, 0.55, 0.25, 0.40])
+  panel = CheckButtons(
+      panel_ax,
+      ["Optics", "Sensor", "ISP", "Tone", "Vignette/Color"],
+      [True, False, False, False, False],
+  )
+
+  # ---- Slider Groups: name, min, max, init -------------------------------
+  slider_groups = {
+      "Optics": [
+          ("k1", -0.3, 0.3, 0.0),
+          ("k2", -0.05, 0.05, 0.0),
+          ("rolling", -0.1, 0.1, 0.0),
+          ("ISO", 0.0, 3.0, 0.0),
+      ],
+      "Sensor": [
+          ("prnu", 0.0, 0.02, 0.0),
+          ("fpn_row", 0.0, 0.02, 0.0),
+          ("fpn_col", 0.0, 0.02, 0.0),
+          ("shot", 0.0, 0.03, 0.0),
+          ("read", 0.0, 0.01, 0.0),
+      ],
+      "ISP": [
+          ("denoise", 0.0, 1.0, 0.0),
+          ("blur_sigma", 0.1, 3.0, 0.0),
+          ("sharpen", 0.0, 1.0, 0.0),
+      ],
+      "Tone": [
+          ("tone", 0.0, 1.0, 0.0),
+          ("scurve", 0.0, 1.0, 0.0),
+      ],
+      "Vignette/Color": [
+          ("vignette", 0.0, 0.6, 0.0),
+          ("warm", 0.0, 0.2, 0.0),
+      ],
+  }
+
+  sliders: dict[str, Slider] = {}
+  slider_axes: dict[str, list[plt.Axes]] = {}
+
+  ypos = 0.45
+  for group, defs in slider_groups.items():
+    slider_axes[group] = []
+    for name, vmin, vmax, vinit in defs:
+      ax_s = plt.axes([0.32, ypos, 0.60, 0.022])
+      ax_s.set_visible(group == "Optics")  # only optics visible initially
+      sliders[name] = Slider(ax_s, name, vmin, vmax, valinit=vinit)
+      slider_axes[group].append(ax_s)
+      ypos -= 0.03
+
+  # Tone mode radio button
+  ax_mode = plt.axes([0.02, 0.34, 0.25, 0.15])
+  rb_mode = RadioButtons(ax_mode, ["reinhard", "filmic"], active=0)
+  ax_mode.set_visible(False)
+
+  # Background color radio buttons
+  ax_color = plt.axes([0.02, 0.10, 0.25, 0.20])
+  rb_color = RadioButtons(
+      ax_color,
+      list(COLORS.keys()),
+      active=list(COLORS.keys()).index(init_color),
+  )
+
+  # ---- Panel toggle: show only sliders of selected group -----------------
+  def panel_toggle(label: str) -> None:
+    for g, axes_g in slider_axes.items():
+      visible = (g == label)
+      for ax_s in axes_g:
+        ax_s.set_visible(visible)
+    ax_mode.set_visible(label == "Tone")
+    fig.canvas.draw_idle()
+
+  panel.on_clicked(panel_toggle)
+
+  # ---- Real-time throttling state ----------------------------------------
+  state = {"last_t": 0.0}
+  min_interval = 0.05  # 20 FPS cap
+
+  rng = np.random.default_rng(1234)
+
+  def build_profile_from_sliders() -> "CameraProfile":
+    """Construct a neutral-ish profile from the slider values."""
+    return CameraProfile(
+        kind="smartphone",
+        base_prnu_strength=sliders["prnu"].val,
+        base_fpn_row=sliders["fpn_row"].val,
+        base_fpn_col=sliders["fpn_col"].val,
+        base_read_noise=sliders["read"].val,
+        base_shot_noise=sliders["shot"].val,
+        denoise_strength=sliders["denoise"].val,
+        blur_sigma=max(0.1, sliders["blur_sigma"].val),
+        sharpening_amount=sliders["sharpen"].val,
+        tone_strength=sliders["tone"].val,
+        scurve_strength=sliders["scurve"].val,
+        tone_mode=rb_mode.value_selected,
+        vignette_strength=sliders["vignette"].val,
+        color_warmth=sliders["warm"].val,
+        jpeg_quality=90,
+    )
+
+  def apply_pipeline(img_rgb: np.ndarray, profile: "CameraProfile") -> np.ndarray:
+    """Run the full engine explicitly with the given profile."""
+    img = np.clip(img_rgb.astype(np.float32), 0.0, 1.0)
+
+    # 1) Lens geometry
+    k1 = sliders["k1"].val
+    k2 = sliders["k2"].val
+    rolling = sliders["rolling"].val
+    if abs(k1) > 0 or abs(k2) > 0:
+      img = radial_distortion(img, k1=k1, k2=k2)
+    if abs(rolling) > 0:
+      img = rolling_shutter_skew(img, strength=rolling)
+
+    # 2) CFA + demosaic (always on, to keep realism)
+    img = cfa_and_demosaic(img)
+
+    # 3) Sensor noise
+    iso_val = sliders["ISO"].val
+    if iso_val < 0:
+      iso_val = 0.0
+    img = sensor_noise(img, profile=profile, iso_level=iso_val, rng=rng)
+
+    # 4) ISP denoise + sharpen
+    img = isp_denoise_and_sharpen(img, profile=profile)
+
+    # 5) Tone mapping
+    img = tone_mapping(img, profile=profile)
+
+    # 6) Vignette + color warmth
+    img = vignette_and_color(img, profile=profile)
+
+    # JPEG intentionally skipped in interactive mode
+    return np.clip(img, 0.0, 1.0)
+
+  def update(_):
+    t = time.time()
+    if t - state["last_t"] < min_interval:
+      return
+    state["last_t"] = t
+
+    # update background plain color
+    base_img[:] = COLORS[rb_color.value_selected]
+
+    # build profile from current sliders
+    profile = build_profile_from_sliders()
+
+    # apply full pipeline
+    out = apply_pipeline(base_img, profile)
+
+    disp.set_data(out)
+    fig.canvas.draw_idle()
+
+  # connect sliders and controls
+  for s in sliders.values():
+    s.on_changed(update)
+  rb_mode.on_clicked(update)
+  rb_color.on_clicked(update)
+
+  # ---- Reset button: zero active panel -----------------------------------
+  ax_reset = plt.axes([0.05, 0.02, 0.20, 0.05])
+  btn_reset = CheckButtons(ax_reset, ["Reset Active Panel"], [False])
+
+  def reset_active(_):
+    # find active group
+    active = None
+    for label, state_flag in zip(panel.labels, panel.get_status()):
+      if state_flag:
+        active = label.get_text()
+        break
+    if active in slider_axes:
+      # reset all sliders in that group to 0
+      for (name, _vmin, _vmax, _vinit) in slider_groups[active]:
+        sliders[name].reset()  # resets to valinit (which we set to 0.0)
+    fig.canvas.draw_idle()
+
+  btn_reset.on_clicked(reset_active)
+
+  # initial render
+  update(None)
+  plt.show()
