@@ -2,6 +2,8 @@
 spt_correction_engine.py
 ------------------------
 
+Ref: https://chatgpt.com/c/69172a6a-b78c-8326-b080-7b02e61b4730
+
 Camera-Like Correction Engine (Internal RGB-Float ISP Simulator)
 ===============================================================
 
@@ -222,9 +224,21 @@ def get_camera_profile(kind: CameraKind | str) -> CameraProfile:
 # Utility conversion
 # ---------------------------------------------------------------------------
 
+def rescale_imgf(img_f: ImageRGBF, *a, **kw) -> ImageRGBF:
+    """Exposure-preserving replacement for np.clip(img, 0.0, 1.0)."""
+    mn, mx = float(img_f.min()), float(img_f.max())
+    if mn >= 0 and mx <= 1:
+        return img_f
+    
+    if mn < 0 and (mx - mn) <= 1:
+        return img_f + mn
+
+    return (img_f + mn) / (mx - mn)
+
+
 def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
     """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8 with rounding."""
-    return (np.clip(img_f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+    return (rescale_imgf(img_f) * 255.0 + 0.5).astype(np.uint8)
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +377,7 @@ def sensor_noise(
         # All noise effectively off
         return img
 
-    img = np.clip(img.astype(np.float32), 0.0, 1.0)
+    img = rescale_imgf(img.astype(np.float32))
 
     # PRNU (multiplicative)
     base_prnu = profile.base_prnu_strength
@@ -403,7 +417,7 @@ def sensor_noise(
     # Shot noise (brightness dependent)
     if profile.base_shot_noise > EPSILON:
         shot_sigma = profile.base_shot_noise * iso_factor
-        shot_std = shot_sigma * np.sqrt(np.clip(base, 0.0, 1.0))
+        shot_std = shot_sigma * np.sqrt(rescale_imgf(base))
         shot_noise = shot_std * rng.normal(loc=0.0, scale=1.0, size=base.shape,
                                           ).astype(np.float32)
     else:
@@ -417,7 +431,7 @@ def sensor_noise(
         read_noise = np.zeros_like(base, dtype=np.float32)
 
     noisy = base + shot_noise + read_noise
-    return np.clip(noisy, 0.0, 1.0)
+    return rescale_imgf(noisy)
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +471,7 @@ def isp_denoise_and_sharpen(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF
     # ---- 2. Sharpening -----------------------------------------------------
     sharp_amt = profile.sharpening_amount
     if sharp_amt < EPSILON:
-        return np.clip(img_f, 0.0, 1.0)
+        return rescale_imgf(img_f)
 
     # Gaussian blur radius (sigma)
     blur_sigma = max(0.1, float(profile.blur_sigma))
@@ -466,7 +480,7 @@ def isp_denoise_and_sharpen(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF
     blur = cv2.GaussianBlur(img_f, (0, 0), sigmaX=blur_sigma)
     sharp = img_f + sharp_amt * (img_f - blur)
 
-    return np.clip(sharp, 0.0, 1.0)
+    return rescale_imgf(sharp)
 
 
 # ---------------------------------------------------------------------------
@@ -498,7 +512,7 @@ def tone_map_filmic(img: ImageRGBF, strength: float) -> ImageRGBF:
                 (x * (a * x + b) + d * f) - e / f)
 
     tone = hable(img)
-    tone = np.clip(tone, 0.0, 1.0)
+    tone = rescale_imgf(tone)
     return img * (1.0 - strength) + tone * strength
 
 
@@ -508,7 +522,7 @@ def tone_scurve(img: ImageRGBF, strength: float) -> ImageRGBF:
         return img
     x = img * 2.0 - 1.0
     y = np.tanh(x * (1.0 + strength * 2.0))
-    return np.clip((y + 1.0) * 0.5, 0.0, 1.0)
+    return rescale_imgf((y + 1.0) * 0.5)
 
 
 def tone_mapping(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
@@ -522,7 +536,7 @@ def tone_mapping(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
         img = tone_map_reinhard(img, tone_strength)
 
     img = tone_scurve(img, scurve_strength)
-    return np.clip(img, 0.0, 1.0)
+    return rescale_imgf(img)
 
 
 # ---------------------------------------------------------------------------
@@ -530,25 +544,56 @@ def tone_mapping(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
 # ---------------------------------------------------------------------------
 
 def vignette_and_color(img: ImageRGBF, profile: CameraProfile) -> ImageRGBF:
-    """Apply vignetting and mild color bias in RGB float space."""
+    """Apply vignetting and mild color bias in RGB float32 [0, 1].
+
+    Assumes:
+        - img.dtype is np.float32
+        - img values are in [0, 1]
+        - channel order is RGB (0=R, 1=G, 2=B)
+    """
+    vignette_strength = float(profile.vignette_strength)
+    warm_strength = float(profile.color_warmth)
+
+    # Nothing to do
+    if vignette_strength <= 0.0 and abs(warm_strength) <= 0.0:
+        return img
+
     h, w, _ = img.shape
-    yy, xx = np.indices((h, w), dtype=np.float32)
-    cx, cy = w / 2.0, h / 2.0
-    r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-    r_norm = r / (r.max() + EPSILON)
 
-    vig_strength = max(profile.vignette_strength, 0.0)
-    vign = 1.0 - vig_strength * (r_norm ** 2)
-    vign = vign.astype(np.float32)[..., None]
+    # Normalized coordinates in [-1, 1]
+    cx = 0.5 * (w - 1)
+    cy = 0.5 * (h - 1)
+    x = (np.arange(w, dtype=np.float32) - cx) / max(cx, 1.0)
+    y = (np.arange(h, dtype=np.float32) - cy) / max(cy, 1.0)
+    xx, yy = np.meshgrid(x, y)
 
-    img_v = img * vign
+    # Radial distance, normalized to [0, 1]
+    r = np.sqrt(xx * xx + yy * yy)
+    r_max = float(r.max())
+    r_norm = r / r_max
 
-    warm = profile.color_warmth
-    if abs(warm) > EPSILON:
-        img_v[..., 0] = np.clip(img_v[..., 0] + warm * 0.03, 0.0, 1.0)  # R
-        img_v[..., 2] = np.clip(img_v[..., 2] - warm * 0.03, 0.0, 1.0)  # B
+    # --- Radial masks (float32) ---
+    # Quadratic vignette
+    vignette_mask = 1.0 - vignette_strength * (r_norm ** 2)
 
-    return np.clip(img_v, 0.0, 1.0)
+    # Warm/cool masks (for color_warmth)
+    if abs(warm_strength) > EPSILON:
+        r_pow = r_norm ** 1.2
+        warm_mask = 1.0 + warm_strength * r_pow
+        cool_mask = 1.0 - 0.5 * warm_strength * r_pow
+    else:
+        warm_mask = 1.0
+        cool_mask = 1.0
+
+    # --- Apply modulation (RGB order) ---
+    out = img * vignette_mask[..., None]
+
+    if abs(warm_strength) > 0.0:
+        out[..., 0] *= warm_mask   # R channel
+        out[..., 2] *= cool_mask   # B channel
+
+    # Stay in float32, just clamp range
+    return rescale_imgf(out)
 
 
 # ---------------------------------------------------------------------------
@@ -616,7 +661,7 @@ def apply_camera_model(
     else:
         profile = correction_profile
 
-    img = np.clip(img.astype(np.float32), 0.0, 1.0)
+    img = rescale_imgf(img.astype(np.float32))
 
     # 1) Lens geometry in linear RGB
     img = radial_distortion(img, k1=lens_k1, k2=lens_k2)
@@ -642,7 +687,7 @@ def apply_camera_model(
     if apply_jpeg:
         img = jpeg_roundtrip(img, quality=profile.jpeg_quality)
 
-    return np.clip(img, 0.0, 1.0)
+    return rescale_imgf(img)
 
 
 # ---------------------------------------------------------------------------
@@ -779,7 +824,7 @@ if __name__ == "__main__":
 
   def apply_pipeline(img_rgb: np.ndarray, profile: "CameraProfile") -> np.ndarray:
     """Run the full engine explicitly with the given profile."""
-    img = np.clip(img_rgb.astype(np.float32), 0.0, 1.0)
+    img = rescale_imgf(img_rgb.astype(np.float32))
 
     # 1) Lens geometry
     k1 = sliders["k1"].val
@@ -809,7 +854,7 @@ if __name__ == "__main__":
     img = vignette_and_color(img, profile=profile)
 
     # JPEG intentionally skipped in interactive mode
-    return np.clip(img, 0.0, 1.0)
+    return rescale_imgf(img)
 
   def update(_):
     t = time.time()

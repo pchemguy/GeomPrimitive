@@ -1,6 +1,9 @@
 """
 spt_correction_engine_random.py
 --------------------------------
+
+Ref: https://chatgpt.com/c/69172a6a-b78c-8326-b080-7b02e61b4730
+
 Random Camera Profile Generator + Synthetic Lab Camera Wrapper
 ==============================================================
 
