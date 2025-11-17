@@ -88,7 +88,7 @@ Design Notes
 
 from __future__ import annotations
 
-__all__ = ["apply_camera_model"]
+__all__ = ["apply_camera_model", "correction_set_factory",]
 
 import os
 import sys
@@ -140,7 +140,7 @@ from mpl_utils import (
 
 EPSILON: float = 1e-8
 
-CameraKind = ["smartphone", "compact"]
+CameraKind = ["default", "base", "smartphone", "compact"]
 ToneMode = ["reinhard", "filmic"]
 
 
@@ -148,37 +148,36 @@ ToneMode = ["reinhard", "filmic"]
 # Ranges for all parameters (from the master table)
 # ---------------------------------------------------------------------------
 PARAM_RANGES = {
-    "k1"                 : (-0.20, 0.20), # Norm 3*sigma
-    "k2"                 : (-0.02, 0.02), # Norm 3*sigma
-    "rolling_strength"   : (0.0, 0.03),   # Norm 3*sigma
+    "k1"                 : (-0.20, 0.20),
+    "k2"                 : (-0.02, 0.02),
+    "rolling_strength"   : (-0.03, 0.03),  
 
     # Sensor noise
-    "base_prnu_strength" : (0.0, 0.02),
-    "base_fpn_row"       : (0.0, 0.03),
-    "base_fpn_col"       : (0.0, 0.03),
-    "base_read_noise"    : (0.0, 0.002),
-    "base_shot_noise"    : (0.0, 0.02),
+    "base_prnu_strength" : (0, 0.02),
+    "base_fpn_row"       : (0, 0.03),
+    "base_fpn_col"       : (0, 0.03),
+    "base_read_noise"    : (0, 0.002),
+    "base_shot_noise"    : (0, 0.02),
 
     # ISP
-    "denoise_strength"   : (0.0, 1.0),
-    "blur_sigma"         : (0.0, 0.4),
-    "sharpening_amount"  : (0.0, 1.0),
+    "denoise_strength"   : (0, 1.0),
+    "blur_sigma"         : (0, 0.4),
+    "sharpening_amount"  : (0, 1.0),
 
     # Tone
-    "tone_strength"      : (0.0, 0.50),
-    "scurve_strength"    : (0.0, 1.00),
+    "tone_strength"      : (0, 0.50),
+    "scurve_strength"    : (0, 1.00),
 
     # Vignette + color
-    "vignette_strength"  : (0.0, 0.50),
-    "color_warmth"       : (0.0, 0.10),
+    "vignette_strength"  : (0, 0.50),
+    "color_warmth"       : (-0.1, 0.10),
 
     # JPEG
-    "jpeg_quality"       : (70, 98),
+    "jpeg_quality"       : (70, 100),
 
     # ISO
     "iso_level"          : (0.5, 2.0),
 }
-    
 
 
 @dataclass
@@ -203,7 +202,7 @@ class CameraProfile:
         jpeg_quality: JPEG quality for optional roundtrip (higher = less compressed).
     """
 
-    kind              : str      = "smartphone"
+    kind              : str      = "base"
     base_prnu_strength: float    = 0
     base_fpn_row      : float    = 0
     base_fpn_col      : float    = 0
@@ -214,11 +213,47 @@ class CameraProfile:
     sharpening_amount : float    = 0
     tone_strength     : float    = 0
     scurve_strength   : float    = 0
-    tone_mode         : ToneMode = "filmic"
+    tone_mode         : ToneMode = ""
     vignette_strength : float    = 0
     color_warmth      : float    = 0
-    jpeg_quality      : int      = 90
+    jpeg_quality      : int      = 100
 
+
+DEFAULT_PROFILE: CameraProfile = CameraProfile(
+    kind="default",
+    base_prnu_strength=0,
+    base_fpn_row=0,
+    base_fpn_col=0,
+    base_read_noise=0, 
+    base_shot_noise=0,  
+    denoise_strength=0,
+    blur_sigma=0,
+    sharpening_amount=0,
+    tone_strength=0,
+    scurve_strength=0,
+    tone_mode="",
+    vignette_strength=0,
+    color_warmth=0,
+    jpeg_quality=100,
+)
+
+BASE_PROFILE: CameraProfile = CameraProfile(
+    kind="base",
+    base_prnu_strength=0,
+    base_fpn_row=0,
+    base_fpn_col=0,
+    base_read_noise=0, 
+    base_shot_noise=0,  
+    denoise_strength=0,
+    blur_sigma=0,
+    sharpening_amount=0,
+    tone_strength=0,
+    scurve_strength=0,
+    tone_mode="",
+    vignette_strength=0,
+    color_warmth=0,
+    jpeg_quality=100,
+)
 
 SMARTPHONE_PROFILE: CameraProfile = CameraProfile(
     kind="smartphone",
@@ -257,8 +292,10 @@ COMPACT_PROFILE: CameraProfile = CameraProfile(
 )
 
 CAMERA_PROFILES: MappingProxyType = MappingProxyType({
+    "default"   : DEFAULT_PROFILE,
+    "base"      : BASE_PROFILE,
     "smartphone": SMARTPHONE_PROFILE,
-    "compact": COMPACT_PROFILE,
+    "compact"   : COMPACT_PROFILE,
 })
 
 
@@ -290,6 +327,18 @@ def rescale_imgf(img_f: ImageRGBF, *a, **kw) -> ImageRGBF:
 def uint8_from_float32(img_f: ImageRGBF | ImageBGRF) -> ImageRGB | ImageBGR:
     """Convert RGB/BGR float32 in [0, 1] to RGB/BGR uint8 with rounding."""
     return (rescale_imgf(img_f) * 255.0 + 0.5).astype(np.uint8)
+
+
+def normal3s(sf=1, rng=None):
+    if rng is None:
+        rng = random.Random()
+    return sf * max(-1, min(1, rng.normalvariate(0, 1/3)))
+
+
+def normal3sp(sf=1, rng=None):
+    if rng is None:
+        rng = random.Random()
+    return sf *  min(1, abs(rng.normalvariate(0, 1/3)))
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +438,9 @@ def cfa_sensor_noise_demosaic(
     Returns:
         Demosaiced RGB float32 in [0,1].
     """
+    if profile.kind == "default":
+        return img
+
     # ----------------------------------------------------------------------
     # 0) Convert to uint8 RAW domain
     # ----------------------------------------------------------------------
@@ -815,6 +867,7 @@ def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)]
     ok, buf = cv2.imencode(".jpg", bgr, encode_param)
     if not ok:
+        raise RuntimeError(f"JPEG encoding failure")
         # Fallback: return original if encoding fails.
         return img
 
@@ -824,19 +877,126 @@ def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
 
 
 # ---------------------------------------------------------------------------
+# Correction Settings Factory
+# ---------------------------------------------------------------------------
+
+def correction_set_factory(kind: str = "random", seed: int = None) -> dict:
+    """
+    Generate a randomized correction parameter set for the camera model.
+
+    Behavior:
+        - If kind is "default" or "base", returns a zero-effect profile.
+        - If kind is "random" or None, all CameraProfile parameters are
+          sampled according to PARAM_RANGES and truncated normal sampling
+          rules.
+
+    Sampling rules:
+        - Parameters whose range crosses zero (lo < 0 < hi) are sampled
+          symmetrically via normal3s(), producing signed values.
+        - Parameters whose range is strictly non-negative (lo >= 0) are
+          amplitudes and are sampled with normal3sp() (positive only).
+        - External parameters (k1, k2, rolling_strength, and iso_level)
+          are excluded from CameraProfile sampling.
+
+    Returned dict:
+        {
+            "correction_profile": CameraProfile(...),
+            "iso_level": float,
+            "k1": float,
+            "k2": float,
+            "rolling_strength": float,
+        }
+    """
+    if not isinstance(kind, str):
+        raise TypeError(f"kind must be a string. Received {type(kind).__name__}.")
+
+    kind = kind.strip().lower()
+    if kind in ("default", "base"):
+        return {
+            "correction_profile": CameraProfile(kind=kind),
+            "iso_level": 1.0,
+            "k1": 0.0,
+            "k2": 0.0,
+            "rolling_strength": 0.0,
+        }
+
+    if kind != "random":
+        raise ValueError(f"Unsupported correction set kind: '{kind}'.")
+
+    # ------------------------
+    # Seed logic
+    # ------------------------
+    if not isinstance(seed, int):
+        seed = os.getpid() ^ (time.time_ns() & 0xFFFFFFFF) ^ random.getrandbits(32)
+
+    rng = random.Random(seed)
+    rng_np = np.random.default_rng(seed)
+
+    # ------------------------
+    # Terms assigned outside CameraProfile ("jpeg_quality" is temporarily removed)
+    # ------------------------
+    EXTERNAL = {
+        "k1", "k2", "rolling_strength", "iso_level", "jpeg_quality"
+    }
+
+    # ------------------------
+    # Internal CameraProfile keys
+    # ------------------------
+    profile_keys = [k for k in PARAM_RANGES.keys() if k not in EXTERNAL]
+
+    # ------------------------
+    # Sample internal profile terms
+    # ------------------------
+    sampled_profile = {}
+
+    for key in profile_keys:
+        lo, hi = PARAM_RANGES[key]
+
+        if lo < 0 and hi > 0:
+            # symmetric range
+            sampled_profile[key] = normal3s(hi, rng=rng)
+        else:
+            # positive amplitude
+            sampled_profile[key] = normal3sp(hi, rng=rng)
+
+    # ------------------------
+    # Sample jpeg_quality separately
+    # ------------------------
+    lo, hi = PARAM_RANGES["jpeg_quality"]
+    sampled_profile["jpeg_quality"] = rng.randint(lo, hi)
+
+    # Always set tone_mode
+    sampled_profile["tone_mode"] = "reinhard"
+
+    # Build CameraProfile
+    profile = CameraProfile(kind="base", **sampled_profile)
+
+    # ------------------------
+    # External param sampling
+    # ------------------------
+    result = {
+        "correction_profile": profile,
+        "iso_level"         : rng.uniform(*PARAM_RANGES["iso_level"]),
+        "k1"                : normal3s(PARAM_RANGES["k1"][1], rng=rng),
+        "k2"                : normal3s(PARAM_RANGES["k2"][1], rng=rng),
+        "rolling_strength"  : normal3s(PARAM_RANGES["rolling_strength"][1], rng=rng),
+    }
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Correction Engine
 # ---------------------------------------------------------------------------
 
 def apply_camera_model(
         img: ImageRGBF,
         correction_profile: CameraProfile = None,
-        camera_kind: str = "smartphone",
+        camera_kind: str = "default",
         iso_level: float = 1,
         k1: float = -0.15,
         k2: float = 0.02,
         rolling_strength: float = 0.03,
-        apply_jpeg: bool = True,
-        cfa_enabled: bool = True,
         rng: np.random.Generator = None,
     ) -> ImageRGBF:
     """Camera-like correction engine.
@@ -848,7 +1008,6 @@ def apply_camera_model(
         k1: Primary radial distortion coefficient.
         k2: Secondary radial distortion coefficient.
         rolling_strength: Skew magnitude, e.g. ~0.02-0.05.
-        apply_jpeg: Whether to run a JPEG roundtrip for DCT artifacts.
         rng: Optional NumPy Generator. If None, a default RNG is created.
 
     Returns:
@@ -868,27 +1027,20 @@ def apply_camera_model(
     img = radial_distortion(img, k1=k1, k2=k2)
     img = rolling_shutter_skew(img, strength=rolling_strength)
 
-    # 2) Combined CFA + raw sensor Noise (PRNU + FPN + shot / read) + demosaic
+    # 2) CFA + raw sensor Noise (PRNU + FPN + shot / read) + demosaic
     img = cfa_sensor_noise_demosaic(img, profile=profile, iso_level=iso_level, rng=rng)
     
-    # 2) CFA + demosaic
-    # if cfa_enabled:
-    #    img = cfa_and_demosaic(img)
-    #
-    # 3) Sensor noise (PRNU + FPN + shot / read)
-    # img = sensor_noise(img, profile=profile, iso_level=iso_level, rng=rng)
-
-    # 4) ISP denoise + sharpening
+    # 3) ISP denoise + sharpening
     img = isp_denoise_and_sharpen(img, profile=profile)
 
-    # 4.5) Tone mapping
+    # 4) Tone mapping
     img = tone_mapping(img, profile)
 
     # 5) Vignette + color bias
     img = vignette_and_color(img, profile=profile)
 
     # 6) Optional JPEG roundtrip
-    if apply_jpeg:
+    if (isinstance(profile.jpeg_quality, (int, float)) and int(profile.jpeg_quality) < 100):
         img = jpeg_roundtrip(img, quality=profile.jpeg_quality)
 
     return rescale_imgf(img)
@@ -916,16 +1068,20 @@ def demo():
                   canvas_bg_idx = rng.randrange(len(PAPER_COLORS)),
                   plot_bg_idx = rng.randrange(len(PAPER_COLORS)),
               ))
+    prof = correction_set_factory()
+    img_rnd_proc = rgb_from_rgbf(apply_camera_model(img=img_rnd, **prof))
+
     random_props = {
         "img":            img_rnd,
     }
 
     demos = {
         "BASELINE": img_rnd,
+        "RANDOM"  : img_rnd_proc,
     }
 
     default_core = {
-        # 3) Sensor noise
+        # 2) Sensor noise
 
         "base_prnu_strength": 0, # [0, 0.01]
         "base_fpn_row"      : 0, # [0, 0.01]
@@ -933,21 +1089,26 @@ def demo():
         "base_read_noise"   : 0, # [0, 0.01]
         "base_shot_noise"   : 0, # [0, 0.03]
 
-        # 4) ISP denoise + sharpen
+        # 3) ISP denoise + sharpen
 
         "denoise_strength"  : 0, # [0, 1]
         "blur_sigma"        : 0, # [0, 3]
         "sharpening_amount" : 0, # [0, 1]
 
-        # 5) Tone mapping
+        # 4) Tone mapping
         
         "tone_strength"     : 0, # [0, 1]
         "scurve_strength"   : 0, # [0, 0.5]
 
-        # 6) Vignette + color warmth
+        # 5) Vignette + color warmth
 
         "vignette_strength" : 0, # [0, 0.5]
         "color_warmth"      : 0, # [0, 0.2]
+
+        # 6) JPEG
+
+        "jpeg_quality"      : 100,
+
     }
 
     default_extras = {
@@ -959,14 +1120,6 @@ def demo():
 
         "k1"                : 0, # [-0.2, 0.2]
         "k2"                : 0, # [-0.02, 0.02]
-
-        # 7) JPEG
-
-        "apply_jpeg"        : False,
-
-        # 2) CFA + demosaic (always on, to keep realism)
-
-        "cfa_enabled"       : False,
     }
 
     noise_medium = {param: PARAM_RANGES[param][1] / 2 for param in
@@ -982,7 +1135,7 @@ def demo():
     # ---------------------------------------------------------------------------
     # Demo Sets
     # ---------------------------------------------------------------------------
-    
+
     # 1) Lens geometry
     # ----------------
     stepcount = 7
@@ -1059,7 +1212,7 @@ def demo():
         zip(base_shot_noise)
     ]
 
-    # 4) ISP denoise + sharpen
+    # 3) ISP denoise + sharpen
     # ------------------------
     stepcount = 7
     var1 = "denoise_strength"
@@ -1083,7 +1236,7 @@ def demo():
         zip(blur_sigma, sharpening_amount)
     ]
 
-    # 5) Tone mapping
+    # 4) Tone mapping
     # ---------------
 
     stepcount = 7
@@ -1098,7 +1251,7 @@ def demo():
         zip(tone_strength, scurve_strength)
     ]
 
-    # 6) Vignette + color warmth
+    # 5) Vignette + color warmth
     # --------------------------
     stepcount = 7
     var1 = "vignette_strength"
@@ -1120,24 +1273,19 @@ def demo():
         zip(color_warmth)
     ]
 
+    # 6) JPEG
+    # --------------------------
+    stepcount = 7
+    var1 = "jpeg_quality"
+    jpeg_quality = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
-#    "vignette_strength"  : (0.0, 0.50),
-#    "color_warmth"       : (0.0, 0.20),
+    custom_core_jpeg_quality = [
+        {var1: jpeg_quality_val}
+        for (jpeg_quality_val,) in
+        zip(jpeg_quality)
+    ]
 
 
-
-
-
-
-
-
-
-
-#     # 6) Vignette + color warmth
-#    img = vignette_and_color(img, profile=profile)
-#
-#    # JPEG intentionally skipped in interactive mode
-    
     # ---------------------------------------------------------------------------
     # Demo Runner
     # ---------------------------------------------------------------------------
@@ -1162,7 +1310,8 @@ def demo():
         custom_core_tone,
         custom_core_vignette_strength,
         custom_core_color_warmth,
-    ][9]
+        custom_core_jpeg_quality,
+    ][10]
 
     custom_extras = [
         [{}],
@@ -1174,7 +1323,6 @@ def demo():
     if custom_core[0] and custom_extras[0]:
         raise ValueError(f"Both custom_core and custom_extras have params, but only one should.")
 
-    print(custom_core)
     if len(custom_core[0]) > 0:
         for custom_props in custom_core:
             title = []
