@@ -165,12 +165,12 @@ PARAM_RANGES = {
     "sharpening_amount"  : (0.0, 1.0),
 
     # Tone
-    "tone_strength"      : (0.0, 0.80),
-    "scurve_strength"    : (0.0, 0.50),
+    "tone_strength"      : (0.0, 0.50),
+    "scurve_strength"    : (0.0, 1.00),
 
     # Vignette + color
     "vignette_strength"  : (0.0, 0.50),
-    "color_warmth"       : (0.0, 0.20),
+    "color_warmth"       : (0.0, 0.10),
 
     # JPEG
     "jpeg_quality"       : (70, 98),
@@ -801,6 +801,16 @@ def jpeg_roundtrip(img: ImageRGBF, quality: int) -> ImageRGBF:
     Returns:
         RGB float [0, 1] after JPEG roundtrip.
     """
+    if quality is None:
+        return img
+
+    if not isinstance(quality, (int, float)):
+        raise ValueError(f"quality must be numeric! Received: {type(quality).__name__}")
+        
+    quality = int(quality)
+    if quality == 100:
+        return img
+
     bgr = cv2.cvtColor(uint8_from_float32(img), cv2.COLOR_RGB2BGR)
     encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)]
     ok, buf = cv2.imencode(".jpg", bgr, encode_param)
@@ -963,6 +973,12 @@ def demo():
         ["base_prnu_strength", "base_fpn_row", "base_fpn_col",
          "base_read_noise", "base_shot_noise"]}
 
+    denoise_medium = {param: PARAM_RANGES[param][1] / 2 for param in
+        ["denoise_strength", "blur_sigma", "sharpening_amount"]}
+
+    tone = {param: PARAM_RANGES[param][1] / 2 for param in
+        ["tone_strength", "scurve_strength"]}
+
     # ---------------------------------------------------------------------------
     # Demo Sets
     # ---------------------------------------------------------------------------
@@ -1067,17 +1083,56 @@ def demo():
         zip(blur_sigma, sharpening_amount)
     ]
 
-#     iso_val = sliders["ISO"].val
-#     if iso_val < 0:
-#       iso_val = 0.0
-#     img = sensor_noise(img, profile=profile, iso_level=iso_val, rng=rng)
-# 
-#     # 4) ISP denoise + sharpen
-#     img = isp_denoise_and_sharpen(img, profile=profile)
-# 
-#     # 5) Tone mapping
-#     img = tone_mapping(img, profile=profile)
-# 
+    # 5) Tone mapping
+    # ---------------
+
+    stepcount = 7
+    var1 = "tone_strength"
+    tone_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+    var2 = "scurve_strength"
+    scurve_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var2], stepcount)]
+
+    custom_core_tone = [
+        {var1: tone_strength_val, var2: scurve_strength_val}
+        for (tone_strength_val, scurve_strength_val,) in
+        zip(tone_strength, scurve_strength)
+    ]
+
+    # 6) Vignette + color warmth
+    # --------------------------
+    stepcount = 7
+    var1 = "vignette_strength"
+    vignette_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+
+    custom_core_vignette_strength = [
+        {var1: vignette_strength_val}
+        for (vignette_strength_val,) in
+        zip(vignette_strength)
+    ]
+
+    stepcount = 7
+    var1 = "color_warmth"
+    color_warmth = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+
+    custom_core_color_warmth = [
+        {var1: color_warmth_val}
+        for (color_warmth_val,) in
+        zip(color_warmth)
+    ]
+
+
+#    "vignette_strength"  : (0.0, 0.50),
+#    "color_warmth"       : (0.0, 0.20),
+
+
+
+
+
+
+
+
+
+
 #     # 6) Vignette + color warmth
 #    img = vignette_and_color(img, profile=profile)
 #
@@ -1092,7 +1147,9 @@ def demo():
     custom_core_ex = [
         {},
         noise_medium,
-    ][1]
+        {**noise_medium, **denoise_medium},
+        {**noise_medium, **denoise_medium, **tone},
+    ][3]
 
     custom_core   = [
         [{}],
@@ -1102,7 +1159,10 @@ def demo():
         custom_core_base_shot_noise,
         custom_core_denoise_strength,
         custom_core_sharpening,
-    ][6]
+        custom_core_tone,
+        custom_core_vignette_strength,
+        custom_core_color_warmth,
+    ][9]
 
     custom_extras = [
         [{}],
