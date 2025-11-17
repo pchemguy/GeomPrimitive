@@ -28,6 +28,7 @@ from pet_whitepoint import (
     whitepoint_pipeline, whitepoint_correct, estimate_paper_mask, estimate_whitepoint,
     apply_white_balance, auto_levels
 )
+from pet_exposure import exposure_pipeline_graphpaper
 
 
 # ======================================================================
@@ -89,7 +90,7 @@ def main(image_path: Optional[str] = None) -> None:
 
 
     # Perform corrective processing and write result
-    save_path = SAMPLE_IMAGE[:-4] + "whitepoint.jpg"
+    save_path = SAMPLE_IMAGE[:-4] + "_whitepoint.jpg"
     
     # 1) White-balance only (gentle)
     mask = estimate_paper_mask(img)
@@ -101,7 +102,13 @@ def main(image_path: Optional[str] = None) -> None:
     save_image(corrected, save_path)
     meta = {"white_bgr": white}    
     
-    step_example_grid_analysis()
+    save_path = SAMPLE_IMAGE[:-4] + "_exposure.jpg"
+    corrected, meta_exp = exposure_pipeline_graphpaper(img)
+
+    save_image(corrected, save_path)
+    log.info(f"Exposure meta: {meta_exp}")
+    log.info("PET pipeline completed.")
+
 
     log.info("PET pipeline completed.")
 
