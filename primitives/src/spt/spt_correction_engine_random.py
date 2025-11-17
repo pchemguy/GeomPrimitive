@@ -290,7 +290,6 @@ def synthetic_lab_camera(img, kind: str = None, seed: int = None,
         k1=lens_params["k1"],
         k2=lens_params["k2"],
         rolling_strength=lens_params["rolling_strength"],
-        apply_jpeg=True,
         rng=local_rng,
     )
 

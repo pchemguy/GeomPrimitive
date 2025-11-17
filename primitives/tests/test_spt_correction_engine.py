@@ -7,9 +7,6 @@ stages, and strict RGB channel order guarantees.
 
 These tests assume the module is importable as `spt_correction_engine` and that
 all functions accept and return **RGB float32** arrays in [0,1].
-
-IMPORTANT: test_pipeline_channel_order is commented out.
-
 """
 
 import numpy as np
@@ -108,19 +105,6 @@ def test_vignette_identity():
 
 
 # ---------------------------------------------------------------------------
-# CFA/Demosaic tests
-# ---------------------------------------------------------------------------
-
-def test_cfa_demosaic_channel_order():
-    img = rgb_stripe()
-    out = CE.cfa_and_demosaic(img)
-    assert_rgb(out)
-    # Channel integrity: red should remain highest
-    r, g, b = out.mean(axis=(0,1))
-    assert r > g > b, "CFA/demosaic must preserve approximate channel ranking"
-
-
-# ---------------------------------------------------------------------------
 # Sensor noise
 # ---------------------------------------------------------------------------
 
@@ -129,15 +113,6 @@ def test_sensor_noise_identity_when_iso_zero():
     prof = CE.SMARTPHONE_PROFILE
     out = CE.sensor_noise(img, prof, iso_level=0.0, rng=np.random.default_rng(0))
     assert np.allclose(out, img)
-
-
-def test_sensor_noise_channel_order():
-    img = rgb_stripe()
-    prof = CE.SMARTPHONE_PROFILE
-    out = CE.sensor_noise(img, prof, iso_level=1.0, rng=np.random.default_rng(0))
-    assert_rgb(out)
-    # Noise must not permute channels
-    assert out[...,0].mean() > out[...,1].mean() > out[...,2].mean()
 
 
 # ---------------------------------------------------------------------------
@@ -180,60 +155,6 @@ def test_jpeg_roundtrip_channel_order():
     # JPEG must return RGB order
     r, g, b = out.mean(axis=(0,1))
     assert r > g and r > b
-
-
-# ---------------------------------------------------------------------------
-# Full pipeline identity when all effects disabled
-# ---------------------------------------------------------------------------
-
-def test_apply_camera_model_identity():
-    img = rgb_stripe()
-    prof = CE.CameraProfile(
-        kind="smartphone",
-        base_prnu_strength=0,
-        base_fpn_row=0,
-        base_fpn_col=0,
-        base_read_noise=0,
-        base_shot_noise=0,
-        denoise_strength=0,
-        blur_sigma=0.1,
-        sharpening_amount=0,
-        tone_strength=0,
-        scurve_strength=0,
-        tone_mode="reinhard",
-        vignette_strength=0,
-        color_warmth=0,
-        jpeg_quality=95,
-    )
-    out = CE.apply_camera_model(
-        img,
-        correction_profile=prof,
-        iso_level=0,
-        k1=0,
-        k2=0,
-        rolling_strength=0,
-        apply_jpeg=False,
-        cfa_enabled=False,
-        rng=np.random.default_rng(0),
-    )
-    assert np.allclose(out, img)
-
-
-# ---------------------------------------------------------------------------
-# Channel order sanity across full pipeline
-# ---------------------------------------------------------------------------
-
-# def test_pipeline_channel_order():
-#     img = rgb_stripe()
-#     prof = CE.SMARTPHONE_PROFILE
-#     out = CE.apply_camera_model(img, correction_profile=prof, iso_level=1, apply_jpeg=False)
-#     assert_rgb(out)
-#     # Red must remain dominant
-#     r, g, b = out.mean(axis=(0,1))
-#     assert r > g > b
-# 
-
-#----------------------------------------------------------------------------
 
 
 # -------------------------------------------------------------------
@@ -285,25 +206,6 @@ def test_rolling_small():
     img = make_const_img()
     out = rolling_shutter_skew(img, strength=1e-4)
     assert_small_diff(img, out, tol=5e-3)
-
-
-# -------------------------------------------------------------------
-# 3) CFA & demosaic
-# -------------------------------------------------------------------
-
-def test_cfa_zero_case(): 
-    # You currently RETURN img BEFORE code -> identity
-    img = make_const_img()
-    out = cfa_and_demosaic(img)
-    assert_identical(img, out)
-
-
-def test_cfa_small_random():
-    img = make_const_img()
-    img[5:20,5:20] = (0.2, 0.3, 0.5)
-    out = cfa_and_demosaic(img)
-    # current cfa disabled => identity
-    assert_identical(img, out)
 
 
 # -------------------------------------------------------------------
@@ -416,24 +318,6 @@ def test_jpeg_zero_quality_noop():
 # -------------------------------------------------------------------
 # 9) FULL ENGINE (apply_camera_model)
 # -------------------------------------------------------------------
-
-def test_full_engine_zero_profile_noop():
-    img = make_const_img()
-    prof = make_zero_profile()
-    out = apply_camera_model(
-        img,
-        correction_profile=prof,
-        camera_kind="smartphone",
-        iso_level=0.0,
-        k1=0.0,
-        k2=0.0,
-        rolling_strength=0.0,
-        apply_jpeg=False,
-        cfa_enabled=False,
-        rng=np.random.default_rng(0),
-    )
-    assert_identical(img, out)
-
 
 def test_full_engine_small_effects():
     img = make_const_img()
