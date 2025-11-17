@@ -150,7 +150,7 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
         [((x, 0), (x, height_mm)) for x in x_fine] +
         [((0, y), (width_mm, y)) for y in y_fine]
     )
-    lc_fine = LineCollection(lines_fine, colors="gray", linewidths=0.2, alpha=0.5)
+    lc_fine = LineCollection(lines_fine, colors="gray", linewidths=0.2, alpha=0.5, zorder=0)
     ax.add_collection(lc_fine)
 
     # Major grid every 10 mm
@@ -160,7 +160,7 @@ def add_grid(ax, width_mm=100, height_mm=80) -> None:
         [((x, 0), (x, height_mm)) for x in x_major] +
         [((0, y), (width_mm, y)) for y in y_major]
     )
-    lc_major = LineCollection(lines_major, colors="gray", linewidths=0.6, alpha=0.7)
+    lc_major = LineCollection(lines_major, colors="gray", linewidths=0.6, alpha=0.7, zorder=0)
     ax.add_collection(lc_major)
 
 

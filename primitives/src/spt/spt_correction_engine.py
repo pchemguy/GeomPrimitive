@@ -99,8 +99,9 @@ import random
 from types import MappingProxyType
 from typing import Literal, Optional
 
-import cv2
 import numpy as np
+import cv2
+from skimage.util import random_noise
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
@@ -155,12 +156,12 @@ PARAM_RANGES = {
     "base_prnu_strength" : (0.0, 0.02),
     "base_fpn_row"       : (0.0, 0.03),
     "base_fpn_col"       : (0.0, 0.03),
-    "base_read_noise"    : (0.0, 0.030),
-    "base_shot_noise"    : (0.0, 0.008),
+    "base_read_noise"    : (0.0, 0.002),
+    "base_shot_noise"    : (0.0, 0.02),
 
     # ISP
     "denoise_strength"   : (0.0, 1.0),
-    "blur_sigma"         : (0.5, 3.0),
+    "blur_sigma"         : (0.0, 0.4),
     "sharpening_amount"  : (0.0, 1.0),
 
     # Tone
@@ -367,6 +368,110 @@ def rolling_shutter_skew(img: ImageRGBF, strength: float = 0.0) -> ImageRGBF:
 
 
 # ---------------------------------------------------------------------------
+# CFA + Sensor noise: PRNU + FPN + shot/read noise (ISO-dependent) + Demosaicing
+# ---------------------------------------------------------------------------
+def cfa_sensor_noise_demosaic(
+        img: ImageRGBF,
+        profile: CameraProfile,
+        iso_level: float,
+        rng: np.random.Generator,
+    ) -> ImageRGBF:
+    """
+    Simulate realistic Bayer CFA sampling + RAW-domain noise + demosaicing.
+    Produces correct chromatic noise, zippering, and color moire.
+
+    Args:
+        img: RGB float in [0,1].
+        profile: CameraProfile (for PRNU/FPN/shot/read).
+        iso_level: numeric ISO factor.
+        rng: NumPy Generator.
+
+    Returns:
+        Demosaiced RGB float32 in [0,1].
+    """
+    # ----------------------------------------------------------------------
+    # 0) Convert to uint8 RAW domain
+    # ----------------------------------------------------------------------
+    img_u8 = uint8_from_float32(img)
+    h, w, _ = img_u8.shape
+
+    # Split R,G,B
+    R = img_u8[..., 0]
+    G = img_u8[..., 1]
+    B = img_u8[..., 2]
+
+    # ----------------------------------------------------------------------
+    # 1) Create RGGB Bayer pattern
+    # ----------------------------------------------------------------------
+    mosaic = np.zeros((h, w), dtype=np.float32)
+
+    mosaic[0::2, 0::2] = R[0::2, 0::2]       # R
+    mosaic[0::2, 1::2] = G[0::2, 1::2]       # G
+    mosaic[1::2, 0::2] = G[1::2, 0::2]       # G
+    mosaic[1::2, 1::2] = B[1::2, 1::2]       # B
+
+    # Scale to float32 [0,1] RAW domain
+    mosaic = mosaic.astype(np.float32) / 255.0
+
+    # ----------------------------------------------------------------------
+    # 2) ISO factor
+    # ----------------------------------------------------------------------
+    if isinstance(iso_level, Real):
+        iso_factor = float(np.clip(abs(iso_level), 0.0, 3.0))
+    else:
+        iso_factor = 1.0
+
+    # ----------------------------------------------------------------------
+    # 3) RAW-domain PRNU (multiplicative per-pixel)
+    # ----------------------------------------------------------------------
+    if profile.base_prnu_strength > 0:
+        sigma = profile.base_prnu_strength * iso_factor
+        prnu = 1.0 + rng.normal(loc=0.0, scale=sigma, size=(h, w)).astype(np.float32)
+        mosaic *= prnu
+
+    # ----------------------------------------------------------------------
+    # 4) RAW-domain FPN (row + column patterns)
+    # ----------------------------------------------------------------------
+    if profile.base_fpn_row > 0:
+        sigma = profile.base_fpn_row * iso_factor
+        row_pattern = rng.normal(loc=0.0, scale=sigma, size=(h, 1)).astype(np.float32)
+        mosaic *= (1.0 + row_pattern)
+
+    if profile.base_fpn_col > 0:
+        sigma = profile.base_fpn_col * iso_factor
+        col_pattern = rng.normal(loc=0.0, scale=sigma, size=(1, w)).astype(np.float32)
+        mosaic *= (1.0 + col_pattern)
+
+    # ----------------------------------------------------------------------
+    # 5) RAW-domain shot noise (Poisson-like)
+    # ----------------------------------------------------------------------
+    if profile.base_shot_noise > 0:
+        sigma = profile.base_shot_noise * iso_factor
+        shot_std = sigma * np.sqrt(np.clip(mosaic, 0, 1))
+        mosaic += shot_std * rng.normal(0.0, 1.0, size=mosaic.shape).astype(np.float32)
+
+    # ----------------------------------------------------------------------
+    # 6) RAW-domain read noise (additive)
+    # ----------------------------------------------------------------------
+    if profile.base_read_noise > 0:
+        sigma = profile.base_read_noise * iso_factor
+        mosaic += rng.normal(0.0, sigma, size=mosaic.shape).astype(np.float32)
+
+    # Clamp RAW before demosaic
+    # mosaic = np.clip(mosaic, 0.0, 1.0)
+    mosaic = rescale_imgf(mosaic)
+
+    # ----------------------------------------------------------------------
+    # 7) Demosaic (OpenCV Bayer RGGB -> BGR)
+    # ----------------------------------------------------------------------
+    mosaic_u8 = (mosaic * 255.0 + 0.5).astype(np.uint8)
+        
+    # NOTE: cv2.COLOR_BayerRG2BGR returns RGB, not BGR
+    rgb = cv2.cvtColor(mosaic_u8, cv2.COLOR_BayerRG2BGR).astype(np.float32) / 255.0
+    return rgb
+
+
+# ---------------------------------------------------------------------------
 # CFA & Demosaicing
 # ---------------------------------------------------------------------------
 
@@ -412,6 +517,8 @@ def sensor_noise(
     ) -> ImageRGBF:
     """Add sensor-like noise (PRNU, FPN, shot, read) in RGB float space."""
     h, w, _ = img.shape
+    seed = os.getpid() ^ (time.time_ns() & 0xFFFFFFFF) ^ random.getrandbits(32)
+    np.random.seed(seed)
 
     # ISO scaling factor
     if isinstance(iso_level, Real):
@@ -423,57 +530,97 @@ def sensor_noise(
 
     img = rescale_imgf(img.astype(np.float32))
 
-    # PRNU (multiplicative)
+    # ---------------------------------------------------------------
+    # PRNU  (multiplicative gain variation)
+    # ---------------------------------------------------------------
     base_prnu = profile.base_prnu_strength
     if base_prnu > EPSILON:
         prnu_sigma = base_prnu * iso_factor
-        prnu_map = rng.normal(
-            loc=1.0,
-            scale=prnu_sigma,
-            size=(h, w, 1),
-        ).astype(np.float32)
+
+        prnu_field = random_noise(
+            np.zeros((h, w), dtype=np.float32), mode="gaussian", mean=0.0,
+            var=prnu_sigma**2).astype(np.float32)
+        # Convert Gaussian(0,sugma) -> multiplicative gain around 1.0
+        prnu_map = (1.0 + prnu_field)[..., None]
+
+        # prnu_map = rng.normal(loc=1.0, scale=prnu_sigma, size=(h, w, 1)).astype(np.float32)
     else:
         prnu_map = np.ones((h, w, 1), dtype=np.float32)
-
-    # Row/column FPN
+    
+    # ---------------------------------------------------------------
+    # FPN - Row and Column pattern noise (multiplicative)
+    # ---------------------------------------------------------------
     base_fpn_row = profile.base_fpn_row
     base_fpn_col = profile.base_fpn_col
 
+    # Row FPN
     if base_fpn_row > EPSILON:
         fpn_row_sigma = base_fpn_row * iso_factor
-        row_pattern = rng.normal(loc=0.0, scale=fpn_row_sigma, size=(h, 1, 1),
-                                ).astype(np.float32)
-    else:
-        row_pattern = np.zeros((h, 1, 1), dtype=np.float32)
+        row_field = random_noise(
+            np.zeros((h, 1), dtype=np.float32), mode="gaussian", mean=0.0,
+            var=fpn_row_sigma**2).astype(np.float32)
 
+        # row_pattern = rng.normal(loc=0.0, scale=fpn_row_sigma, size=(h, 1, 1)).astype(np.float32)
+    else:
+        row_field = np.zeros((h, 1), dtype=np.float32)
+
+    # Column FPN
     if base_fpn_col > EPSILON:
         fpn_col_sigma = base_fpn_col * iso_factor
-        col_pattern = rng.normal(loc=0.0, scale=fpn_col_sigma, size=(1, w, 1),
-                                ).astype(np.float32)
+        col_field = random_noise(
+            np.zeros((1, w), dtype=np.float32), mode="gaussian", mean=0.0,
+            var=fpn_col_sigma**2).astype(np.float32)
+
+        # col_pattern = rng.normal(loc=0.0, scale=fpn_col_sigma, size=(1, w, 1)).astype(np.float32)
     else:
-        col_pattern = np.zeros((1, w, 1), dtype=np.float32)
+        col_field = np.zeros((1, w), dtype=np.float32)
 
-    fpn = 1.0 + row_pattern + col_pattern
+    fpn = 1.0 + row_field[:, :, None] + col_field[:, :, None]
 
-    # Combine multiplicative effects
+    # fpn = 1.0 + row_pattern + col_pattern
+    
+    # ---------------------------------------------------------------
+    # Combine multiplicative effects first
+    # ---------------------------------------------------------------
     base = img * prnu_map * fpn
 
-    # Shot noise (brightness dependent)
+    # ---------------------------------------------------------------
+    # Shot noise (brightness-dependent) - additive
+    # ---------------------------------------------------------------
     if profile.base_shot_noise > EPSILON:
         shot_sigma = profile.base_shot_noise * iso_factor
-        shot_std = shot_sigma * np.sqrt(rescale_imgf(base))
-        shot_noise = shot_std * rng.normal(loc=0.0, scale=1.0, size=base.shape,
-                                          ).astype(np.float32)
+ 
+        shot_stddev = shot_sigma * np.sqrt(rescale_imgf(base))
+
+        shot_field = random_noise(
+            np.zeros((h, w), dtype=np.float32), mode="gaussian", mean=0.0, var=1.0
+            ).astype(np.float32)
+        # Scale Gaussian by per-pixel stddev
+        shot_noise = (shot_stddev[..., None] * shot_field[..., None])
+
+        # shot_noise = shot_stddev * rng.normal(loc=0.0, scale=1.0, size=base.shape).astype(np.float32)
     else:
         shot_noise = np.zeros_like(base, dtype=np.float32)
 
-    # Read noise (additive)
+    # ---------------------------------------------------------------
+    # Read noise - additive, constant variance
+    # ---------------------------------------------------------------
     if profile.base_read_noise > EPSILON:
         read_sigma = profile.base_read_noise * iso_factor
-        read_noise = rng.normal(0.0, read_sigma, size=base.shape).astype(np.float32)
+
+        read_field = random_noise(
+            np.zeros((h, w), dtype=np.float32), mode="gaussian", mean=0.0,
+            var=read_sigma**2).astype(np.float32)
+        read_noise = read_field[..., None]
+        
+        
+        # read_noise = rng.normal(0.0, read_sigma, size=base.shape).astype(np.float32)
     else:
         read_noise = np.zeros_like(base, dtype=np.float32)
 
+    # ---------------------------------------------------------------
+    # Combine
+    # ---------------------------------------------------------------
     noisy = base + shot_noise + read_noise
     return rescale_imgf(noisy)
 
@@ -711,12 +858,15 @@ def apply_camera_model(
     img = radial_distortion(img, k1=k1, k2=k2)
     img = rolling_shutter_skew(img, strength=rolling_strength)
 
+    # 2) Combined CFA + raw sensor Noise (PRNU + FPN + shot / read) + demosaic
+    img = cfa_sensor_noise_demosaic(img, profile=profile, iso_level=iso_level, rng=rng)
+    
     # 2) CFA + demosaic
-    if cfa_enabled:
-        img = cfa_and_demosaic(img)
-
+    # if cfa_enabled:
+    #    img = cfa_and_demosaic(img)
+    #
     # 3) Sensor noise (PRNU + FPN + shot / read)
-    img = sensor_noise(img, profile=profile, iso_level=iso_level, rng=rng)
+    # img = sensor_noise(img, profile=profile, iso_level=iso_level, rng=rng)
 
     # 4) ISP denoise + sharpening
     img = isp_denoise_and_sharpen(img, profile=profile)
@@ -809,15 +959,17 @@ def demo():
         "cfa_enabled"       : False,
     }
 
+    noise_medium = {param: PARAM_RANGES[param][1] / 2 for param in
+        ["base_prnu_strength", "base_fpn_row", "base_fpn_col",
+         "base_read_noise", "base_shot_noise"]}
+
     # ---------------------------------------------------------------------------
     # Demo Sets
     # ---------------------------------------------------------------------------
     
-    custom_extras_set = {}
-
     # 1) Lens geometry
     # ----------------
-    stepcount = 9
+    stepcount = 7
     var1 = "k1"
     k1 = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
@@ -827,7 +979,7 @@ def demo():
         zip(k1)
     ]
     
-    stepcount = 9
+    stepcount = 7
     var1 = "k2"
     k2 = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
@@ -837,7 +989,7 @@ def demo():
         zip(k2)
     ]
 
-    stepcount = 9
+    stepcount = 7
     var1 = "rolling_strength"
     rolling_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
@@ -847,14 +999,8 @@ def demo():
         zip(rolling_strength)
     ]
  
-    # 2) CFA + demosaic
-    # -----------------
-    custom_extras_cfa_enabled = [
-        {"cfa_enabled": True}
-    ]
- 
-    # 3) Sensor noise
-    # ---------------
+    # 2) CFA + Sensor noise + demosaic
+    # --------------------------------
     stepcount = 7
     var1 = "base_prnu_strength"
     base_prnu_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
@@ -877,9 +1023,49 @@ def demo():
         zip(base_fpn_row, base_fpn_col)
     ]
 
+    stepcount = 7
+    var1 = "base_read_noise"
+    base_read_noise = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
-#base_fpn_row
-#base_fpn_col
+    custom_core_base_read_noise = [
+        {var1: base_read_noise_val}
+        for (base_read_noise_val,) in
+        zip(base_read_noise)
+    ]
+
+    stepcount = 7
+    var1 = "base_shot_noise"
+    base_shot_noise = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+
+    custom_core_base_shot_noise = [
+        {var1: base_shot_noise_val}
+        for (base_shot_noise_val,) in
+        zip(base_shot_noise)
+    ]
+
+    # 4) ISP denoise + sharpen
+    # ------------------------
+    stepcount = 7
+    var1 = "denoise_strength"
+    denoise_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+
+    custom_core_denoise_strength = [
+        {var1: denoise_strength_val}
+        for (denoise_strength_val,) in
+        zip(denoise_strength)
+    ]
+
+    stepcount = 7
+    var1 = "blur_sigma"
+    blur_sigma = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+    var2 = "sharpening_amount"
+    sharpening_amount = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var2], stepcount)]
+
+    custom_core_sharpening = [
+        {var1: blur_sigma_val, var2: sharpening_amount_val}
+        for (blur_sigma_val, sharpening_amount_val,) in
+        zip(blur_sigma, sharpening_amount)
+    ]
 
 #     iso_val = sliders["ISO"].val
 #     if iso_val < 0:
@@ -901,32 +1087,56 @@ def demo():
     # Demo Runner
     # ---------------------------------------------------------------------------
 
-    custom_core   = custom_core_base_fpn
-    custom_extras = [{}] #custom_extras_cfa_enabled
+    custom_core    = [{}]
+    custom_extras  = [{}]
+    custom_core_ex = [
+        {},
+        noise_medium,
+    ][1]
+
+    custom_core   = [
+        [{}],
+        custom_core_base_prnu_strength,
+        custom_core_base_fpn,
+        custom_core_base_read_noise,
+        custom_core_base_shot_noise,
+        custom_core_denoise_strength,
+        custom_core_sharpening,
+    ][6]
+
+    custom_extras = [
+        [{}],
+        custom_extras_k1,
+        custom_extras_k2,
+        custom_extras_rolling_strength,
+    ][0]
     
+    if custom_core[0] and custom_extras[0]:
+        raise ValueError(f"Both custom_core and custom_extras have params, but only one should.")
+
     print(custom_core)
-    if len(custom_core) > 1:
+    if len(custom_core[0]) > 0:
         for custom_props in custom_core:
             title = []
             for key, val in custom_props.items():
-                title.append(f"key: '{key}': val '{val}'")
-            title = "".join(title)
-            print(title)
+                title.append(f"{key}: {val:<10}")
+            print("".join(title))
+            title = "\n".join(title)
             demos[title] = rgb_from_rgbf(apply_camera_model(
                 img=img_rnd,
-                correction_profile=CameraProfile(**{**default_core, **custom_props}),
+                correction_profile=CameraProfile(**{**default_core, **custom_core_ex, **custom_props}),
                 **{**default_extras, **custom_extras[0]}
             ))
     else:
         for custom_props in custom_extras:
             title = []
             for key, val in custom_props.items():
-                title.append(f"key: '{key}': val '{val}'")
-            title = "".join(title)
-            print(title)
+                title.append(f"{key}: {val:<10}")
+            print("".join(title))
+            title = "\n".join(title)
             demos[title] = rgb_from_rgbf(apply_camera_model(
                 img=img_rnd,
-                correction_profile=CameraProfile(**{**default_core, **custom_core[0]}),
+                correction_profile=CameraProfile(**{**default_core, **custom_core_ex, **custom_core[0]}),
                 **{**default_extras, **custom_props}
             ))
 
@@ -940,215 +1150,3 @@ def demo():
 if __name__ == "__main__":
     demo()
   
-  
-  
-  
-def dummy():  
-  import matplotlib.pyplot as plt
-  from matplotlib.widgets import Slider, RadioButtons, CheckButtons
-  import time
-
-  # ---- Background colors -------------------------------------------------
-  COLORS = {
-      "red": (1.0, 0.0, 0.0),
-      "green": (0.0, 1.0, 0.0),
-      "blue": (0.0, 0.0, 1.0),
-      "white": (1.0, 1.0, 1.0),
-      "cornsilk": (1.0, 0.9725, 0.8627),
-      "ivory": (1.0, 1.0, 0.9412),
-      "oldlace": (0.992, 0.961, 0.902),
-      "floralwhite": (1.0, 0.9804, 0.9412),
-      "whitesmoke": (0.9608, 0.9608, 0.9608),
-  }
-
-  H, W = 512, 512
-  init_color = "white"
-  base_img = np.ones((H, W, 3), dtype=np.float32)
-  base_img[:] = COLORS[init_color]
-
-  fig, ax = plt.subplots(figsize=(7, 7))
-  plt.subplots_adjust(left=0.32, bottom=0.05)
-  disp = ax.imshow(base_img, vmin=0, vmax=1)
-  ax.set_axis_off()
-
-  # ---- Collapsible Panels via CheckButtons -------------------------------
-  panel_ax = plt.axes([0.02, 0.55, 0.25, 0.40])
-  panel = CheckButtons(
-      panel_ax,
-      ["Optics", "Sensor", "ISP", "Tone", "Vignette/Color"],
-      [True, False, False, False, False],
-  )
-
-  # ---- Slider Groups: name, min, max, init -------------------------------
-  slider_groups = {
-      "Optics": [
-          ("k1", -0.3, 0.3, 0.0),
-          ("k2", -0.05, 0.05, 0.0),
-          ("rolling", -0.1, 0.1, 0.0),
-          ("ISO", 0.0, 3.0, 0.0),
-      ],
-      "Sensor": [
-          ("prnu", 0.0, 0.02, 0.0),
-          ("fpn_row", 0.0, 0.02, 0.0),
-          ("fpn_col", 0.0, 0.02, 0.0),
-          ("shot", 0.0, 0.03, 0.0),
-          ("read", 0.0, 0.01, 0.0),
-      ],
-      "ISP": [
-          ("denoise", 0.0, 1.0, 0.0),
-          ("blur_sigma", 0.1, 3.0, 0.0),
-          ("sharpen", 0.0, 1.0, 0.0),
-      ],
-      "Tone": [
-          ("tone", 0.0, 1.0, 0.0),
-          ("scurve", 0.0, 1.0, 0.0),
-      ],
-      "Vignette/Color": [
-          ("vignette", 0.0, 0.6, 0.0),
-          ("warm", 0.0, 0.2, 0.0),
-      ],
-  }
-
-  sliders: dict[str, Slider] = {}
-  slider_axes: dict[str, list[plt.Axes]] = {}
-
-  ypos = 0.45
-  for group, defs in slider_groups.items():
-    slider_axes[group] = []
-    for name, vmin, vmax, vinit in defs:
-      ax_s = plt.axes([0.32, ypos, 0.60, 0.022])
-      ax_s.set_visible(group == "Optics")  # only optics visible initially
-      sliders[name] = Slider(ax_s, name, vmin, vmax, valinit=vinit)
-      slider_axes[group].append(ax_s)
-      ypos -= 0.03
-
-  # Tone mode radio button
-  ax_mode = plt.axes([0.02, 0.34, 0.25, 0.15])
-  rb_mode = RadioButtons(ax_mode, ["reinhard", "filmic"], active=0)
-  ax_mode.set_visible(False)
-
-  # Background color radio buttons
-  ax_color = plt.axes([0.02, 0.10, 0.25, 0.20])
-  rb_color = RadioButtons(
-      ax_color,
-      list(COLORS.keys()),
-      active=list(COLORS.keys()).index(init_color),
-  )
-
-  # ---- Panel toggle: show only sliders of selected group -----------------
-  def panel_toggle(label: str) -> None:
-    for g, axes_g in slider_axes.items():
-      visible = (g == label)
-      for ax_s in axes_g:
-        ax_s.set_visible(visible)
-    ax_mode.set_visible(label == "Tone")
-    fig.canvas.draw_idle()
-
-  panel.on_clicked(panel_toggle)
-
-  # ---- Real-time throttling state ----------------------------------------
-  state = {"last_t": 0.0}
-  min_interval = 0.05  # 20 FPS cap
-
-  rng = np.random.default_rng(1234)
-
-  def build_profile_from_sliders() -> "CameraProfile":
-    """Construct a neutral-ish profile from the slider values."""
-    return CameraProfile(
-        kind="smartphone",
-        base_prnu_strength=sliders["prnu"].val,
-        base_fpn_row=sliders["fpn_row"].val,
-        base_fpn_col=sliders["fpn_col"].val,
-        base_read_noise=sliders["read"].val,
-        base_shot_noise=sliders["shot"].val,
-        denoise_strength=sliders["denoise"].val,
-        blur_sigma=max(0.1, sliders["blur_sigma"].val),
-        sharpening_amount=sliders["sharpen"].val,
-        tone_strength=sliders["tone"].val,
-        scurve_strength=sliders["scurve"].val,
-        tone_mode=rb_mode.value_selected,
-        vignette_strength=sliders["vignette"].val,
-        color_warmth=sliders["warm"].val,
-        jpeg_quality=90,
-    )
-
-  def apply_pipeline(img_rgb: np.ndarray, profile: "CameraProfile") -> np.ndarray:
-    """Run the full engine explicitly with the given profile."""
-    img = rescale_imgf(img_rgb.astype(np.float32))
-
-    # 1) Lens geometry
-    k1 = sliders["k1"].val
-    k2 = sliders["k2"].val
-    rolling = sliders["rolling"].val
-    if abs(k1) > 0 or abs(k2) > 0:
-      img = radial_distortion(img, k1=k1, k2=k2)
-    if abs(rolling) > 0:
-      img = rolling_shutter_skew(img, strength=rolling)
-
-    # 2) CFA + demosaic (always on, to keep realism)
-    img = cfa_and_demosaic(img)
-
-    # 3) Sensor noise
-    iso_val = sliders["ISO"].val
-    if iso_val < 0:
-      iso_val = 0.0
-    img = sensor_noise(img, profile=profile, iso_level=iso_val, rng=rng)
-
-    # 4) ISP denoise + sharpen
-    img = isp_denoise_and_sharpen(img, profile=profile)
-
-    # 5) Tone mapping
-    img = tone_mapping(img, profile=profile)
-
-    # 6) Vignette + color warmth
-    img = vignette_and_color(img, profile=profile)
-
-    # JPEG intentionally skipped in interactive mode
-    return rescale_imgf(img)
-
-  def update(_):
-    t = time.time()
-    if t - state["last_t"] < min_interval:
-      return
-    state["last_t"] = t
-
-    # update background plain color
-    base_img[:] = COLORS[rb_color.value_selected]
-
-    # build profile from current sliders
-    profile = build_profile_from_sliders()
-
-    # apply full pipeline
-    out = apply_pipeline(base_img, profile)
-
-    disp.set_data(out)
-    fig.canvas.draw_idle()
-
-  # connect sliders and controls
-  for s in sliders.values():
-    s.on_changed(update)
-  rb_mode.on_clicked(update)
-  rb_color.on_clicked(update)
-
-  # ---- Reset button: zero active panel -----------------------------------
-  ax_reset = plt.axes([0.05, 0.02, 0.20, 0.05])
-  btn_reset = CheckButtons(ax_reset, ["Reset Active Panel"], [False])
-
-  def reset_active(_):
-    # find active group
-    active = None
-    for label, state_flag in zip(panel.labels, panel.get_status()):
-      if state_flag:
-        active = label.get_text()
-        break
-    if active in slider_axes:
-      # reset all sliders in that group to 0
-      for (name, _vmin, _vmax, _vinit) in slider_groups[active]:
-        sliders[name].reset()  # resets to valinit (which we set to 0.0)
-    fig.canvas.draw_idle()
-
-  btn_reset.on_clicked(reset_active)
-
-  # initial render
-  update(None)
-  plt.show()
