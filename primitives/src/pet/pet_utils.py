@@ -5,9 +5,9 @@ pet_utils.py
 
 from __future__ import annotations
 
+import os
 import logging
 import sys
-import os
 from typing import Optional, Tuple
 
 import cv2
@@ -42,22 +42,21 @@ def _extract_exif_metadata_pillow(path: str) -> dict:
     Extract EXIF metadata using Pillow, if present.
     Returns a dict of key -> value.
     """
+    log = logging.getLogger(LOGGER_NAME)
     try:
         with Image.open(path) as img:
             exif = img._getexif()
             if not exif:
                 return {}
 
-            # Convert numeric EXIF tags to readable names
-            label_map = {v: k for k, v in ExifTags.TAGS.items()}
-
             readable = {}
             for key, val in exif.items():
-                name = ExifTags.TAGS.get(key, key)
+                name = ExifTags.TAGS.get(key, str(key))
                 readable[name] = val
 
             return readable
-    except Exception:
+    except Exception as e:
+        log.debug(f"EXIF extraction failed for {path}: {e}")
         return {}
 
 
