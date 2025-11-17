@@ -153,8 +153,8 @@ PARAM_RANGES = {
 
     # Sensor noise
     "base_prnu_strength" : (0.0, 0.02),
-    "base_fpn_row"       : (0.0, 0.010),
-    "base_fpn_col"       : (0.0, 0.010),
+    "base_fpn_row"       : (0.0, 0.03),
+    "base_fpn_col"       : (0.0, 0.03),
     "base_read_noise"    : (0.0, 0.030),
     "base_shot_noise"    : (0.0, 0.008),
 
@@ -813,34 +813,38 @@ def demo():
     # Demo Sets
     # ---------------------------------------------------------------------------
     
+    custom_extras_set = {}
 
     # 1) Lens geometry
     # ----------------
-    varname = "k1"
     stepcount = 9
-    (mn, mx) = PARAM_RANGES[varname]
-    span = mx - mn + EPSILON
+    var1 = "k1"
+    k1 = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
     custom_extras_k1 = [
-        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+        {var1: k1_val}
+        for (k1_val,) in
+        zip(k1)
     ]
     
-    varname = "k2"
     stepcount = 9
-    (mn, mx) = PARAM_RANGES[varname]
-    span = mx - mn + EPSILON
+    var1 = "k2"
+    k2 = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
     custom_extras_k2 = [
-        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+        {var1: k2_val}
+        for (k2_val,) in
+        zip(k2)
     ]
 
-    varname = "rolling_strength"
     stepcount = 9
-    (mn, mx) = PARAM_RANGES[varname]
-    span = mx - mn + EPSILON
+    var1 = "rolling_strength"
+    rolling_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
     custom_extras_rolling_strength = [
-        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+        {var1: rolling_strength_val}
+        for (rolling_strength_val,) in
+        zip(rolling_strength)
     ]
  
     # 2) CFA + demosaic
@@ -851,15 +855,27 @@ def demo():
  
     # 3) Sensor noise
     # ---------------
-    varname = "base_prnu_strength"
-    stepcount = 9
-    (mn, mx) = PARAM_RANGES[varname]
-    span = mx - mn + EPSILON
+    stepcount = 7
+    var1 = "base_prnu_strength"
+    base_prnu_strength = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
 
     custom_core_base_prnu_strength = [
-        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+        {var1: base_prnu_strength_val}
+        for (base_prnu_strength_val,) in
+        zip(base_prnu_strength)
     ]
 
+    stepcount = 7
+    var1 = "base_fpn_row"
+    base_fpn_row = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var1], stepcount)]
+    var2 = "base_fpn_col"
+    base_fpn_col = [round_sig(float(val)) for val in np.linspace(*PARAM_RANGES[var2], stepcount)]
+
+    custom_core_base_fpn = [
+        {var1: base_fpn_row_val, var2: base_fpn_col_val}
+        for (base_fpn_row_val, base_fpn_col_val,) in
+        zip(base_fpn_row, base_fpn_col)
+    ]
 
 
 #base_fpn_row
@@ -885,7 +901,7 @@ def demo():
     # Demo Runner
     # ---------------------------------------------------------------------------
 
-    custom_core   = custom_core_base_prnu_strength
+    custom_core   = custom_core_base_fpn
     custom_extras = [{}] #custom_extras_cfa_enabled
     
     print(custom_core)
