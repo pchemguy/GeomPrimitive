@@ -139,13 +139,6 @@ from mpl_utils import (
 
 EPSILON: float = 1e-8
 
-ISOLevel = Literal["low", "mid", "high"]
-ISO_SF: MappingProxyType = MappingProxyType({
-    "low": 0.6,
-    "mid": 1.0,
-    "high": 1.6,
-})
-
 CameraKind = ["smartphone", "compact"]
 ToneMode = ["reinhard", "filmic"]
 
@@ -159,7 +152,7 @@ PARAM_RANGES = {
     "rolling_strength"   : (0.0, 0.03),   # Norm 3*sigma
 
     # Sensor noise
-    "base_prnu_strength" : (0.0, 0.010),
+    "base_prnu_strength" : (0.0, 0.02),
     "base_fpn_row"       : (0.0, 0.010),
     "base_fpn_col"       : (0.0, 0.010),
     "base_read_noise"    : (0.0, 0.030),
@@ -179,10 +172,10 @@ PARAM_RANGES = {
     "color_warmth"       : (0.0, 0.20),
 
     # JPEG
-    "jpeg_quality"     : (70, 98),
+    "jpeg_quality"       : (70, 98),
 
     # ISO
-    "iso_sf"           : (0.5, 2.0),
+    "iso_level"          : (0.5, 2.0),
 }
     
 
@@ -414,7 +407,7 @@ def cfa_and_demosaic(img: ImageRGBF) -> ImageRGBF:
 def sensor_noise(
         img: ImageRGBF,
         profile: CameraProfile,
-        iso_level: ISOLevel | Real,
+        iso_level: float,
         rng: np.random.Generator,
     ) -> ImageRGBF:
     """Add sensor-like noise (PRNU, FPN, shot, read) in RGB float space."""
@@ -423,9 +416,6 @@ def sensor_noise(
     # ISO scaling factor
     if isinstance(iso_level, Real):
         iso_factor = float(np.clip(abs(iso_level), 0.0, 3.0))
-    else:
-        key = str(iso_level).strip().lower()
-        iso_factor = ISO_SF.get(key, 1.0)
 
     if iso_factor < EPSILON:
         # All noise effectively off
@@ -684,7 +674,7 @@ def apply_camera_model(
         img: ImageRGBF,
         correction_profile: CameraProfile = None,
         camera_kind: str = "smartphone",
-        iso_level: ISOLevel | Real = "mid",
+        iso_level: float = 1,
         k1: float = -0.15,
         k2: float = 0.02,
         rolling_strength: float = 0.03,
@@ -697,7 +687,7 @@ def apply_camera_model(
     Args:
         img: Input RGB float image in [0, 1].
         camera_kind: 'smartphone' or 'compact'.
-        iso_level: 'low', 'mid', 'high' or a numeric ISO factor.
+        iso_level: numeric ISO factor in [0, 2].
         k1: Primary radial distortion coefficient.
         k2: Secondary radial distortion coefficient.
         rolling_strength: Skew magnitude, e.g. ~0.02-0.05.
@@ -859,7 +849,22 @@ def demo():
         {"cfa_enabled": True}
     ]
  
-#     # 3) Sensor noise
+    # 3) Sensor noise
+    # ---------------
+    varname = "base_prnu_strength"
+    stepcount = 9
+    (mn, mx) = PARAM_RANGES[varname]
+    span = mx - mn + EPSILON
+
+    custom_core_base_prnu_strength = [
+        {varname: round_sig(val)} for val in np.linspace(mn, mx, stepcount).astype(float).tolist()
+    ]
+
+
+
+#base_fpn_row
+#base_fpn_col
+
 #     iso_val = sliders["ISO"].val
 #     if iso_val < 0:
 #       iso_val = 0.0
@@ -876,23 +881,12 @@ def demo():
 #
 #    # JPEG intentionally skipped in interactive mode
     
-    
-    
-    custom_core_prnu = [
-        {"base_prnu_strength": 0.000},
-        {"base_prnu_strength": 0.002},
-        {"base_prnu_strength": 0.004},
-        {"base_prnu_strength": 0.006},
-        {"base_prnu_strength": 0.008},
-        {"base_prnu_strength": 0.010},
-    ]
-
     # ---------------------------------------------------------------------------
     # Demo Runner
     # ---------------------------------------------------------------------------
 
-    custom_core   = [{}] #custom_core_prnu
-    custom_extras = custom_extras_cfa_enabled
+    custom_core   = custom_core_base_prnu_strength
+    custom_extras = [{}] #custom_extras_cfa_enabled
     
     print(custom_core)
     if len(custom_core) > 1:

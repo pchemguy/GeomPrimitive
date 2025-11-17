@@ -97,7 +97,7 @@ PARAM_RANGES = {
     "jpeg_quality"     : (70, 98),
 
     # ISO
-    "iso_sf"           : (0.5, 2.0),
+    "iso_level"        : (0.5, 2.0),
 }
 
 
@@ -226,7 +226,7 @@ def random_lens_params(seed: int = None) -> dict:
         "k1"              : rng.uniform(*PARAM_RANGES["k1"]),
         "k2"              : rng.uniform(*PARAM_RANGES["k2"]),
         "rolling_strength": rng.uniform(*PARAM_RANGES["rolling_strength"]),
-        "iso_level"       : rng.uniform(*PARAM_RANGES["iso_sf"]),
+        "iso_level"       : rng.uniform(*PARAM_RANGES["iso_level"]),
     }
 
 
