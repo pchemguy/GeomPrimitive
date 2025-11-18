@@ -3,6 +3,8 @@ https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942
 # Notes
 
 - WB / exposure correction increase lighting imbalance. Retinex default filter evens lighting. Consider using more aggressive Retinex settings as well.
+- Fiji ImageJ - "Plugins -> Integral Image Filters -> Normalize Local Contrast 40x40x5.0" yielded good result in subsequent grid detection on the test image.
+- Managed to perform preliminary processing of the identified line segments. However, geometry correction did not manage to get working.
 
 ## Prompt
 
