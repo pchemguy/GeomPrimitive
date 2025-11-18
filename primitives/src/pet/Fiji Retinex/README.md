@@ -1,7 +1,7 @@
 ## Software
 
-- [ImageJ 1.54g](https://wsr.imagej.net/distros/win/ij154-win-java8.zip)
-- [IJ-Retinex](https://github.com/landinig/IJ-Retinex/blob/main/retinex.zip) - ([Commit 2f01701](https://github.com/landinig/IJ-Retinex/commit/2f017014c7ddd698f76c8c5cb80010c263bb3eeb) / [Commit 38107e7](https://github.com/landinig/IJ-Retinex/commit/38107e7b3801417eb97ee5b611eb13e800b9090a))
+- [ImageJ 1.54p](https://downloads.imagej.net/fiji/stable/fiji-stable-win64-jdk.zip) from https://fiji.sc
+- [IJ-Retinex](https://github.com/fiji/Fiji_Plugins/blob/main/src/main/java/Retinex_.java). Note, the source then compiled with [script](./Compile/build_retinex.bat)
 
 ## Processing File
 
