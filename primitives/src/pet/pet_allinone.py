@@ -32,7 +32,7 @@ import numpy as np
 from PIL import Image, ExifTags
 
 
-from pet_utils import image_loader, save_image, LOGGER_NAME, SAMPLE_IMAGE
+from pet_utils import image_loader, save_image, LOGGER_NAME
 from pet_whitepoint import (
     whitepoint_pipeline, whitepoint_correct, estimate_paper_mask, estimate_whitepoint,
     apply_white_balance, auto_levels
@@ -40,9 +40,18 @@ from pet_whitepoint import (
 from pet_exposure import exposure_pipeline_graphpaper
 
 
+from pet_geom import detect_grid_lines
 from pet_utils import image_loader, save_image
 from pet_pipeline import run_pet_pipeline
 from pet_config import PETConfig
+
+
+# ======================================================================
+# MODULE CONSTANTS
+# ======================================================================
+
+
+SAMPLE_IMAGE = "photo_2025-11-17_23-50-02__Retinex_Low_250_3_1.0.jpg"   # relative to script location
 
 
 # ======================================================================
@@ -87,11 +96,12 @@ def main(image_path: Optional[str] = None) -> None:
         debug_outdir="debug_run_01"
     )
     
-    img, meta0 = image_loader()
-    final, meta = run_pet_pipeline(img, cfg)
-    log.info(f"Exposure meta: {meta}")
+    img, meta0 = image_loader(SAMPLE_IMAGE)
+    # final, meta = run_pet_pipeline(img, cfg)
+    # log.info(f"Exposure meta: {meta}")
 
-    save_image(final, "output/final_corrected.jpg")
+    meta_lines, marked = detect_grid_lines(img, mark_grid=True)
+    save_image(marked, "output/final_corrected.jpg")
 
    # img, meta0 = image_loader(image_path)
    #
