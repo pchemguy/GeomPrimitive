@@ -107,104 +107,81 @@ def _cluster_angles_into_two(angles: np.ndarray) -> Tuple[np.ndarray, List[int]]
 def detect_grid_lines(
     img: np.ndarray,
     mark_grid: bool = False,
-    min_length_px: float = 20.0,
+    min_length_px: float = 40.0,
+    angle_tol_deg: float = 8.0,
 ) -> Tuple[Dict, np.ndarray]:
     """
-    Detect grid lines in a graph-paper image using LSD + angle clustering.
-
-    Args:
-        img:
-            BGR uint8 source image (manually adjusted or raw).
-        mark_grid:
-            If True, overlays detected lines:
-                - major-direction lines in RED
-                - minor-direction lines in BLUE
-        min_length_px:
-            Minimum line length in pixels to keep (filters noise / short segments).
-
-    Returns:
-        meta: dict with:
-            - lines_all: (N,4) array of all LSD lines
-            - lines_x:   lines in cluster 0
-            - lines_y:   lines in cluster 1
-            - centers:   angle cluster centers
-            - labels:    cluster label for each line
-
-        out_img:
-            BGR image with optional overlay if mark_grid=True,
-            otherwise a copy of the input image.
+    Detect graph-paper grid lines with robust filtering.
     """
-    # ---------------------------------------------------
-    # PREP
-    # ---------------------------------------------------
+
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # LSD line detection
+    # 1) LSD detection
     lines_raw = _lsd_detect(gray)
     if len(lines_raw) == 0:
-        return {
-            "lines_all": np.zeros((0, 4)),
-            "lines_x": np.zeros((0, 4)),
-            "lines_y": np.zeros((0, 4)),
-            "centers": None,
-            "labels": [],
-        }, img.copy()
+        return {"lines_all": [], "lines_x": [], "lines_y": []}, img.copy()
 
-    # ---------------------------------------------------
-    # FILTER by length
-    # ---------------------------------------------------
-    def line_length(line):
-        return np.hypot(line[2] - line[0], line[3] - line[1])
-
-    lengths = np.array([line_length(l) for l in lines_raw])
-    keep = lengths >= min_length_px
+    # 2) Filter by length
+    lens = np.hypot(lines_raw[:, 2] - lines_raw[:, 0],
+                    lines_raw[:, 3] - lines_raw[:, 1])
+    keep = lens >= min_length_px
     lines = lines_raw[keep]
 
-    if len(lines) < 2:
-        return {
-            "lines_all": lines,
-            "lines_x": lines,
-            "lines_y": np.zeros((0, 4)),
-            "centers": None,
-            "labels": [0] * len(lines),
-        }, img.copy()
+    if len(lines) < 4:
+        return {"lines_all": lines, "lines_x": lines, "lines_y": []}, img.copy()
 
-    # ---------------------------------------------------
-    # Angle clustering into two directions
-    # ---------------------------------------------------
+    # 3) Compute angles & cluster
     angles = np.array([_line_angle(l) for l in lines])
     centers, labels = _cluster_angles_into_two(angles)
+    center0, center1 = centers
 
-    # cluster 0 & cluster 1
-    lines_x = lines[np.array(labels) == 0]
-    lines_y = lines[np.array(labels) == 1]
+    # 4) Angle refinement (remove off-angle lines)
+    angle_tol = np.deg2rad(angle_tol_deg)
+    keep_mask = np.zeros(len(lines), dtype=bool)
 
-    # ---------------------------------------------------
-    # Prepare output
-    # ---------------------------------------------------
+    for i, (ang, lab) in enumerate(zip(angles, labels)):
+        target = center0 if lab == 0 else center1
+        if abs((ang - target + np.pi/2) % np.pi - np.pi/2) < angle_tol:
+            keep_mask[i] = True
+
+    lines = lines[keep_mask]
+    labels = np.array(labels)[keep_mask]
+
+    # Split into two families
+    lines_x = lines[labels == 0]
+    lines_y = lines[labels == 1]
+
+    # 5) Sort by line intercepts (rho in normal form)
+    #    rho = x*cos theta + y*sin theta
+    def compute_rho(line, theta):
+        x1, y1, x2, y2 = line
+        return (x1*np.cos(theta) + y1*np.sin(theta) +
+                x2*np.cos(theta) + y2*np.sin(theta)) * 0.5
+
+    lines_x_sorted = sorted(
+        lines_x, key=lambda l: compute_rho(l, center0)
+    )
+    lines_y_sorted = sorted(
+        lines_y, key=lambda l: compute_rho(l, center1)
+    )
+
+    # Prepare marked output
     out = img.copy()
     if mark_grid:
-        # Draw major grid (cluster 0) in RED
-        for (x1, y1, x2, y2) in lines_x:
+        for (x1, y1, x2, y2) in lines_x_sorted:
             cv2.line(out, (int(x1), int(y1)), (int(x2), int(y2)),
                      (0, 0, 255), 1, cv2.LINE_AA)
-        # Draw minor grid (cluster 1) in BLUE
-        for (x1, y1, x2, y2) in lines_y:
+        for (x1, y1, x2, y2) in lines_y_sorted:
             cv2.line(out, (int(x1), int(y1)), (int(x2), int(y2)),
-                     (255, 0, 0), 1, cv2.LINE_AA)
+                     (int(x2), int(y2)), (255, 0, 0), 1, cv2.LINE_AA)
 
-    # ---------------------------------------------------
-    # Metadata dictionary
-    # ---------------------------------------------------
     meta = {
         "lines_all": lines,
-        "lines_x": lines_x,
-        "lines_y": lines_y,
+        "lines_x": np.array(lines_x_sorted),
+        "lines_y": np.array(lines_y_sorted),
         "centers": centers.tolist(),
-        "labels": labels,
-        "num_all": len(lines),
-        "num_x": len(lines_x),
-        "num_y": len(lines_y),
+        "num_x": len(lines_x_sorted),
+        "num_y": len(lines_y_sorted),
     }
 
     return meta, out
