@@ -10,7 +10,7 @@ photo_2025-11-17_23-50-02.jpg (see WhatsApp)
 ## Retinex Settings
 
 
-|         | Level   | Scale | Scale division | Dynamic | Comment                                                                                 |
-| ------- | ------- | :---: | :------------: | :-----: | --------------------------------------------------------------------------------------- |
-| Default | Uniform |  240  |       3        |  1.20   | More even lighting by slight darkening of the top brighter region, better grid contrast |
-|         |         |       |                |         |                                                                                         |
+| Level   | Scale | Scale division | Dynamic | Comment                                                                                           |
+| ------- | :---: | :------------: | :-----: | ------------------------------------------------------------------------------------------------- |
+| Uniform |  240  |       3        |  1.20   | Defaults. More even lighting by slight darkening of the top brighter region, better grid contrast |
+| Low     |  240  |       3        |  1.20   | Blueish glow around the bio sample, improved contrast, higher noise as well.                      |
