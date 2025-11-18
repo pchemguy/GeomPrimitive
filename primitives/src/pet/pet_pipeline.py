@@ -8,11 +8,21 @@ Uses PETConfig for all tunables and pet_debug for visualization.
 
 from __future__ import annotations
 
+import os
+import sys
 import logging
 from typing import Dict, Tuple
 
 import numpy as np
 import cv2
+
+os.environ["LOKY_EXECUTABLE"] = sys.executable
+os.environ["LOKY_WORKER"]     = sys.executable
+os.environ["JOBLIB_START_METHOD"] = "spawn"
+os.environ["LOKY_PICKLER"] = "pickle"
+os.environ["MKL_THREADING_LAYER"] = "GNU"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 from pet_config import PETConfig
 from pet_utils import save_image
@@ -71,7 +81,7 @@ def run_pet_pipeline(
         highlight_clip=cfg.gmm_highlight_clip,
         random_state=cfg.gmm_random_state,
     )
-
+    
     # ==============================================================
     # 2) MASK REFINEMENT
     # ==============================================================

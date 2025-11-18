@@ -18,6 +18,15 @@ import sys
 import os
 from typing import Optional, Tuple
 
+# FORCE-DISABLE joblib multiprocessing
+os.environ["JOBLIB_MULTIPROCESSING"] = "0"
+os.environ["JOBLIB_START_METHOD"] = "threading"
+
+# Also disable MKL / BLAS threading (optional but recommended)
+os.environ.setdefault("MKL_THREADING_LAYER", "GNU")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 import cv2
 import numpy as np
 from PIL import Image, ExifTags
@@ -34,8 +43,6 @@ from pet_exposure import exposure_pipeline_graphpaper
 from pet_utils import image_loader, save_image
 from pet_pipeline import run_pet_pipeline
 from pet_config import PETConfig
-
-
 
 
 # ======================================================================
@@ -80,7 +87,6 @@ def main(image_path: Optional[str] = None) -> None:
         debug_outdir="debug_run_01"
     )
     
-
     img, meta0 = image_loader()
     final, meta = run_pet_pipeline(img, cfg)
     log.info(f"Exposure meta: {meta}")

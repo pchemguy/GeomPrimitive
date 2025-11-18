@@ -1,4 +1,4 @@
-# **Setup**
+# **Fiji ImageJ Setup**
 
 - [ImageJ 1.54p](https://downloads.imagej.net/fiji/stable/fiji-stable-win64-jdk.zip) from https://fiji.sc
 - [IJ-Retinex](https://github.com/fiji/Fiji_Plugins/blob/main/src/main/java/Retinex_.java). Note, the source then compiled with [script](./Compile/build_retinex.bat)
@@ -15,6 +15,10 @@ photo_2025-11-17_23-50-02.jpg (see WhatsApp)
 | Low     |  240  |       3        |  1.20   | Blueish glow around the bio sample (dark); glow around dark marker cap as well, improved contrast, higher noise as well. |
 | Uniform |  16   |       3        |  1.20   | Cartoonish, high contrast, increased noise, glow around the dark bio sample and dark marker cap.                         |
 | Low     |  250  |       3        |  1.00   | Aggressively evened, cartoonish, high contrast, noise, glow around dark parts (sample and marker)                        |
+
+## **Interesting Features**
+
+### Plugins -> Integral Image Filters -> Normalize Local Contrast
 
 
 # 🚀 **Retinex Parameter Guide (Practical & Correct)**

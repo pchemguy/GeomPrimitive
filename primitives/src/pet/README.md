@@ -1,5 +1,9 @@
 https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942
 
+# Notes
+
+- WB / exposure correction increase lighting imbalance. Retinex default filter evens lighting. Consider using more aggressive Retinex settings as well.
+
 ## Prompt
 
 I have a set of real lab pictures with millimeter graph paper in background and I want do define and develop enhancement pipeline. Assume the actual background paper has white color and the lighting is suboptimal (not enough light). I need recipes and optimal order for these tasks:

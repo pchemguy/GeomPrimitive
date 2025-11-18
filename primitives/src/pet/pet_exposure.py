@@ -21,14 +21,6 @@ from typing import Optional, Tuple, Dict
 
 import cv2
 import numpy as np
-from sklearn.mixture import GaussianMixture
-from sklearn.cluster import KMeans
-from skimage import exposure as sk_exposure
-
-from pet_debug import save_pipeline_debug, overlay_mask
-
-
-LOGGER_NAME = "pet"
 
 os.environ["LOKY_EXECUTABLE"] = sys.executable
 os.environ["LOKY_WORKER"]     = sys.executable
@@ -37,6 +29,15 @@ os.environ["LOKY_PICKLER"] = "pickle"
 os.environ["MKL_THREADING_LAYER"] = "GNU"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
+
+from sklearn.mixture import GaussianMixture
+from sklearn.cluster import KMeans
+from skimage import exposure as sk_exposure
+
+from pet_debug import save_pipeline_debug, overlay_mask
+
+
+LOGGER_NAME = "pet"
 
 
 # ======================================================================
