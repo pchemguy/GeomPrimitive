@@ -1,12 +1,10 @@
 """
-Histogram viewer with percentile markers and full tick labels.
+Histogram viewer with full x/y ticks, numeric labels,
+and percentile markers.
 
 - Left: grayscale (L) histogram
-- Right: stacked R, G, B histograms
-- All histograms show:
-    - x-axis ticks and numeric labels
-    - y-axis ticks (percent)
-    - dashed percentile lines at 5th and 95th percentiles
+- Right: R, G, B histograms stacked vertically
+- Dashed lines: 5th and 95th percentile for each histogram
 """
 
 import sys
@@ -28,7 +26,7 @@ def load_image(path: str):
 
 
 # ------------------------------------------------------------
-# Histogram + percentiles
+# Computation
 # ------------------------------------------------------------
 
 def compute_channel_data(img):
@@ -39,30 +37,30 @@ def compute_channel_data(img):
     b = arr[:, :, 2].ravel()
     L = np.asarray(img.convert("L")).ravel()
 
-    total = len(r)
+    N = len(r)
 
-    def hist(x):
+    def hist_percent(x):
         h, _ = np.histogram(x, bins=256, range=(0, 255))
-        return h / total * 100
+        return h / N * 100
 
-    hr = hist(r)
-    hg = hist(g)
-    hb = hist(b)
-    hL = hist(L)
+    hr = hist_percent(r)
+    hg = hist_percent(g)
+    hb = hist_percent(b)
+    hL = hist_percent(L)
 
-    def p(x):
-        return np.percentile(x, 5), np.percentile(x, 95)
+    def p05_p95(x):
+        return float(np.percentile(x, 5)), float(np.percentile(x, 95))
 
-    r5, r95 = p(r)
-    g5, g95 = p(g)
-    b5, b95 = p(b)
-    L5, L95 = p(L)
-
-    return (hr, (r5, r95)), (hg, (g5, g95)), (hb, (b5, b95)), (hL, (L5, L95))
+    return (
+        (hr, p05_p95(r)),
+        (hg, p05_p95(g)),
+        (hb, p05_p95(b)),
+        (hL, p05_p95(L)),
+    )
 
 
 # ------------------------------------------------------------
-# Plot helpers
+# Plotting helpers
 # ------------------------------------------------------------
 
 def draw_percentile_lines(ax, p05, p95):
@@ -70,15 +68,28 @@ def draw_percentile_lines(ax, p05, p95):
     ax.axvline(p95, color="gray", linestyle="--", linewidth=1)
 
 
-def format_axes(ax):
-    """Apply standard axis formatting for all histograms."""
-    ax.set_xlim(0, 255)
-    ax.set_xticks(np.linspace(0, 255, 9))  # 0,32,...,255
-    ax.set_xticklabels([f"{int(x)}" for x in np.linspace(0, 255, 9)])
+def set_axis_ticks(ax, ymax):
+    """
+    Apply consistent tick formatting to both axes.
+    """
 
-    ax.set_yticks(np.arange(0, 101, 10))
+    # ----- X-axis -----
+    ax.set_xlim(0, 255)
+    xticks = np.linspace(0, 255, 9)  # 0,32,...,255
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([f"{int(x)}" for x in xticks])
+
+    # ----- Y-axis -----
+    ax.set_ylim(0, ymax)
+    yticks = np.arange(0, 101, 10)
+    ax.set_yticks(yticks)
+    ax.set_yticklabels([f"{int(y)}" for y in yticks])
     ax.set_ylabel("Percent (%)")
 
+
+# ------------------------------------------------------------
+# Main plot function
+# ------------------------------------------------------------
 
 def plot_histograms(R, G, B, L, title=None):
     (hr, (r5, r95)) = R
@@ -86,34 +97,35 @@ def plot_histograms(R, G, B, L, title=None):
     (hb, (b5, b95)) = B
     (hL, (L5, L95)) = L
 
-    fig = plt.figure(figsize=(12, 7))
-    gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.2], hspace=0.4)
+    fig = plt.figure(figsize=(13, 8))
+    gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.25], hspace=0.45)
 
-    # ---------------- Left: Grayscale ----------------
+    # --------------------------------------------------------
+    # Left column: Grayscale
+    # --------------------------------------------------------
     axL = fig.add_subplot(gs[:, 0])
-    axL.bar(range(256), hL, width=1.0, color="black", alpha=0.8)
-    format_axes(axL)
-    axL.set_ylim(0, max(hL) * 1.1)
-    axL.set_title("Grayscale (L)")
+    ymax_L = max(hL) * 1.12
+    axL.bar(range(256), hL, width=1.0, color="black", alpha=0.82)
+    set_axis_ticks(axL, ymax_L)
     draw_percentile_lines(axL, L5, L95)
+    axL.set_title("Grayscale (L)")
 
-    # ---------------- Right: RGB ----------------
-    axR = fig.add_subplot(gs[0, 1])
-    axG = fig.add_subplot(gs[1, 1])
-    axB = fig.add_subplot(gs[2, 1])
-
-    for ax, h, color, title, p05, p95 in [
-        (axR, hr, "red",   "Red",   r5, r95),
-        (axG, hg, "green", "Green", g5, g95),
-        (axB, hb, "blue",  "Blue",  b5, b95),
+    # --------------------------------------------------------
+    # Right column: R, G, B stacked
+    # --------------------------------------------------------
+    for ax, h, color, name, (p05, p95) in [
+        (fig.add_subplot(gs[0, 1]), hr, "red",   "Red",   (r5, r95)),
+        (fig.add_subplot(gs[1, 1]), hg, "green", "Green", (g5, g95)),
+        (fig.add_subplot(gs[2, 1]), hb, "blue",  "Blue",  (b5, b95)),
     ]:
-        ax.bar(range(256), h, width=1.0, color=color, alpha=0.8)
-        format_axes(ax)
-        ax.set_ylim(0, max(h) * 1.1)
-        ax.set_title(title)
+        ymax = max(h) * 1.12
+        ax.bar(range(256), h, width=1.0, color=color, alpha=0.82)
+        set_axis_ticks(ax, ymax)
         draw_percentile_lines(ax, p05, p95)
+        ax.set_title(name)
 
-    axB.set_xlabel("Intensity")
+    # Only the bottom histogram gets the x-axis label
+    fig.axes[-1].set_xlabel("Intensity")
 
     if title:
         fig.suptitle(title)
@@ -126,7 +138,7 @@ def plot_histograms(R, G, B, L, title=None):
 # Entry point
 # ------------------------------------------------------------
 
-def show_histograms(path):
+def show_histograms(path: str):
     img = load_image(path)
     R, G, B, L = compute_channel_data(img)
     plot_histograms(R, G, B, L, title=path)
