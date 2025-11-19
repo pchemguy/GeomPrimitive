@@ -116,6 +116,12 @@ class Primitive(ABC):
     def make_geometry(self, ax: Optional[Axes] = None, **kwargs) -> Primitive:
         """Generate metadata describing the primitive's geometry.
         Subclasses must override this method.
+    
+        Responsibilities:
+          - Compute and assign all necessary geometric + stylistic metadata.
+          - Populate `self._meta` with a dictionary compatible with Matplotlib
+            rendering calls (e.g., for `ax.plot`, `ax.add_patch`, etc.).
+          - Return `self` for chaining.
         """                
         raise NotImplementedError
 
