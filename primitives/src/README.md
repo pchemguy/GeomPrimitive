@@ -160,5 +160,180 @@ Captures run-level statistics:
 
 ---
 
+## Synthetic Photo Tool (SPT) — Architectural Overview
 
 
+## 1. System Overview
+
+SPT is divided into two large stages:
+
+#### **A. Vector Scene Generation (Matplotlib subsystem: `mpl_*`)**
+
+Produces **clean, analytical vector graphics** — such as graph paper, grids, geometric paths, or simple drawings — and renders them into RGBA images.
+
+#### **B. Image Degradation / Camera Artefacts (SPT subsystem: `spt_*`)**
+
+Transforms the clean render into something that resembles a **real photographic capture**, with lighting variations, noise, textures, optics, sensor quirks, and lens geometry.
+
+A **unified composite pipeline class** that glues these two stages together **does not exist yet** but is planned.
+
+---
+
+## 2. Two Generations of the SPT Subsystem
+
+#### **Generation 1 — Procedural Effects Pipeline**
+
+This is the current, functioning, end-to-end system.
+Entry point: **`spt.py`**.
+
+Implements a straightforward deterministic chain:
+
+```
+Matplotlib render
+ → Lighting
+ → Texture
+ → Noise
+ → Geometry
+ → Color
+```
+
+#### **Generation 2 — Correction Engine**
+
+A more advanced system that models imaging as a **physical camera pipeline**, including RAW domain, sensor physics, CFA demosaicing artifacts, ISP tone mapping, PRNU/FPN noise, sharpening, JPEG modeling, etc.
+
+Modules:
+
+* `spt_correction_engine.py`
+* `spt_correction_engine_random.py`
+
+These will eventually replace portions of Generation 1.
+
+A **major pending redesign** (to be implemented) is documented here:
+
+> [https://chatgpt.com/c/691b778b-c4dc-8325-b7ec-9537f67a0e25](https://chatgpt.com/c/691b778b-c4dc-8325-b7ec-9537f67a0e25)
+
+Ultimately, both generations will merge into a **single coherent subpackage**.
+
+---
+
+## 3. Matplotlib Subsystem
+
+*Vector Scene Construction & Rendering*
+
+This stage is responsible ONLY for producing clean vector graphics and converting them to RGBA images.
+All degradation is done later by `spt_*`.
+
+---
+
+### **Primary Engines**
+
+#### **1) `mpl_grid_gen.py` — Primary Grid Generator**
+
+Responsible for:
+
+* analytic grid geometry (major/minor lines)
+* perspective variants
+* density, spacing, obliqueness
+* line families, orientations
+* construction of vector geometries representing graph paper
+
+This will also **absorb the first three effects** currently in `mpl_grid_gen_effects.py` (which is scheduled for dissolution).
+
+#### **2) `mpl_path_utils.py` — Primary Path Engine**
+
+Responsible for:
+
+* all manipulation of Matplotlib `Path` objects
+* transformations (scale, rotate, translate)
+* sampling, splitting, joining
+* path deformation utilities
+* preparing vector shapes before rendering
+
+This is the core geometric/mathematical engine for vector shapes other than grids.
+
+---
+
+### **Supporting Modules**
+
+| Module                      | Role                                                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **`mpl_utils.py`**          | Shared utilities: type aliases, RGBA↔BGR helpers, rendering helpers, Matplotlib config, grid visualizers.             |
+| **`mpl_renderer.py`**       | High-level orchestrator for rendering vector scenes: consistent figsize, dpi, color themes, predictable RGBA capture. |
+| **`mpl_artist_preview.py`** | Preview utilities for debugging vector artists and shapes.                                                            |
+
+---
+
+### **Modules Planned for Removal / Consolidation**
+
+| Module                         | Status                                                                                                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`mpl_grid_gen_effects.py`**  | **To be dissolved.** Contains four “effects”: the first three move to `mpl_grid_gen.py`; the fourth likely belongs to `spt_*` pending confirmation that it is a raster-domain operation. |
+| **`mpl_grid_gen_pipeline.py`** | **To be removed.** It served exploratory/demo purposes and is superseded by cleaner designs.                                                                                             |
+
+---
+
+## 4. SPT Subsystem
+
+*Image Degradation / Photographic Artefacts*
+
+These modules take the clean RGBA output of the Matplotlib subsystem and apply ordered degradations to simulate real-camera imperfections.
+
+---
+
+### **Generation 1 — Procedural Pipeline**
+
+| Module                | Responsibility                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| **`spt.py`**          | Current main orchestrator stitching together the first-generation SPT pipeline.                 |
+| **`spt_lighting.py`** | Uneven lighting: linear and radial gradients, global exposure-like adjustments.                 |
+| **`spt_texture.py`**  | Paper textures: additive/multiplicative noise, multi-scale structure, fibers, creases, presets. |
+| **`spt_noise.py`**    | Noise models: Poisson (shot), Gaussian (read), salt-and-pepper, speckle, Gaussian blur.         |
+| **`spt_geometry.py`** | Perspective tilt and radial lens distortion (k1, k2).                                           |
+| **`spt_color.py`**    | Simple color and vignette models (warmth, falloff).                                             |
+| **`spt_pipeline.py`** | Demonstration pipeline; a linear script-based version of the stage chain.                       |
+| **`spt_config.py`**   | Batch/interactive mode flags, backend selection.                                                |
+
+---
+
+### **Generation 2 — Correction Engine**
+
+| Module                                | Responsibility                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **`spt_correction_engine.py`**        | High-fidelity, physics-inspired camera model in RGBfloat space. Designed to replace large parts of Gen 1. |
+| **`spt_correction_engine_random.py`** | Parameter sampler for realistic camera configurations.                                                    |
+
+These two constitute the **future direction** and will eventually integrate into the main SPT package once the redesign is complete.
+
+---
+
+## 5. Integration Status and Planned Evolution
+
+#### **Current**
+
+* Matplotlib (`mpl_*`) and SPT (`spt_*`) exist as **two separate but sequential stages**.
+* Integration is currently manual: Generation 1 pipeline uses simple function calls.
+* Generation 2 correction engine is developed but **not yet integrated**.
+* Certain Matplotlib modules are scheduled for dissolution.
+
+#### **Planned**
+
+* A unified **Composite Pipeline Class** that encapsulates:
+  **vector scene → correction engine (Gen 2) → raster artefacts → final output**
+* Consolidation of vector effects into the primary engines (`mpl_grid_gen.py`, `mpl_path_utils.py`).
+* Implementation of the major correction engine redesign from the proposal.
+* Dissolution or merging of obsolete exploratory modules.
+
+---
+
+## 6. Demo Philosophy
+
+Almost every module (`mpl_*` and `spt_*`) follows the same pattern:
+
+- When executed directly (`python module.py`),  
+    the module runs a **self-contained demo** of its functionality:
+    - Generates a baseline synthetic scene.
+    - Runs a parameter sweep or randomized configuration.
+    - Displays results via Matplotlib using a grid helper.
+    - Prints relevant metadata or debug information.        
+
+This makes each module **self-documenting** and easy to test in isolation.
