@@ -18,7 +18,6 @@ import numpy as np
 import matplotlib as mpl
 from matplotlib.axes import Axes
 from matplotlib import colors
-from matplotlib.patches import PathPatch
 
 # =============================================================================
 # Constants
@@ -42,6 +41,24 @@ else:
 class Primitive(ABC):
     """
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
+
+    Provides:
+      - Deterministic RNG compatibility
+      - Extensible `.draw(ax)` and `.make_geometry()` methods
+
+    Design:
+      Subclasses (e.g. Line, Circle, Ellipse) implement:
+        - `make_geometry(ax, **kwargs)` -- self
+        - `draw(ax, **kwargs)` -- renders using current metadata
+
+    Attributes:
+      - _meta (dict[str, Any]): Metadata describing the primitive's geometry and style.
+      - meta: deep-copy getter for safe inspection.
+      - json: JSON-encoded serialization of `.meta`.
+
+    Example:
+        >>> line = Line(ax)
+        >>> line.draw(ax)
     """
 
     __slots__ = ("_meta", "_ax", "logger", "patches", "last_patch",)
@@ -56,25 +73,12 @@ class Primitive(ABC):
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
         """
-        self.ax = ax
-        self.reset()
-
-    def reset(self, ax: Optional[Axes] = None) -> None:
-        logger = logging.getLogger(LOGGER_NAME)
-        logger.debug(f"Running Primitive instance reset().")
-        self.last_patch = None
-        self.patches: dict[int, PathPatch] = {}
         self._meta: Dict[str, Any] = {}
-        if ax: self.ax = ax
-        if isinstance(self.ax, Axes):
-            xlim = self.ax.get_xlim()
-            ylim = self.ax.get_ylim()
-            self.ax.cla()
-            self.ax.set_xlim(*xlim)
-            self.ax.set_ylim(*ylim)
-            self.ax.set_aspect("equal")
-            # self.ax.invert_yaxis()
-            self.ax.axis("off")
+        if isinstance(ax, Axes):
+            self._ax = ax
+            self.make_geometry(**kwargs)  # always generate metadata
+        self.logger = logging.getLogger(LOGGER_NAME)
+
 
     # ---------------------------------------------------------------------------
     # Metadata accessors
