@@ -335,8 +335,6 @@ def test_full_engine_small_effects():
         k1=1e-4,
         k2=0.0,
         rolling_strength=1e-4,
-        apply_jpeg=False,
-        cfa_enabled=False,
         rng=np.random.default_rng(0),
     )
     assert_small_diff(img, out, tol=0.1)   # full pipeline = looser tolerance
