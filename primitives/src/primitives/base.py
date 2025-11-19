@@ -50,6 +50,8 @@ class Primitive(ABC):
 
     def __init__(self, ax: Optional[Axes] = None, **kwargs: Any) -> None:
         """
+        Create a primitive.
+
         Args:
             ax (matplotlib.axes.Axes): Target Matplotlib axis.
             **kwargs: Optional arguments for `make_geometry`.
