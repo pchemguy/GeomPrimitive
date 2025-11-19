@@ -44,7 +44,7 @@ class Primitive(ABC):
     Abstract base class for all drawable geometric primitives  (line, circle, arc, etc.).
     """
 
-    __slots__ = ("_meta", "_ax", "patches",)
+    __slots__ = ("_meta", "_ax", "patches", "last_patch",)
 
     rng: RNG = get_rng(thread_safe=True)  # class-level RNG shared by all instances
 

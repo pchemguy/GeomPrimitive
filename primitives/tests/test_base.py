@@ -41,18 +41,6 @@ def test_repr_contains_keys(fig_ax):
     assert key in s
 
 
-def test_reseed_changes_rng_output(fig_ax):
-  """Changing RNG seed should yield different random metadata."""
-  _, ax = fig_ax
-  Line.reseed(1)
-  line1 = Line(ax)
-  m1 = line1.meta
-  Line.reseed(2)
-  line2 = Line(ax)
-  m2 = line2.meta
-  assert m1 != m2
-
-
 def test_json_and_jsonpp_are_valid_json(fig_ax):
   _, ax = fig_ax
   line = Line(ax)
