@@ -1,0 +1,14 @@
+name: aipy
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python
+  - conda
+  - mamba
+  - micromamba=2.3.0.*
+  - uv
+  - pip
+  - git
+  - hatch
+  - ruff

@@ -1,0 +1,38 @@
+name: aipy
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - numpy
+  - scipy
+  - scikit-image
+  - scikit-learn
+  - pandas
+  - numba
+  - opencv
+  - jupyterlab
+  - ipykernel
+  - ipywidgets
+  - matplotlib
+  - plotly
+  - colorspacious
+  - colorama
+  - pyinstrument
+  - pytest
+  - pytest-cov
+  - pytest-benchmark
+  - coverage
+  - jsonschema
+  - pydantic
+  - snakeviz
+  - dash
+  - graphistry
+  - xarray-spatial
+  - pkg-config
+  - libjpeg-turbo
+  - pyturbojpeg
+  - pywavelets
+  - psutil
+  - pip
+  - pip:
+    - dearpygui
