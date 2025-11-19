@@ -300,7 +300,10 @@ These modules take the clean RGBA output of the Matplotlib subsystem and apply o
 | Module                                | Responsibility                                                                                            |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | **`spt_correction_engine.py`**        | High-fidelity, physics-inspired camera model in RGBfloat space. Designed to replace large parts of Gen 1. |
-| **`spt_correction_engine_random.py`** | Parameter sampler for realistic camera configurations.                                                    |
+
+> [!NOTE]
+> 
+> Note, both versions presently implement symmetric lens distortion only, which is wrong and needs to be fixed.
 
 These two constitute the **future direction** and will eventually integrate into the main SPT package once the redesign is complete.
 
