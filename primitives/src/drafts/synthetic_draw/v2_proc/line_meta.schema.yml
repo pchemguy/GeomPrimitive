@@ -1,0 +1,172 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "https://example.com/schemas/line_meta.schema.json"
+title: Line Primitive Metadata
+description: |
+  Structured metadata describing the geometry and style of a single 'hand-drawn' line
+  segment. Produced by `make_line_meta(ax, ...)` in primitive_drawer.py.
+
+type: object
+required:
+  - x
+  - y
+  - linewidth
+  - linestyle
+  - color
+  - alpha
+  - orientation
+  - hand_drawn
+  - solid_capstyle
+  - solid_joinstyle
+  - dash_capstyle
+  - dash_joinstyle
+
+properties:
+  x:
+    type: array
+    items:
+      type: number
+    minItems: 2
+    maxItems: 2
+    description: |
+      Two-element list of x-coordinates `[x1, x2]` defining the line endpoints.
+      Range corresponds to current Axes limits.
+    examples:
+      - [0.1, 0.9]
+
+  y:
+    type: array
+    items:
+      type: number
+    minItems: 2
+    maxItems: 2
+    description: |
+      Two-element list of y-coordinates `[y1, y2]` defining the line endpoints.
+      Range corresponds to current Axes limits.
+    examples:
+      - [0.2, 0.8]
+
+  linewidth:
+    type: number
+    minimum: 0.1
+    maximum: 10.0
+    description: |
+      Line width in points. Randomly selected from DEFAULT_LINEWIDTHS if unspecified.
+    examples:
+      - 2.0
+
+  linestyle:
+    description: |
+      Matplotlib-compatible line style specification:
+        - Named style string: "solid", "dotted", "dashed", "dashdot"
+        - or tuple of (offset, dash sequence): e.g. [0, [4, 2, 3, 1]]
+    oneOf:
+      - type: string
+        enum: ["solid", "dotted", "dashed", "dashdot", "-", "--", ":", "-."]
+      - type: array
+        prefixItems:
+          - type: integer
+          - type: array
+            items:
+              type: number
+        minItems: 2
+        maxItems: 2
+    examples:
+      - "dashed"
+      - [0, [4, 2, 3, 1]]
+
+  color:
+    description: |
+      Line color. Can be:
+        - CSS4/X11 color name (string)
+        - RGB tuple [r, g, b] with each in [0, 1]
+    oneOf:
+      - type: string
+      - type: array
+        items:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+        minItems: 3
+        maxItems: 3
+    examples:
+      - "skyblue"
+      - [0.12, 0.45, 0.78]
+
+  alpha:
+    type: number
+    minimum: 0.0
+    maximum: 1.0
+    description: Opacity in [0, 1]. Randomized if None.
+    examples:
+      - 0.7
+
+  orientation:
+    description: |
+      Direction of the line:
+        - Named orientation: "horizontal", "vertical",
+          "diagonal_primary", "diagonal_auxiliary"
+        - or explicit angle in degrees.
+        - or null for random.
+    oneOf:
+      - type: string
+        enum:
+          - horizontal
+          - vertical
+          - diagonal_primary
+          - diagonal_auxiliary
+      - type: number
+      - type: "null"
+    examples:
+      - "horizontal"
+      - 45
+
+  hand_drawn:
+    type: boolean
+    description: |
+      If True, enables XKCD-style jitter and Gaussian perturbation of
+      dash lengths and orientation angles.
+    examples:
+      - true
+
+  solid_capstyle:
+    type: string
+    enum: ["butt", "round", "projecting"]
+    description: Cap style for solid line segments.
+    examples:
+      - "round"
+
+  solid_joinstyle:
+    type: string
+    enum: ["miter", "round", "bevel"]
+    description: Join style for solid line segments.
+    examples:
+      - "miter"
+
+  dash_capstyle:
+    type: string
+    enum: ["butt", "round", "projecting"]
+    description: Cap style for dashed line segments.
+    examples:
+      - "projecting"
+
+  dash_joinstyle:
+    type: string
+    enum: ["miter", "round", "bevel"]
+    description: Join style for dashed line segments.
+    examples:
+      - "round"
+
+additionalProperties: false
+examples:
+  - x: [0.1, 0.9]
+    y: [0.2, 0.8]
+    linewidth: 1.5
+    linestyle: [0, [4, 2, 3, 1]]
+    color: "steelblue"
+    alpha: 0.75
+    orientation: "diagonal_primary"
+    hand_drawn: true
+    solid_capstyle: "round"
+    solid_joinstyle: "bevel"
+    dash_capstyle: "round"
+    dash_joinstyle: "miter"

@@ -1,0 +1,4 @@
+https://matplotlib.org/stable/api/patches_api.html
+https://matplotlib.org/stable/gallery/shapes_and_collections/patch_collection.html
+https://matplotlib.org/stable/gallery/showcase/xkcd.html
+
