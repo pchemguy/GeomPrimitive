@@ -16,14 +16,14 @@ from typing import Optional, Union
 # ---------------------------------------------------------------------------
 # Import handling for both package and script execution
 # ---------------------------------------------------------------------------
+sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from utils.logging_utils import configure_logging
 if __package__ is None or __package__ == "":
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from logging_utils import configure_logging
     from summary import RunSummary
     from orchestration import worker_mp_pool_init, main_worker_imap_task
     from config import WorkerConfig
 else:
-    from .logging_utils import configure_logging
     from .summary import RunSummary
     from .orchestration import worker_mp_pool_init, main_worker_imap_task
     from .config import WorkerConfig

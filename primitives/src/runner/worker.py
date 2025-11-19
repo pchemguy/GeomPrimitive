@@ -28,10 +28,10 @@ import matplotlib.pyplot as plt
 
 # add project root so we can import primitives when run as a script
 sys.path.insert(0, os.sep.join(os.path.abspath(__file__).split(os.sep)[:-2]))
-from primitives.base import Primitive
-from primitives.line import Line  # uses your class-based primitive
-from primitives.rng import RNG, get_rng
 from runner.config import WorkerConfig
+from utils.rng import RNG, get_rng
+from primitives.base import Primitive
+from primitives.line import Line
 
 PathLike = Union[str, os.PathLike]
 LOGGER_NAME = "worker" if logging.getLogger("worker").handlers else "root"
