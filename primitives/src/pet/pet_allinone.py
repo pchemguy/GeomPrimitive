@@ -60,7 +60,7 @@ from pet_config import PETConfig
 # ======================================================================
 
 
-SAMPLE_IMAGE = "photo_2025-11-17_23-50-02_Contrast_40x40x5.jpg"   # relative to script location
+SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"   # relative to script location
 
 
 # ======================================================================
