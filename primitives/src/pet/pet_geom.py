@@ -506,22 +506,34 @@ def _vp_orth_error_deg_for_center(
 # 7) BASIC VISUALIZATION
 # ============================================================================
 
-def mark_segments(img, segments, color=(0,255,0), thickness=1):
-    """Draw arbitrary segments (N,4) onto a copy of the BGR image."""
+def mark_segments(
+    img: np.ndarray,
+    segments: np.ndarray,
+    color=(0,255,0),
+    thickness=1
+) -> np.ndarray:
+    """
+    Draw arbitrary segments onto a copy of the image.
+    segments: array(N,4)
+    """
     out = img.copy()
-    for (x1, y1, x2, y2) in segments:
+    for (x1,y1,x2,y2) in segments:
         cv2.line(out, (int(x1),int(y1)), (int(x2),int(y2)),
                  color, thickness, cv2.LINE_AA)
     return out
 
 
 def mark_segment_families(
-    img, lines_x, lines_y,
-    color_x=(0,0,255),    # X-family in red
-    color_y=(255,0,0),    # Y-family in blue
+    img: np.ndarray,
+    lines_x: np.ndarray,
+    lines_y: np.ndarray,
+    color_x=(0,0,255),
+    color_y=(255,0,0),
     thickness=1
-):
-    """Overlay two segment families with different colors."""
+) -> np.ndarray:
+    """
+    Convenience visualizer for two line families (x and y).
+    """
     out = img.copy()
     for (x1,y1,x2,y2) in lines_x:
         cv2.line(out, (int(x1),int(y1)), (int(x2),int(y2)),
