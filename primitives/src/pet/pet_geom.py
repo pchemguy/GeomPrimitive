@@ -228,29 +228,52 @@ def separate_line_families_kmeans(lines):
 # 5) VANISHING POINT ESTIMATION (LEAST SQUARES)
 # ============================================================================
 
-def _fit_vp(lines: np.ndarray, min_lines=2):
-    """Least-squares vanishing point for one line family."""
+def _fit_vanishing_point_least_squares(
+    lines: np.ndarray,
+    min_lines: int = 2,
+) -> Tuple[Optional[Tuple[float, float]], Optional[float]]:
+    """
+    Fit a vanishing point (x,y) as the point minimizing squared distance
+    to a set of lines, in a least-squares sense.
+
+    Each line is given by segment [x1,y1,x2,y2]. We convert to the
+    normalized line equation a*x + b*y + c = 0 with sqrt(a^2+b^2) = 1
+    and solve for the point minimizing sum_i (a_i x + b_i y + c_i)^2.
+
+    Returns:
+        (vp_xy, rms_error) where:
+            vp_xy: (x, y) in image coordinates, or None if degenerate.
+            rms_error: root-mean-square distance to the lines in pixels,
+                       or None if degenerate.
+    """
     if lines is None or len(lines) < min_lines:
         return None, None
 
-    S_aa = S_ab = S_bb = S_ac = S_bc = 0.0
+    # Build normal equations for least squares
+    S_aa = S_ab = S_bb = 0.0
+    S_ac = S_bc = 0.0
 
     for (x1, y1, x2, y2) in lines:
-        dx, dy = x2 - x1, y2 - y1
-        L = float(np.hypot(dx, dy))
-        if L < 1e-6:
+        dx = x2 - x1
+        dy = y2 - y1
+        length = float(np.hypot(dx, dy))
+        if length < 1e-6:
             continue
 
-        a = dy / L
-        b = -dx / L
+        # Normal vector (a,b) perpendicular to direction (dx,dy)
+        # Normalize so that sqrt(a^2 + b^2) == 1
+        a = dy / length
+        b = -dx / length
         c = -(a * x1 + b * y1)
 
-        S_aa += a*a
-        S_ab += a*b
-        S_bb += b*b
-        S_ac += a*c
-        S_bc += b*c
+        S_aa += a * a
+        S_ab += a * b
+        S_bb += b * b
+        S_ac += a * c
+        S_bc += b * c
 
+    # 2x2 system: [S_aa S_ab][x] = -[S_ac]
+    #              [S_ab S_bb][y]    [S_bc]
     det = S_aa * S_bb - S_ab * S_ab
     if abs(det) < 1e-9:
         return None, None
@@ -259,24 +282,30 @@ def _fit_vp(lines: np.ndarray, min_lines=2):
     inv_ab = -S_ab / det
     inv_bb = S_aa / det
 
-    bx, by = -S_ac, -S_bc
+    bx = -S_ac
+    by = -S_bc
+
     x_vp = inv_aa * bx + inv_ab * by
     y_vp = inv_ab * bx + inv_bb * by
 
-    # RMS
-    d2 = []
+    # Compute RMS distance to lines as an error measure
+    dists_sq = []
     for (x1, y1, x2, y2) in lines:
-        dx, dy = x2 - x1, y2 - y1
-        L = float(np.hypot(dx, dy))
-        if L < 1e-6:
+        dx = x2 - x1
+        dy = y2 - y1
+        length = float(np.hypot(dx, dy))
+        if length < 1e-6:
             continue
-        a = dy / L
-        b = -dx / L
+        a = dy / length
+        b = -dx / length
         c = -(a * x1 + b * y1)
-        d = a * x_vp + b * y_vp + c
-        d2.append(d*d)
+        d = a * x_vp + b * y_vp + c   # signed distance
+        dists_sq.append(d * d)
 
-    rms = float(np.sqrt(np.mean(d2))) if d2 else None
+    if not dists_sq:
+        return (float(x_vp), float(y_vp)), None
+
+    rms = float(np.sqrt(np.mean(dists_sq)))
     return (float(x_vp), float(y_vp)), rms
 
 
