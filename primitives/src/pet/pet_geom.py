@@ -478,13 +478,27 @@ def refine_principal_point_from_vps(
     }
 
 
-def _vp_orth_error(vp_x, vp_y, cx, cy) -> float:
-    v1 = np.array([vp_x[0]-cx, vp_x[1]-cy], float)
-    v2 = np.array([vp_y[0]-cx, vp_y[1]-cy], float)
+def _vp_orth_error_deg_for_center(
+    vp_x: Tuple[float, float],
+    vp_y: Tuple[float, float],
+    cx: float,
+    cy: float
+) -> float:
+    """
+    Compute VP orthogonality error (in degrees) for a given principal point (cx,cy).
+    """
+    (vx1, vy1) = vp_x
+    (vx2, vy2) = vp_y
+
+    v1 = np.array([vx1 - cx, vy1 - cy], dtype=np.float64)
+    v2 = np.array([vx2 - cx, vy2 - cy], dtype=np.float64)
+
     n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
     if n1 < 1e-9 or n2 < 1e-9:
         return 1e9
-    cosang = np.clip(np.dot(v1, v2) / (n1*n2), -1, 1)
+
+    cosang = float(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))
+
     return abs(np.rad2deg(np.arccos(cosang)) - 90.0)
 
 
