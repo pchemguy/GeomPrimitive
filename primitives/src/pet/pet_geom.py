@@ -313,45 +313,92 @@ def estimate_vanishing_points(
     lines_x: np.ndarray,
     lines_y: np.ndarray,
     img_shape: Optional[Tuple[int, int]] = None,
-) -> Dict[str, Optional[float]]:
+) -> Dict:
     """
-    Estimate two vanishing points and basic orthogonality metrics.
+    Estimate vanishing points for two line families (grid axes).
+
+    Args:
+        lines_x:
+            Array (N1,4) of segments [x1,y1,x2,y2] for the first family.
+        lines_y:
+            Array (N2,4) for the second family.
+        img_shape:
+            Optional (H,W). If provided, used to approximate principal point
+            for a VP-based orthogonality measure.
+
+    Returns:
+        dict with keys:
+            - vp_x: (x,y) or None
+            - vp_y: (x,y) or None
+            - rms_x: RMS distance of lines_x to vp_x, or None
+            - rms_y: RMS distance of lines_y to vp_y, or None
+            - angle_x: average direction angle (radians) for family x, or None
+            - angle_y: same for family y, or None
+            - angle_orth_error_deg: |(angle_x - angle_y) - 90deg|, or None
+            - vp_orth_error_deg:    deviation from 90deg between vectors
+                                    (vp_x - c) and (vp_y - c), or None
+            - horizon: (a,b,c) line coefficients for the horizon (through
+                       both vanishing points), or None
     """
-    vp_x, rms_x = _fit_vp(lines_x)
-    vp_y, rms_y = _fit_vp(lines_y)
+    # --- Fit VPs in least squares sense ---
+    vp_x, rms_x = _fit_vanishing_point_least_squares(lines_x)
+    vp_y, rms_y = _fit_vanishing_point_least_squares(lines_y)
 
-    ang_x = _median_direction(lines_x)
-    ang_y = _median_direction(lines_y)
+    # --- Angle-based orthogonality (image-space directions) ---
+    angle_x = _average_direction_angle(lines_x)
+    angle_y = _average_direction_angle(lines_y)
+    angle_orth_error_deg: Optional[float] = None
 
-    angle_orth = None
-    if ang_x is not None and ang_y is not None:
-        ax = (ang_x + np.pi) % np.pi
-        ay = (ang_y + np.pi) % np.pi
-        d = abs(ax - ay)
-        if d > np.pi/2:
-            d = np.pi - d
-        angle_orth = abs(np.rad2deg(d) - 90.0)
+    if angle_x is not None and angle_y is not None:
+        # Normalize to [0, pi)
+        ax = (angle_x + np.pi) % np.pi
+        ay = (angle_y + np.pi) % np.pi
+        delta = abs(ax - ay)
+        # Smallest difference mod pi
+        if delta > np.pi / 2:
+            delta = np.pi - delta
+        # Deviation from right angle
+        angle_orth_error_deg = abs(np.rad2deg(delta) - 90.0)
 
-    vp_orth = None
-    if vp_x and vp_y and img_shape:
-        H, W = img_shape
-        cx, cy = W/2, H/2
-        v1 = np.array([vp_x[0]-cx, vp_x[1]-cy])
-        v2 = np.array([vp_y[0]-cx, vp_y[1]-cy])
-        n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
-        if n1 > 1e-9 and n2 > 1e-9:
-            cosang = np.clip(np.dot(v1, v2) / (n1*n2), -1, 1)
-            vp_orth = abs(np.rad2deg(np.arccos(cosang)) - 90.0)
+    # --- VP-based orthogonality (requires an approximate principal point) ---
+    vp_orth_error_deg: Optional[float] = None
+    horizon: Optional[Tuple[float, float, float]] = None
+
+    if vp_x is not None and vp_y is not None:
+        (vx1, vy1) = vp_x
+        (vx2, vy2) = vp_y
+
+        # Horizon line through the two vanishing points
+        line_h = _line_from_points((vx1, vy1), (vx2, vy2))
+        if line_h is not None:
+            horizon = line_h
+
+        # If image shape is given, use center as principal point
+        if img_shape is not None:
+            H, W = img_shape
+            cx = W * 0.5
+            cy = H * 0.5
+
+            v1 = np.array([vx1 - cx, vy1 - cy], dtype=np.float64)
+            v2 = np.array([vx2 - cx, vy2 - cy], dtype=np.float64)
+
+            n1 = np.linalg.norm(v1)
+            n2 = np.linalg.norm(v2)
+            if n1 > 1e-9 and n2 > 1e-9:
+                cosang = float(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))
+                ang = np.arccos(cosang)
+                vp_orth_error_deg = abs(np.rad2deg(ang) - 90.0)
 
     return {
         "vp_x": vp_x,
         "vp_y": vp_y,
         "rms_x": rms_x,
         "rms_y": rms_y,
-        "angle_x": ang_x,
-        "angle_y": ang_y,
-        "angle_orth_error_deg": angle_orth,
-        "vp_orth_error_deg": vp_orth,
+        "angle_x": angle_x,
+        "angle_y": angle_y,
+        "angle_orth_error_deg": angle_orth_error_deg,
+        "vp_orth_error_deg": vp_orth_error_deg,
+        "horizon": horizon,
     }
 
 
