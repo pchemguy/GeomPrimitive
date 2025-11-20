@@ -113,37 +113,60 @@ def _cluster_angles_two(angles: np.ndarray, iters: int = 10):
 
 
 def filter_grid_segments(
-    raw: Dict[str, np.ndarray],
+    raw: Dict,
     angle_tol_deg: float = 20.0,
-) -> Dict[str, np.ndarray]:
+) -> Dict:
     """
-    Minimal grid filtering:
-        - compute segment angles
-        - cluster into 2 families
-        - keep only segments within ±tol of each cluster
+    Minimal filtering for graph-paper grids.
 
-    No length filtering.
-    No weighting.
-    Only directional filtering.
+    Strategy:
+        - Compute angle for ALL raw segments
+        - Cluster angles into 2 dominant orientations
+        - Keep segments within +/-angle_tol_deg of each cluster center
+
+    NO LENGTH FILTERING!
+    (except rejecting segments of near-zero pixel length)
+
+    Returns:
+        {
+            "lines_x": array(M1,4)
+            "lines_y": array(M2,4)
+            "centers": [angle_x, angle_y]
+            "labels": list
+            "kept_segments": (M1+M2,4)
+        }
     """
+
     segs = raw["lines"]
     if len(segs) == 0:
         return {
-            "lines_x": np.zeros((0, 4)),
-            "lines_y": np.zeros((0, 4)),
+            "lines_x": np.zeros((0,4)),
+            "lines_y": np.zeros((0,4)),
             "centers": [None, None],
             "labels": [],
-            "kept_segments": np.zeros((0, 4)),
+            "kept_segments": np.zeros((0,4)),
         }
 
-    angles = np.array([_angle_rad(s) for s in segs], float)
+    # -------------------------------------------------------
+    # Compute angles for ALL segments
+    # -------------------------------------------------------
+    angles = np.array([_line_angle(s) for s in segs])
+
+    # -------------------------------------------------------
+    # Cluster into 2 orientations
+    # -------------------------------------------------------
     centers, labels = _cluster_angles_two(angles)
     c0, c1 = centers
     tol = np.deg2rad(angle_tol_deg)
 
+    # -------------------------------------------------------
+    # Filter by angle (ONLY)
+    # -------------------------------------------------------
     good_idx = []
+
     for i, (ang, lab) in enumerate(zip(angles, labels)):
         target = c0 if lab == 0 else c1
+        # Compute circular distance mod pi
         diff = abs((ang - target + np.pi/2) % np.pi - np.pi/2)
         if diff < tol:
             good_idx.append(i)
@@ -151,9 +174,15 @@ def filter_grid_segments(
     kept = segs[good_idx]
     labels_good = np.array(labels)[good_idx]
 
+    # -------------------------------------------------------
+    # Output two angle families
+    # -------------------------------------------------------
+    lines_x = kept[labels_good == 0]
+    lines_y = kept[labels_good == 1]
+
     return {
-        "lines_x": kept[labels_good == 0],
-        "lines_y": kept[labels_good == 1],
+        "lines_x": lines_x,
+        "lines_y": lines_y,
         "centers": centers.tolist(),
         "labels": labels_good.tolist(),
         "kept_segments": kept,
