@@ -423,32 +423,55 @@ def refine_principal_point_from_vps(
     img_shape: Tuple[int, int],
     radius_frac: float = 0.05,
     steps: int = 20,
-) -> Dict[str, float]:
+) -> Dict:
     """
-    Small brute-force search around image center to minimize VP orthogonality.
+    Refine the principal point (cx, cy) to minimize vanishing-point
+    orthogonality error.
+
+    Args:
+        vp_x, vp_y: two vanishing points (x, y)
+        img_shape: (H, W)
+        radius_frac: search radius = radius_frac * min(H, W)
+        steps: sampling resolution (e.g., 20 -> 400 grid evaluations)
+
+    Returns:
+        {
+            "cx_refined": float,
+            "cy_refined": float,
+            "vp_orth_error_deg": float,
+            "cx0": initial_cx,
+            "cy0": initial_cy,
+            "radius": search_radius_in_pixels
+        }
     """
+
     H, W = img_shape
-    cx0, cy0 = W/2, H/2
+    cx0 = W * 0.5
+    cy0 = H * 0.5
+
     r = radius_frac * min(H, W)
 
+    # Generate sample grid around (cx0, cy0)
     xs = np.linspace(cx0 - r, cx0 + r, steps)
     ys = np.linspace(cy0 - r, cy0 + r, steps)
 
-    best = 1e9
+    best_err = 1e9
     best_cx = cx0
     best_cy = cy0
 
+    # Coarse brute-force grid search
     for cx in xs:
         for cy in ys:
-            err = _vp_orth_error(vp_x, vp_y, cx, cy)
-            if err < best:
-                best = err
-                best_cx, best_cy = cx, cy
+            err = _vp_orth_error_deg_for_center(vp_x, vp_y, cx, cy)
+            if err < best_err:
+                best_err = err
+                best_cx = cx
+                best_cy = cy
 
     return {
         "cx_refined": float(best_cx),
         "cy_refined": float(best_cy),
-        "vp_orth_error_deg": float(best),
+        "vp_orth_error_deg": float(best_err),
         "cx0": float(cx0),
         "cy0": float(cy0),
         "radius": float(r),
