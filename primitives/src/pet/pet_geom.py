@@ -20,6 +20,9 @@ import cv2
 from sklearn.cluster import KMeans
 from typing import Dict, List, Tuple, Optional
 
+from scipy.signal import find_peaks
+from scipy import stats
+
 import matplotlib.pyplot as plt
 
 
@@ -126,6 +129,25 @@ def _line_from_points(p1: Tuple[float, float],
     return float(a), float(b), float(c)
 
 
+def _ang_dist_circular_deg(a: np.ndarray,
+                           b: np.ndarray,
+                           period: float = 180.0) -> np.ndarray:
+    """
+    Smallest absolute distance between angles a, b on a circle (degrees).
+    a and b can be arrays/broadcastable.
+    """
+    return np.abs(((a - b + 0.5 * period) % period) - 0.5 * period)
+
+
+def _ang_diff_signed_deg(a: np.ndarray,
+                         b: float,
+                         period: float = 180.0) -> np.ndarray:
+    """
+    Signed minimal difference a - b on a circle (degrees), in (-period/2, period/2].
+    """
+    return ((a - b + 0.5 * period) % period) - 0.5 * period
+
+
 def compute_segment_angles(raw: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     """
     Compute per-segment angles and basic quality metrics from LSD output.
@@ -204,6 +226,64 @@ def compute_segment_angles(raw: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     }
 
 
+def compute_segment_lengths(angle_info: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """
+    Add per-segment length into angle_info.
+
+    Expected input keys:
+        - Either:
+            angle_info["lines"]  -> (N,4) array [x1,y1,x2,y2]
+        - Or:
+            angle_info["x1"], angle_info["y1"], angle_info["x2"], angle_info["y2"]
+          (rare but allowed)
+
+    Output:
+        angle_info["lengths"] : array (N,) of Euclidean segment lengths
+
+    Notes:
+        - Fully vectorized.
+        - Invalid / missing lines -> length = 0.
+        - Does not alter any existing fields.
+    """
+    # ------------------------------------------------------------------
+    # Case 1: full line array exists
+    # ------------------------------------------------------------------
+    if "lines" in angle_info:
+        lines = np.asarray(angle_info["lines"], float)
+        if lines.ndim == 2 and lines.shape[1] == 4 and len(lines) > 0:
+            dx = lines[:, 2] - lines[:, 0]
+            dy = lines[:, 3] - lines[:, 1]
+            lengths = np.hypot(dx, dy)
+        else:
+            # invalid shape
+            lengths = np.zeros(0, dtype=float)
+
+    # ------------------------------------------------------------------
+    # Case 2: separate coordinate arrays
+    # ------------------------------------------------------------------
+    elif all(k in angle_info for k in ("x1", "y1", "x2", "y2")):
+        x1 = np.asarray(angle_info["x1"], float)
+        y1 = np.asarray(angle_info["y1"], float)
+        x2 = np.asarray(angle_info["x2"], float)
+        y2 = np.asarray(angle_info["y2"], float)
+        if x1.shape == x2.shape == y1.shape == y2.shape:
+            lengths = np.hypot(x2 - x1, y2 - y1)
+        else:
+            lengths = np.zeros_like(x1, dtype=float)
+
+    else:
+        # No geometry available -> zero lengths
+        N = len(angle_info.get("angles_deg", []))
+        lengths = np.zeros(N, dtype=float)
+
+    # Clean invalids
+    lengths = np.where(np.isfinite(lengths), lengths, 0.0)
+
+    # Attach to dict and return
+    angle_info["lengths"] = lengths
+    return angle_info
+
+
 def compute_angle_histogram(
     angle_info: Dict[str, np.ndarray],
     bins: int = 90,
@@ -246,6 +326,311 @@ def compute_angle_histogram(
         "bin_edges":  edges,
         "bin_centers": centers,
         "range":      angle_range,
+    }
+
+
+def compute_angle_histogram_circular_weighted(
+    angle_info: Dict[str, np.ndarray],
+    bins: int = 90,
+    angle_range: Tuple[float, float] = (-45.0, 135.0),
+    kde_kappa: float = 20.0,       # concentration of von Mises kernel
+    kde_samples: int = 720,        # resolution of KDE curve
+    normalize_weights: bool = True,
+) -> Dict[str, np.ndarray]:
+    """
+    Compute weighted circular histogram and circular KDE from angle_info.
+
+    angle_info must include:
+        angles_deg : array of angles (any range)
+        weights    : optional per-segment weights
+
+    Returns a dictionary containing:
+        angles_deg, weights, range
+        hist_x, hist_y
+        kde_x, kde_y
+        raw_count, raw_weight
+        period
+    """
+    angles_deg = np.asarray(angle_info["angles_deg"], dtype=float)
+    weights = angle_info.get("weights", None)
+    if weights is not None:
+        weights = np.asarray(weights, dtype=float)
+        if weights.shape != angles_deg.shape:
+            raise ValueError("weights must match angles shape")
+    else:
+        weights = np.ones_like(angles_deg, float)
+
+    # Normalize to sum=1 if requested
+    if normalize_weights:
+        total_w = float(np.sum(weights))
+        if total_w > 0:
+            weights = weights / total_w
+        else:
+            weights = np.ones_like(weights, float) / weights.size
+    
+    lo, hi = angle_range
+    period = hi - lo
+
+    # Normalize angles into [lo, hi)
+    ang = ((angles_deg - lo) % period) + lo
+
+    # Raw diagnostics
+    raw_count = ang.size
+    raw_weight = float(np.sum(weights))
+
+    # Histogram
+    hist_y, hist_edges = np.histogram(
+        ang,
+        bins=bins,
+        range=(lo, hi),
+        weights=weights,
+    )
+    hist_x = 0.5 * (hist_edges[:-1] + hist_edges[1:])
+
+    # Circular KDE (wrapped von Mises kernel)
+    kde_x = np.linspace(lo, hi, kde_samples, endpoint=False)
+    kde_x_rad = np.deg2rad(kde_x)
+    ang_rad = np.deg2rad(ang)
+
+    dx = 2 * np.pi / kde_samples
+    kde = np.zeros_like(kde_x_rad)
+
+    for th, w in zip(ang_rad, weights):
+        kde += w * np.exp(kde_kappa * np.cos(kde_x_rad - th))
+
+    kde /= (2 * np.pi * np.i0(kde_kappa))
+
+    return {
+        "angles_deg": ang,
+        "weights": weights,
+        "range": (lo, hi),
+        "period": period,
+        "hist_x": hist_x,
+        "hist_y": hist_y,
+        "kde_x": kde_x,
+        "kde_y": kde,
+        "raw_count": raw_count,
+        "raw_weight": raw_weight,
+    }
+
+
+def _find_two_kde_peaks_circular(
+    hist_info: Dict[str, np.ndarray],
+    peak_prominence: float = 0.05,
+    min_peak_distance_deg: float = 20.0,
+) -> Tuple[float, float]:
+    """
+    Find exactly two dominant KDE peaks on a circular domain.
+
+    Returns:
+        (p1_deg, p2_deg) in degrees, ordered, in [lo, hi) of hist_info["range"].
+
+    Raises:
+        ValueError if less or more than two peaks are found.
+    """
+    kde_x = np.asarray(hist_info["kde_x"], dtype=float)
+    kde_y = np.asarray(hist_info["kde_y"], dtype=float)
+
+    lo, hi = hist_info.get("range", (kde_x.min(), kde_x.max()))
+    period = hi - lo
+
+    if kde_x.ndim != 1 or kde_y.ndim != 1 or kde_x.size != kde_y.size:
+        raise ValueError("Invalid KDE arrays in hist_info.")
+
+    if kde_x.size < 4:
+        raise ValueError("KDE resolution too low to detect peaks.")
+
+    # Step size in degrees (assume roughly uniform grid)
+    dx = float(np.mean(np.diff(kde_x)))
+    if dx <= 0:
+        raise ValueError("Non-monotonic KDE X axis.")
+
+    # Wrap KDE 3 times to avoid edge issues
+    x_ext = np.concatenate([kde_x,
+                            kde_x + period,
+                            kde_x + 2.0 * period])
+    y_ext = np.tile(kde_y, 3)
+
+    ymax = float(y_ext.max())
+    if ymax <= 0.0:
+        raise ValueError("KDE is flat; cannot find peaks.")
+
+    prominence_abs = peak_prominence * ymax
+    distance_pts = max(1, int(min_peak_distance_deg / dx))
+
+    peak_idx, props = find_peaks(
+        y_ext,
+        prominence=prominence_abs,
+        distance=distance_pts,
+    )
+
+    if peak_idx.size == 0:
+        raise ValueError("No significant KDE peaks found.")
+
+    # Map peak positions back to base interval [lo, hi)
+    peak_angles = ((x_ext[peak_idx] - lo) % period) + lo
+    peak_heights = y_ext[peak_idx]
+
+    # Sort by angle
+    order = np.argsort(peak_angles)
+    peak_angles = peak_angles[order]
+    peak_heights = peak_heights[order]
+
+    # Merge peaks that are very close (within a few degrees)
+    merged: list[float] = []
+    merged_h: list[float] = []
+    tol = 5.0  # degrees
+
+    for ang, h in zip(peak_angles, peak_heights):
+        if not merged:
+            merged.append(float(ang))
+            merged_h.append(float(h))
+            continue
+
+        # Distance to last merged peak on circle
+        d = _ang_dist_circular_deg(ang, merged[-1], period=period)
+        if d < tol:
+            # Keep the higher peak of the two
+            if h > merged_h[-1]:
+                merged[-1] = float(ang)
+                merged_h[-1] = float(h)
+        else:
+            merged.append(float(ang))
+            merged_h.append(float(h))
+
+    if len(merged) != 2:
+        raise ValueError(f"Expected exactly 2 dominant peaks, found {len(merged)}.")
+
+    p1, p2 = merged
+    # Order them consistently on the circle:
+    # we just ensure p1 < p2 in the base interval [lo, hi)
+    if p2 < p1:
+        p1, p2 = p2, p1
+
+    return float(p1), float(p2)
+
+
+def _circular_family_stats(
+    angles_deg: np.ndarray,
+    weights: np.ndarray,
+    angle_range: Tuple[float, float]
+) -> Dict[str, Any]:
+    """
+    Compute circular statistics for a family of orientations.
+    Includes:
+        count, total_weight
+        mean_deg, R, circular variance
+        kappa (von Mises concentration)
+
+    NOTE:
+        Rayleigh test and linear-normality tests are intentionally removed.
+        They are not meaningful for weighted circular data.
+    """
+
+    angles_deg = np.asarray(angles_deg, float)
+    weights = np.asarray(weights, float)
+
+    count = int(angles_deg.size)
+    total_weight = float(weights.sum())
+
+    if count == 0 or total_weight <= 0:
+        return {
+            "count": 0,
+            "total_weight": 0.0,
+            "mean_deg": None,
+            "R": None,
+            "circ_var": None,
+            "kappa": None,
+        }
+
+    # Normalize weights internally
+    w_norm = weights / total_weight
+
+    # Convert to radians
+    ang_rad = np.deg2rad(angles_deg)
+
+    # Weighted vector sum
+    C = np.sum(w_norm * np.cos(ang_rad))
+    S = np.sum(w_norm * np.sin(ang_rad))
+    R = float(np.hypot(C, S))
+
+    # Mean direction
+    mean_rad = float(np.arctan2(S, C))
+    mean_deg = float(np.rad2deg(mean_rad))
+
+    # Circular variance
+    circ_var = 1.0 - R
+
+    # Kappa estimator (valid for moderate-high concentration)
+    if R < 1e-6:
+        kappa = 0.0
+    elif R < 0.53:
+        kappa = 2 * R + R**3 + 5 * (R**5) / 6
+    elif R < 0.85:
+        kappa = -0.4 + 1.39 * R + 0.43 / (1 - R)
+    else:
+        kappa = 1.0 / (R**3 - 4 * R**2 + 3 * R)
+
+    return {
+        "count": count,
+        "total_weight": total_weight,
+        "mean_deg": mean_deg,
+        "R": R,
+        "circ_var": circ_var,
+        "kappa": float(kappa),
+    }
+
+
+def analyze_two_orientation_families(
+    angle_hist: Dict[str, np.ndarray],
+    peak_prominence: float = 0.05,
+    min_peak_distance_deg: float = 20.0,
+) -> Dict[str, Any]:
+    """
+    Analyze a circular angle distribution that must contain exactly two
+    dominant maxima. Uses KDE peaks for splitting.
+
+    angle_hist is the dictionary returned by
+    compute_angle_histogram_circular_weighted.
+    """
+    # 1) Find the two dominant peaks
+    p1, p2 = _find_two_kde_peaks_circular(
+        angle_hist,
+        peak_prominence=peak_prominence,
+        min_peak_distance_deg=min_peak_distance_deg,
+    )
+
+    lo, hi = angle_hist["range"]
+    period = hi - lo
+
+    # 2) Mid-split angle (diagnostics only)
+    diff_p = _ang_diff_signed_deg(p2, p1, period=period)
+    split_deg = float(((p1 + 0.5 * diff_p) - lo) % period + lo)
+
+    # 3) Assign angles to closest peak
+    ang = angle_hist["angles_deg"]
+    w = angle_hist["weights"]
+
+    d1 = _ang_dist_circular_deg(ang, p1, period=period)
+    d2 = _ang_dist_circular_deg(ang, p2, period=period)
+
+    mask1 = d1 <= d2
+    mask2 = ~mask1
+
+    ang1 = ang[mask1]
+    ang2 = ang[mask2]
+    w1 = w[mask1]
+    w2 = w[mask2]
+
+    # 4) Compute circular stats for each family
+    stats1 = _circular_family_stats(ang1, w1, angle_range=(lo, hi))
+    stats2 = _circular_family_stats(ang2, w2, angle_range=(lo, hi))
+
+    return {
+        "peaks": [p1, p2],
+        "split_deg": split_deg,
+        "family1": stats1,
+        "family2": stats2,
     }
 
 
@@ -347,37 +732,74 @@ def filter_grid_segments(
 
 
 # ============================================================================
-# 4) SIMPLE KMEANS-BASED FAMILY SPLIT
+# 4) SIMPLE FAMILY SPLIT
 # ============================================================================
 
-def separate_line_families_kmeans(lines):
+def split_segments_by_angle_circular(
+    segments: np.ndarray,
+    angle_info: Dict[str, np.ndarray],
+    analysis: Dict[str, Any],
+    angle_range: Tuple[float, float] = (-45.0, 135.0),
+) -> Dict[str, np.ndarray]:
     """
-    Separate lines into two families using k-means on their angles.
-    Returns dict with 'family1', 'family2' arrays of shape (N,4).
+    Split raw segments into two angular families based on KDE-derived
+    peak positions. Returns segments AND their corresponding angles.
+
+    Returns:
+        {
+            "family1":  segments in family 1
+            "family2":  segments in family 2
+            "angles1":  angles belonging to family 1 (deg normalized)
+            "angles2":  angles belonging to family 2 (deg normalized)
+            "labels" :  array(N,) of 0/1 assignments
+        }
     """
-    if len(lines) < 4:
-        return {"family1": lines, "family2": np.empty((0,4))}
 
-    # Compute angles
-    dx = lines[:,2] - lines[:,0]
-    dy = lines[:,3] - lines[:,1]
-    angles = (np.degrees(np.arctan2(dy, dx)) % 180.0).reshape(-1,1)
+    if segments.size == 0:
+        return {
+            "family1": segments,
+            "family2": segments,
+            "angles1": np.zeros((0,), float),
+            "angles2": np.zeros((0,), float),
+            "labels": np.zeros(0, int),
+        }
 
-    # Run k-means
-    kmeans = KMeans(n_clusters=2, n_init=10, random_state=0)
-    labels = kmeans.fit_predict(angles)
+    # ----------------------------
+    # Extract angles (correct field)
+    # ----------------------------
+    if "angles_deg" not in angle_info:
+        raise KeyError("angle_info must contain 'angles_deg' from compute_segment_angles()")
 
-    fam1 = lines[labels == 0]
-    fam2 = lines[labels == 1]
+    angles = np.asarray(angle_info["angles_deg"], float)
 
-    # Optional: normalize family angles around +/-90/0
-    # to ensure consistency (smaller median first)
-    med1 = np.median(angles[labels==0])
-    med2 = np.median(angles[labels==1])
-    if med1 > med2:
-        fam1, fam2 = fam2, fam1
+    # ----------------------------
+    # Extract peak split from analysis
+    # ----------------------------
+    p1, p2 = analysis["peaks"]
+    split_deg = float(analysis["split_deg"])
 
-    return {"family1": fam1, "family2": fam2}
+    # Normalize split into domain [-45, 135)
+    amin, amax = angle_range
+    split_norm = ((split_deg - amin) % 180.0) + amin
+
+    # ----------------------------
+    # Assign families based on strict split
+    # ----------------------------
+    labels = (angles > split_norm).astype(int)
+
+    family1 = segments[labels == 0]
+    family2 = segments[labels == 1]
+
+    angles1 = angles[labels == 0]
+    angles2 = angles[labels == 1]
+
+    return {
+        "family1": family1,
+        "family2": family2,
+        "angles1": angles1,
+        "angles2": angles2,
+        "labels": labels,
+    }
 
 
 # ============================================================================
@@ -718,92 +1140,84 @@ def plot_angle_histogram(
     return ax
 
 
-def compute_angle_histogram_circular(
-    angle_info: Dict[str, np.ndarray],
-    bins: int = 90,
-    angle_range: Tuple[float, float] = (-45.0, 135.0),
-) -> Dict[str, np.ndarray]:
+def plot_angle_histogram_with_kde(hist_info: Dict[str, np.ndarray]):
     """
-    Compute a strict circular histogram for angular data.
-
-    Circularity means:
-        - The histogram is periodic.
-        - Bin 0 and bin (bins-1) are neighbors.
-        - Angles falling outside the nominal range wrap modulo the period.
-
-    Args:
-        angle_info: Dict returned by compute_segment_angles().
-        bins:      Number of circular bins.
-        angle_range:
-            Histogram domain in degrees. Must span exactly 180 degrees
-            for orientation data (default: [-45, 135]) so that
-            angle_range[1] - angle_range[0] == 180.
-
-    Returns:
-        {
-            "counts":      (bins,) histogram counts (circular),
-            "bin_edges":   (bins+1,) bin boundaries,
-            "bin_centers": (bins,) bin center angles,
-            "range":       angle_range,
-        }
+    Plot histogram and KDE contained in hist_info.
     """
-    angles_deg = np.asarray(angle_info.get("angles_deg", []), dtype=np.float64)
+    import matplotlib.pyplot as plt
 
-    # Output empty structure if no data
-    if angles_deg.size == 0:
-        edges = np.linspace(angle_range[0], angle_range[1], bins + 1)
-        centers = 0.5 * (edges[:-1] + edges[1:])
-        return {
-            "counts":      np.zeros(bins, dtype=np.int64),
-            "bin_edges":   edges,
-            "bin_centers": centers,
-            "range":       angle_range,
-        }
+    x = hist_info["hist_x"]
+    y = hist_info["hist_y"]
+    kx = hist_info["kde_x"]
+    ky = hist_info["kde_y"]
 
-    # ------------------------------------------------------------------
-    # 1) Define circular domain
-    # ------------------------------------------------------------------
-    lo, hi = angle_range
-    period = hi - lo   # should be 180 deg for line orientations
+    plt.figure(figsize=(10,4))
+    plt.bar(x, y, width=np.diff(x).mean(), alpha=0.4, label="Histogram")
+    plt.plot(kx, ky * (y.max() / ky.max()), 'r-', label="KDE (scaled)")
+    plt.xlabel("Angle (deg)")
+    plt.ylabel("Counts")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
-    assert abs(period - 180.0) < 1e-6, (
-        "Circular orientation histograms require a 180deg range. "
-        f"Received: {period}deg"
-    )
 
-    # Bin width
-    bin_w = period / bins
+def print_angle_analysis_console(
+    hist_info: Dict[str, np.ndarray],
+    analysis: Dict[str, Any],
+    title: str = "ANGLE ANALYSIS REPORT",
+):
+    """
+    Pretty-print orientation family analysis to console.
 
-    # ------------------------------------------------------------------
-    # 2) Map angles into [angle_range)
-    #    (strict modulo mapping)
-    # ------------------------------------------------------------------
-    # Normalize:
-    #   angle_norm = ((angle - lo) mod period) + lo
-    angles_norm = ((angles_deg - lo) % period) + lo
+    Expected analysis fields:
+        - peaks : [p1, p2]
+        - split_deg
+        - family1 : stats dict
+        - family2 : stats dict
 
-    # ------------------------------------------------------------------
-    # 3) Compute bin indices
-    # ------------------------------------------------------------------
-    # Real-valued fractional bin index (0 <= u < bins)
-    u = (angles_norm - lo) / bin_w
+    Expected hist_info fields:
+        - raw_count
+        - raw_weight
+        - range
+    """
+    lo, hi = hist_info["range"]
+    p1, p2 = analysis["peaks"]
 
-    # Integer bin index
-    idx = np.floor(u).astype(int)  # 0..bins-1
-    idx = idx % bins               # ensure circularity
+    fam1 = analysis["family1"]
+    fam2 = analysis["family2"]
 
-    # ------------------------------------------------------------------
-    # 4) Populate histogram
-    # ------------------------------------------------------------------
-    counts = np.bincount(idx, minlength=bins)
+    def fmt(x):
+        return f"{x:8.3f}" if isinstance(x, (float, np.floating)) else str(x)
 
-    # Bin edges and centers (same as linear histogram)
-    edges = np.linspace(lo, hi, bins + 1)
-    centers = 0.5 * (edges[:-1] + edges[1:])
+    print("\n" + "=" * 68)
+    print(f"  {title}")
+    print("=" * 68)
 
-    return {
-        "counts":      counts.astype(np.int64),
-        "bin_edges":   edges,
-        "bin_centers": centers.astype(np.float64),
-        "range":       angle_range,
-    }
+    print(f"Angle range            : [{lo:.1f}deg, {hi:.1f}deg]")
+    print(f"Total segments         : {hist_info['raw_count']}")
+    print(f"Total weight           : {hist_info['raw_weight']:.3f}")
+    print("")
+
+    print("Detected peaks (deg)")
+    print("-------------------")
+    print(f"  Peak 1               : {p1:.3f}")
+    print(f"  Peak 2               : {p2:.3f}")
+    print(f"  Split angle          : {analysis['split_deg']:.3f}")
+    print("")
+
+    # ------- helper block -------
+    def print_family(name, stats):
+        print(f"{name}")
+        print("-" * len(name))
+        print(f"  Count                : {stats['count']}")
+        print(f"  Total weight         : {stats['total_weight']:.3f}")
+        print(f"  Mean angle (deg)     : {fmt(stats['mean_deg'])}")
+        print(f"  Circular variance    : {fmt(stats['circ_var'])}")
+        print(f"  Resultant length R   : {fmt(stats['R'])}")
+        print(f"  K (von Mises)        : {fmt(stats['kappa'])}")
+        print("")
+
+    print_family("FAMILY 1", fam1)
+    print_family("FAMILY 2", fam2)
+
+    print("=" * 68 + "\n")

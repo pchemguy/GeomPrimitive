@@ -35,10 +35,12 @@ from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
     detect_grid_segments,
-    compute_segment_angles, compute_angle_histogram, compute_angle_histogram_circular,
-    plot_angle_histogram, 
+    compute_segment_angles, compute_angle_histogram,
+    plot_angle_histogram, plot_angle_histogram_with_kde,
+    compute_angle_histogram_circular_weighted, compute_segment_lengths,
+    analyze_two_orientation_families, print_angle_analysis_console,
     filter_grid_segments, estimate_vanishing_points,
-    refine_principal_point_from_vps, separate_line_families_kmeans,
+    refine_principal_point_from_vps, split_segments_by_angle_circular,
     mark_segments, mark_segment_families, 
 )
 
@@ -104,11 +106,20 @@ def main(image_path: Optional[str] = None) -> None:
     raw_lines = raw["lines"]
 
     angle_info = compute_segment_angles(raw)
-    hist_data = compute_angle_histogram_circular(angle_info, bins=72)
-    plot_angle_histogram(hist_data)
+    hist = compute_angle_histogram_circular_weighted(angle_info, bins=72)
+    angle_info = compute_segment_lengths(angle_info)
+    hist_weighted = compute_angle_histogram_circular_weighted(angle_info)    
+    
+    analysis = analyze_two_orientation_families(hist)
+    print_angle_analysis_console(hist, analysis)
+    analysis_weighted = analyze_two_orientation_families(hist_weighted)
+
+    plot_angle_histogram_with_kde(hist)
+    plot_angle_histogram_with_kde(hist_weighted)
 
     # Split into two rough direction families (unsupervised)
-    fam = separate_line_families_kmeans(raw_lines)
+    fam = split_segments_by_angle_circular(raw["lines"], angle_info, analysis)
+
     raw_x = fam["family1"]
     raw_y = fam["family2"]
 
