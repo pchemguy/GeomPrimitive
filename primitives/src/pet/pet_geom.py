@@ -40,17 +40,20 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     """
     Run LSD (Line Segment Detector) and return *raw* segments only.
 
-    Returns dict with:
-        "lines":      float32 (N, 4)
-        "widths":     float32 (N,)
-        "precisions": float32 (N,)
-        "nfa":        float32 (N,)
+    Returns:
+        {
+            "lines": (N,4) float32
+            "widths": (N,)
+            "precisions": (N,)
+            "nfa": (N,)
+        }
     """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    lsd = _create_lsd()
-    out = lsd.detect(gray)
 
-    if out[0] is None:
+    lsd = _create_lsd()
+    lines, widths, prec, nfa = lsd.detect(gray)
+
+    if lines is None:
         return {
             "lines": np.zeros((0, 4), np.float32),
             "widths": np.zeros((0,), np.float32),
@@ -58,14 +61,16 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
             "nfa": np.zeros((0,), np.float32),
         }
 
-    lines, widths, prec, nfa = out
     lines = lines.reshape(-1, 4).astype(np.float32)
+    widths = widths.reshape(-1) if widths is not None else np.zeros(len(lines))
+    prec = prec.reshape(-1) if prec is not None else np.zeros(len(lines))
+    nfa = nfa.reshape(-1) if nfa is not None else np.zeros(len(lines))
 
     return {
         "lines": lines,
-        "widths": widths.reshape(-1) if widths is not None else np.zeros(len(lines)),
-        "precisions": prec.reshape(-1) if prec is not None else np.zeros(len(lines)),
-        "nfa": nfa.reshape(-1) if nfa is not None else np.zeros(len(lines)),
+        "widths": widths,
+        "precisions": prec,
+        "nfa": nfa,
     }
 
 
