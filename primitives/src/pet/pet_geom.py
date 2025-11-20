@@ -590,9 +590,13 @@ def analyze_two_orientation_families(
     Analyze a circular angle distribution that must contain exactly two
     dominant maxima. Uses KDE peaks for splitting.
 
-    angle_hist is the dictionary returned by
-    compute_angle_histogram_circular_weighted.
+    Returns an extended dict including:
+        - peaks
+        - split_deg
+        - family1, family2 stats
+        - rotation_angle_deg  (deskew angle, in [-45, +45])
     """
+
     # 1) Find the two dominant peaks
     p1, p2 = _find_two_kde_peaks_circular(
         angle_hist,
@@ -609,7 +613,7 @@ def analyze_two_orientation_families(
 
     # 3) Assign angles to closest peak
     ang = angle_hist["angles_deg"]
-    w = angle_hist["weights"]
+    w   = angle_hist["weights"]
 
     d1 = _ang_dist_circular_deg(ang, p1, period=period)
     d2 = _ang_dist_circular_deg(ang, p2, period=period)
@@ -619,19 +623,106 @@ def analyze_two_orientation_families(
 
     ang1 = ang[mask1]
     ang2 = ang[mask2]
-    w1 = w[mask1]
-    w2 = w[mask2]
+    w1   = w[mask1]
+    w2   = w[mask2]
 
-    # 4) Compute circular stats for each family
+    # 4) Circular stats per family
     stats1 = _circular_family_stats(ang1, w1, angle_range=(lo, hi))
     stats2 = _circular_family_stats(ang2, w2, angle_range=(lo, hi))
+
+    # ----------------------------------------------------------------------
+    # 5) Compute rotation angle: smallest rotation moving dominant family
+    #    mean angle into either 0° (horizontal) or 90° (vertical).
+    # ----------------------------------------------------------------------
+
+    # Determine dominant family by total weighted contribution
+    if stats1["total_weight"] >= stats2["total_weight"]:
+        mean_deg = stats1["mean_deg"]
+    else:
+        mean_deg = stats2["mean_deg"]
+
+    # Normalize mean angle into [-45, +135)
+    mean_deg_n = ((mean_deg - lo) % period) + lo
+
+    # Candidates: align to 0° or 90°
+    # rotation = target - mean
+    rot_h = 0.0  - mean_deg_n      # to horizontal
+    rot_v = 90.0 - mean_deg_n      # to vertical
+
+    # Wrap both into [-90, +90] domain
+    rot_h = ((rot_h + 90.0) % 180.0) - 90.0
+    rot_v = ((rot_v + 90.0) % 180.0) - 90.0
+
+    # Choose rotation with smaller absolute value
+    if abs(rot_h) <= abs(rot_v):
+        rotation_angle = rot_h
+    else:
+        rotation_angle = rot_v
+
+    # Also clamp to [-45, +45] if preferred
+    if rotation_angle < -45.0:
+        rotation_angle += 90.0
+    elif rotation_angle > 45.0:
+        rotation_angle -= 90.0
 
     return {
         "peaks": [p1, p2],
         "split_deg": split_deg,
         "family1": stats1,
         "family2": stats2,
+        "rotation_angle_deg": float(rotation_angle),
     }
+
+
+def apply_rotation_correction(
+    img: np.ndarray,
+    analysis: Dict[str, Any],
+    border_value: Tuple[int, int, int] | int = 255,
+) -> np.ndarray:
+    """
+    Apply compensating rotation to an image based on angle-analysis result.
+
+    Parameters
+    ----------
+    img : np.ndarray
+        Input image (BGR uint8 or RGB uint8 or float32).
+    analysis : dict
+        Output dict from analyze_two_orientation_families().
+        Must contain key: "rotation_angle_deg".
+        This angle is the correction to *apply* so that the
+        dominant family becomes horizontal/vertical.
+    border_value : int or (3-tuple)
+        Border color used when rotating. Default white=255.
+
+    Returns
+    -------
+    rotated : np.ndarray
+        Deskewed image of the same dtype.
+    """
+    if "rotation_angle_deg" not in analysis:
+        raise KeyError("analysis must contain 'rotation_angle_deg'")
+
+    angle = float(analysis["rotation_angle_deg"])
+    if abs(angle) < 1e-12:
+        return img.copy()  # no rotation needed
+
+    (h, w) = img.shape[:2]
+    cx, cy = w * 0.5, h * 0.5
+
+    # Compute rotation matrix
+    M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+
+    # Warp — preserve dtype
+    rotated = cv2.warpAffine(
+        img,
+        M,
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=border_value,
+    )
+
+    return rotated
 
 
 # ============================================================================
@@ -1174,6 +1265,7 @@ def print_angle_analysis_console(
         - split_deg
         - family1 : stats dict
         - family2 : stats dict
+        - rotation_angle_deg : deskew/rectification angle
 
     Expected hist_info fields:
         - raw_count
@@ -1182,6 +1274,7 @@ def print_angle_analysis_console(
     """
     lo, hi = hist_info["range"]
     p1, p2 = analysis["peaks"]
+    rot = analysis.get("rotation_angle_deg", None)
 
     fam1 = analysis["family1"]
     fam2 = analysis["family2"]
@@ -1203,6 +1296,8 @@ def print_angle_analysis_console(
     print(f"  Peak 1               : {p1:.3f}")
     print(f"  Peak 2               : {p2:.3f}")
     print(f"  Split angle          : {analysis['split_deg']:.3f}")
+    if rot is not None:
+        print(f"  Rotation (deskew)    : {rot:.3f} deg")
     print("")
 
     # ------- helper block -------

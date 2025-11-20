@@ -36,7 +36,7 @@ from pet_utils import image_loader, save_image, LOGGER_NAME
 from pet_geom import (
     detect_grid_segments,
     compute_segment_angles, compute_angle_histogram,
-    plot_angle_histogram, plot_angle_histogram_with_kde,
+    plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
     analyze_two_orientation_families, print_angle_analysis_console,
     filter_grid_segments, estimate_vanishing_points,
@@ -105,17 +105,28 @@ def main(image_path: Optional[str] = None) -> None:
     raw = detect_grid_segments(img)                   # raw["lines"]
     raw_lines = raw["lines"]
 
+    # Generate angle histograms
+    # -------------------------
     angle_info = compute_segment_angles(raw)
     hist = compute_angle_histogram_circular_weighted(angle_info, bins=72)
     angle_info = compute_segment_lengths(angle_info)
     hist_weighted = compute_angle_histogram_circular_weighted(angle_info)    
     
+    # Analyze angle stats
+    # -------------------
     analysis = analyze_two_orientation_families(hist)
-    print_angle_analysis_console(hist, analysis)
     analysis_weighted = analyze_two_orientation_families(hist_weighted)
+    print_angle_analysis_console(hist, analysis)
 
+    # Plot histograms
+    # ---------------
     plot_angle_histogram_with_kde(hist)
     plot_angle_histogram_with_kde(hist_weighted)
+
+    # Debug image rotation
+    # --------------------
+    img_fixed = apply_rotation_correction(img, analysis)
+    save_image(img_fixed, "rotated.jpg")
 
     # Split into two rough direction families (unsupervised)
     fam = split_segments_by_angle_circular(raw["lines"], angle_info, analysis)
