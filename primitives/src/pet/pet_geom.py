@@ -83,7 +83,8 @@ def _line_angle_rad(seg: np.ndarray) -> float:
     return float(np.arctan2(y2 - y1, x2 - x1))
 
 
-def _line_angle_deg(x1, y1, x2, y2):
+def _line_angle_deg(seg: np.ndarray):
+    x1, y1, x2, y2 = seg
     ang = np.degrees(np.arctan2(y2 - y1, x2 - x1))
     ang = ang % 180.0
     return ang
@@ -235,7 +236,7 @@ def separate_line_families_kmeans(lines):
 
     # Compute angles
     angles = np.array([
-        _line_angle_deg(x1,y1,x2,y2) 
+        _line_angle_deg((x1,y1,x2,y2)) 
         for (x1,y1,x2,y2) in lines
     ], dtype=np.float64).reshape(-1,1)
 
@@ -483,7 +484,7 @@ def refine_principal_point_from_vps(
     # Coarse brute-force grid search
     for cx in xs:
         for cy in ys:
-            err = _vp_orth_error_deg_for_center(vp_x, vp_y, cx, cy)
+            err = _vp_orth_error_deg(vp_x, vp_y, cx, cy)
             if err < best_err:
                 best_err = err
                 best_cx = cx
@@ -499,7 +500,7 @@ def refine_principal_point_from_vps(
     }
 
 
-def _vp_orth_error_deg_for_center(
+def _vp_orth_error_deg(
     vp_x: Tuple[float, float],
     vp_y: Tuple[float, float],
     cx: float,
