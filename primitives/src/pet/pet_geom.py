@@ -402,10 +402,14 @@ def estimate_vanishing_points(
     }
 
 
-def _median_direction(lines: np.ndarray) -> Optional[float]:
+def _average_direction_angle(lines: np.ndarray) -> Optional[float]:
+    """
+    Compute a robust average direction angle (in radians) for a family
+    of line segments, using the median of individual segment angles.
+    """
     if lines is None or len(lines) == 0:
         return None
-    ang = np.array([_angle_rad(s) for s in lines], float)
+    angles = np.array([_angle_rad(s) for s in lines], float)
     return float(np.median(np.mod(ang, np.pi)))
 
 
