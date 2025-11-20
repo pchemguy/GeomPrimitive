@@ -29,30 +29,19 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import cv2
 import numpy as np
-from PIL import Image, ExifTags
 
 
 from pet_utils import image_loader, save_image, LOGGER_NAME
-from pet_whitepoint import (
-    whitepoint_pipeline, whitepoint_correct, estimate_paper_mask, estimate_whitepoint,
-    apply_white_balance, auto_levels
-)
-from pet_exposure import exposure_pipeline_graphpaper
 
 from pet_geom import (
     detect_grid_segments, filter_grid_segments, estimate_vanishing_points,
-    refine_principal_point_from_vps, compute_rectifying_homography,
-    warp_with_homography, rectify_grid_affine, separate_line_families_kmeans,
-    mark_segments, mark_segment_families, debug_draw_raw_segments,
-    rectify_grid_projective, warp_homography_optimal_size,
-    debug_draw_families, print_family_angles,
+    refine_principal_point_from_vps, separate_line_families_kmeans,
+    mark_segments, mark_segment_families, 
 )
 
 
 
 from pet_utils import image_loader, save_image
-from pet_pipeline import run_pet_pipeline
-from pet_config import PETConfig
 
 
 # ======================================================================
@@ -101,12 +90,6 @@ def main(image_path: Optional[str] = None) -> None:
     # --------------------------------------------------------------
     log = setup_logging()
     log.info("Starting PET prototype pipeline...")
-
-    cfg = PETConfig(
-        preset_name="default_graphpaper",
-        debug_enabled=True,
-        debug_outdir="debug_run_01"
-    )
 
     img, img_meta = image_loader(image_path or SAMPLE_IMAGE)
     H, W = img.shape[:2]
@@ -172,97 +155,6 @@ def main(image_path: Optional[str] = None) -> None:
     print("Refined center :", refined["cx_refined"], refined["cy_refined"])
     print("Improved VP orth error:", refined["vp_orth_error_deg"])
 
-    # --------------------------------------------------------------
-    # 4. Affine + metric rectification (full projective correction)
-    # --------------------------------------------------------------
-    rectified, H_projective = rectify_grid_projective(
-        img,
-        vp_x,
-        vp_y,
-        raw_x,     # original X-lines (not filtered)
-        raw_y,     # original Y-lines
-        scale_limit=6.0,
-    )
-
-    save_image(rectified, "rectified_affine.jpg")
-    log.info("Affine+metric rectification completed.")
-
-    # --------------------------------------------------------------
-    # Optionally: return results
-    # --------------------------------------------------------------
-    return rectified, {
-        "vp": vp_info,
-        "H": H_projective,
-        "raw": raw_lines,
-        "filtered_x": flt_x,
-        "filtered_y": flt_y,
-    }
-
-   # debug_draw_raw_segments(img, raw["lines"], "debug_raw_lsd.jpg")
-   # families = separate_line_families_kmeans(raw["lines"])
-   # print_family_angles(families)
-   # lines_x = families["family1"]
-   # lines_y = families["family2"]    
-   # debug_draw_families(img, lines_x, lines_y)
-    
-   # rectified, H_lin = rectify_grid_affine(img, lines_x, lines_y)
-   # save_image(rectified, "debug_rectified_affine.jpg")
-   # log.info("Affine+metric rectification completed.")
-
-    
-   # refined = refine_principal_point_from_vps(
-   #     vp_info["vp_x"],
-   #     vp_info["vp_y"],
-   #     (H, W),
-   #     radius_frac=0.1,    # 10% search radius
-   #     steps=30            # 30x30 grid
-   # )
-   # 
-   # print("Original center:", refined["cx0"], refined["cy0"])
-   # print("Refined center :", refined["cx_refined"], refined["cy_refined"])
-   # print("Improved VP orth error:", refined["vp_orth_error_deg"])
-
-
-    
-   #    
-   # Hinfo = compute_rectifying_homography(
-   #     vp_info["vp_x"],
-   #     vp_info["vp_y"],
-   #     refined["cx_refined"],
-   #     refined["cy_refined"]
-   # )
-   # 
-   # rectified = warp_with_homography(img, Hinfo["H"])
-   # 
-   # save_image(rectified, "rectified.jpg")   
-   #   
-   # img, meta0 = image_loader(image_path)
-   #
-   # img_w, meta_w = whitepoint_pipeline(img)
-   # log.info(f"Whitepoint stage complete: {meta_w}")
-   # 
-   # 
-   # # Perform corrective processing and write result
-   # save_path = SAMPLE_IMAGE[:-4] + "_whitepoint.jpg"
-   # 
-   # # 1) White-balance only (gentle)
-   # mask = estimate_paper_mask(img)
-   # white = estimate_whitepoint(img, mask)
-   # balanced = apply_white_balance(img, white)
-   # 
-   # # 2) Auto-levels for brightness+contrast (Photoshop-style)
-   # corrected = auto_levels(balanced)
-   # save_image(corrected, save_path)
-   # meta = {"white_bgr": white}    
-   # 
-   # save_path = SAMPLE_IMAGE[:-4] + "_exposure.jpg"
-   # corrected, meta_exp = exposure_pipeline_graphpaper(img)
-   #
-   # save_image(corrected, save_path)
-   # log.info(f"Exposure meta: {meta_exp}")
-   # log.info("PET pipeline completed.")
-   #
-   #
     log.info("PET pipeline completed.")
 
 

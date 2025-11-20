@@ -78,14 +78,46 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
 # 2) ANGLE UTILITIES
 # ============================================================================
 
-def _angle_rad(seg: np.ndarray) -> float:
+def _line_angle_rad(seg: np.ndarray) -> float:
     x1, y1, x2, y2 = seg
     return float(np.arctan2(y2 - y1, x2 - x1))
 
 
-def _angle_deg(x1, y1, x2, y2) -> float:
+def _line_angle_deg(x1, y1, x2, y2):
     ang = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-    return ang % 180.0
+    ang = ang % 180.0
+    return ang
+
+
+def _average_direction_angle(lines: np.ndarray) -> Optional[float]:
+    """
+    Compute a robust average direction angle (in radians) for a family
+    of line segments, using the median of individual segment angles.
+    """
+    if lines is None or len(lines) == 0:
+        return None
+    angles = np.array([_line_angle_rad(s) for s in lines], float)
+    return float(np.median(np.mod(angles, np.pi)))
+
+
+def _line_from_points(p1: Tuple[float, float],
+                      p2: Tuple[float, float]) -> Optional[Tuple[float, float, float]]:
+    """
+    Homogeneous line through two points p1=(x1,y1), p2=(x2,y2) in ax+by+c=0 form.
+
+    Returns (a,b,c) or None if points are degenerate.
+    """
+    (x1, y1), (x2, y2) = p1, p2
+    dx = x2 - x1
+    dy = y2 - y1
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return None
+
+    # Normal is perpendicular to direction
+    a = dy
+    b = -dx
+    c = -(a * x1 + b * y1)
+    return float(a), float(b), float(c)
 
 
 # ============================================================================
@@ -150,7 +182,7 @@ def filter_grid_segments(
     # -------------------------------------------------------
     # Compute angles for ALL segments
     # -------------------------------------------------------
-    angles = np.array([_line_angle(s) for s in segs])
+    angles = np.array([_line_angle_rad(s) for s in segs])
 
     # -------------------------------------------------------
     # Cluster into 2 orientations
@@ -400,17 +432,6 @@ def estimate_vanishing_points(
         "vp_orth_error_deg": vp_orth_error_deg,
         "horizon": horizon,
     }
-
-
-def _average_direction_angle(lines: np.ndarray) -> Optional[float]:
-    """
-    Compute a robust average direction angle (in radians) for a family
-    of line segments, using the median of individual segment angles.
-    """
-    if lines is None or len(lines) == 0:
-        return None
-    angles = np.array([_angle_rad(s) for s in lines], float)
-    return float(np.median(np.mod(ang, np.pi)))
 
 
 # ============================================================================
