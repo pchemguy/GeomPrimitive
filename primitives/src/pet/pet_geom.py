@@ -2,7 +2,7 @@
 pet_geom.py
 -----------
 
-Minimal, clean utilities for grid geometry extraction:
+Utilities for grid geometry extraction:
 
 Public API:
     detect_grid_segments(img)              -> raw LSD segments
@@ -19,6 +19,8 @@ import numpy as np
 import cv2
 from sklearn.cluster import KMeans
 from typing import Dict, List, Tuple, Optional
+
+import matplotlib.pyplot as plt
 
 
 # ============================================================================
@@ -122,6 +124,129 @@ def _line_from_points(p1: Tuple[float, float],
     b = -dx
     c = -(a * x1 + b * y1)
     return float(a), float(b), float(c)
+
+
+def compute_segment_angles(raw: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """
+    Compute per-segment angles and basic quality metrics from LSD output.
+
+    Args:
+        raw: Dictionary returned by detect_grid_segments(), with keys:
+             'lines', 'widths', 'precisions', 'nfa'.
+
+    Returns:
+        dict with:
+            'angles_rad': (N,) angles in radians, normalized to [-pi/4, 3pi/4)
+            'angles_deg': (N,) same in degrees, [-45, 135)
+            'lengths':    (N,) segment lengths in pixels
+            'widths':     (N,) LSD-reported widths (or zeros if missing)
+            'precisions': (N,) LSD-reported precisions (or zeros if missing)
+            'nfa':        (N,) LSD-reported NFA values (or zeros if missing)
+            'quality':    (N,) heuristic quality weight ~ length * precision
+    """
+    lines = raw.get("lines")
+    if lines is None or len(lines) == 0:
+        return {
+            "angles_rad": np.zeros((0,), dtype=np.float64),
+            "angles_deg": np.zeros((0,), dtype=np.float64),
+            "lengths":    np.zeros((0,), dtype=np.float64),
+            "widths":     np.zeros((0,), dtype=np.float64),
+            "precisions": np.zeros((0,), dtype=np.float64),
+            "nfa":        np.zeros((0,), dtype=np.float64),
+            "quality":    np.zeros((0,), dtype=np.float64),
+        }
+
+    lines = np.asarray(lines, dtype=np.float64)
+    x1 = lines[:, 0]
+    y1 = lines[:, 1]
+    x2 = lines[:, 2]
+    y2 = lines[:, 3]
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    # Raw angles in (-pi, pi]
+    angles = np.arctan2(dy, dx)
+
+    # Normalize angles to [-pi/4, 3*pi/4)  i.e. [-45deg, 135deg)
+    angles_norm = (angles + np.pi / 4.0) % np.pi - np.pi / 4.0
+    angles_deg = np.rad2deg(angles_norm)
+
+    lengths = np.hypot(dx, dy)
+
+    N = lines.shape[0]
+
+    def _safe_meta(key: str) -> np.ndarray:
+        arr = raw.get(key)
+        if arr is None:
+            return np.zeros(N, dtype=np.float64)
+        arr = np.asarray(arr, dtype=np.float64).reshape(-1)
+        if arr.shape[0] != N:
+            # Be conservative: mismatch -> zero-fill
+            return np.zeros(N, dtype=np.float64)
+        return arr
+
+    widths = _safe_meta("widths")
+    precisions = _safe_meta("precisions")
+    nfa = _safe_meta("nfa")
+
+    # Simple heuristic quality weight: longer + higher precision = better
+    quality = lengths * (precisions + 1e-6)
+
+    return {
+        "angles_rad": angles_norm.astype(np.float64),
+        "angles_deg": angles_deg.astype(np.float64),
+        "lengths":    lengths.astype(np.float64),
+        "widths":     widths,
+        "precisions": precisions,
+        "nfa":        nfa,
+        "quality":    quality.astype(np.float64),
+    }
+
+
+def compute_angle_histogram(
+    angle_info: Dict[str, np.ndarray],
+    bins: int = 90,
+    angle_range: Tuple[float, float] = (-45.0, 135.0)
+) -> Dict[str, np.ndarray]:
+    """
+    Compute histogram counts for angle data (in degrees).
+
+    Args:
+        angle_info: Dictionary returned by compute_segment_angles().
+        bins:       Number of histogram bins.
+        angle_range: (min_deg, max_deg) range for the histogram.
+
+    Returns:
+        {
+            "counts"     : (bins,) histogram counts,
+            "bin_edges"  : (bins+1,) edges,
+            "bin_centers": (bins,) midpoints of each bin,
+            "range"      : (min_deg, max_deg),
+        }
+    """
+    angles_deg = np.asarray(angle_info.get("angles_deg", []), dtype=np.float64)
+
+    if angles_deg.size == 0:
+        # Return empty histogram in consistent format
+        edges = np.linspace(angle_range[0], angle_range[1], bins + 1)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        return {
+            "counts":     np.zeros(bins, dtype=np.int64),
+            "bin_edges":  edges,
+            "bin_centers": centers,
+            "range":      angle_range,
+        }
+
+    counts, edges = np.histogram(angles_deg, bins=bins, range=angle_range)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    return {
+        "counts":     counts.astype(np.int64),
+        "bin_edges":  edges,
+        "bin_centers": centers,
+        "range":      angle_range,
+    }
 
 
 # ============================================================================
@@ -284,9 +409,6 @@ def _fit_vanishing_point_least_squares(
     S_aa = S_ab = S_bb = 0.0
     S_ac = S_bc = 0.0
 
-    S_aa = S_ab = S_bb = 0.0
-    S_ac = S_bc = 0.0
-
     x1 = lines[:,0]; y1 = lines[:,1]
     x2 = lines[:,2]; y2 = lines[:,3]
     
@@ -297,6 +419,8 @@ def _fit_vanishing_point_least_squares(
     mask = length >= 1e-6
     dx = dx[mask]; dy = dy[mask]; length = length[mask]
     x1 = x1[mask]; y1 = y1[mask]
+    if dx.size < min_lines:
+        return None, None
     
     a = dy / length
     b = -dx / length
@@ -455,6 +579,15 @@ def refine_principal_point_from_vps(
             "radius": search_radius_in_pixels
         }
     """
+    if vp_x is None or vp_y is None:
+        return {
+            "cx_refined": cx0,
+            "cy_refined": cy0,
+            "vp_orth_error_deg": None,
+            "cx0": cx0,
+            "cy0": cy0,
+            "radius": float(r),
+        }
 
     H, W = img_shape
     cx0 = W * 0.5
@@ -503,30 +636,6 @@ def refine_principal_point_from_vps(
     }
 
 
-def _vp_orth_error_deg(
-    vp_x: Tuple[float, float],
-    vp_y: Tuple[float, float],
-    cx: float,
-    cy: float
-) -> float:
-    """
-    Compute VP orthogonality error (in degrees) for a given principal point (cx,cy).
-    """
-    (vx1, vy1) = vp_x
-    (vx2, vy2) = vp_y
-
-    v1 = np.array([vx1 - cx, vy1 - cy], dtype=np.float64)
-    v2 = np.array([vx2 - cx, vy2 - cy], dtype=np.float64)
-
-    n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
-    if n1 < 1e-9 or n2 < 1e-9:
-        return 1e9
-
-    cosang = float(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))
-
-    return abs(np.rad2deg(np.arccos(cosang)) - 90.0)
-
-
 # ============================================================================
 # 7) BASIC VISUALIZATION
 # ============================================================================
@@ -567,3 +676,134 @@ def mark_segment_families(
         cv2.line(out, (int(x1),int(y1)), (int(x2),int(y2)),
                  color_y, thickness, cv2.LINE_AA)
     return out
+
+
+def plot_angle_histogram(
+    hist_data: Dict[str, np.ndarray],
+    ax=None,
+    title: str = "Segment angle histogram"
+):
+    """
+    Plot a precomputed angle histogram.
+
+    Args:
+        hist_data: Dict returned by compute_angle_histogram().
+        ax:        Optional Matplotlib Axes. If None, a new figure is created.
+        title:     Plot title.
+
+    Returns:
+        Matplotlib Axes object used for plotting.
+    """
+    if ax is None:
+        _, ax = plt.subplots()
+
+    counts = hist_data["counts"]
+    edges = hist_data["bin_edges"]
+
+    ax.hist(
+        bins=edges,
+        x=edges[:-1],
+        weights=counts,
+    )
+
+    ax.set_xlabel("Angle (degrees)")
+    ax.set_ylabel("Count")
+    ax.set_title(title)
+
+    # match your normalization interval automatically
+    ax.set_xlim(hist_data["range"][0], hist_data["range"][1])
+
+    plt.show()
+
+    return ax
+
+
+def compute_angle_histogram_circular(
+    angle_info: Dict[str, np.ndarray],
+    bins: int = 90,
+    angle_range: Tuple[float, float] = (-45.0, 135.0),
+) -> Dict[str, np.ndarray]:
+    """
+    Compute a strict circular histogram for angular data.
+
+    Circularity means:
+        - The histogram is periodic.
+        - Bin 0 and bin (bins-1) are neighbors.
+        - Angles falling outside the nominal range wrap modulo the period.
+
+    Args:
+        angle_info: Dict returned by compute_segment_angles().
+        bins:      Number of circular bins.
+        angle_range:
+            Histogram domain in degrees. Must span exactly 180 degrees
+            for orientation data (default: [-45, 135]) so that
+            angle_range[1] - angle_range[0] == 180.
+
+    Returns:
+        {
+            "counts":      (bins,) histogram counts (circular),
+            "bin_edges":   (bins+1,) bin boundaries,
+            "bin_centers": (bins,) bin center angles,
+            "range":       angle_range,
+        }
+    """
+    angles_deg = np.asarray(angle_info.get("angles_deg", []), dtype=np.float64)
+
+    # Output empty structure if no data
+    if angles_deg.size == 0:
+        edges = np.linspace(angle_range[0], angle_range[1], bins + 1)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        return {
+            "counts":      np.zeros(bins, dtype=np.int64),
+            "bin_edges":   edges,
+            "bin_centers": centers,
+            "range":       angle_range,
+        }
+
+    # ------------------------------------------------------------------
+    # 1) Define circular domain
+    # ------------------------------------------------------------------
+    lo, hi = angle_range
+    period = hi - lo   # should be 180 deg for line orientations
+
+    assert abs(period - 180.0) < 1e-6, (
+        "Circular orientation histograms require a 180deg range. "
+        f"Received: {period}deg"
+    )
+
+    # Bin width
+    bin_w = period / bins
+
+    # ------------------------------------------------------------------
+    # 2) Map angles into [angle_range)
+    #    (strict modulo mapping)
+    # ------------------------------------------------------------------
+    # Normalize:
+    #   angle_norm = ((angle - lo) mod period) + lo
+    angles_norm = ((angles_deg - lo) % period) + lo
+
+    # ------------------------------------------------------------------
+    # 3) Compute bin indices
+    # ------------------------------------------------------------------
+    # Real-valued fractional bin index (0 <= u < bins)
+    u = (angles_norm - lo) / bin_w
+
+    # Integer bin index
+    idx = np.floor(u).astype(int)  # 0..bins-1
+    idx = idx % bins               # ensure circularity
+
+    # ------------------------------------------------------------------
+    # 4) Populate histogram
+    # ------------------------------------------------------------------
+    counts = np.bincount(idx, minlength=bins)
+
+    # Bin edges and centers (same as linear histogram)
+    edges = np.linspace(lo, hi, bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    return {
+        "counts":      counts.astype(np.int64),
+        "bin_edges":   edges,
+        "bin_centers": centers.astype(np.float64),
+        "range":       angle_range,
+    }

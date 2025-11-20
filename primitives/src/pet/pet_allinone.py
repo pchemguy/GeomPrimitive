@@ -34,7 +34,10 @@ import numpy as np
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
-    detect_grid_segments, filter_grid_segments, estimate_vanishing_points,
+    detect_grid_segments,
+    compute_segment_angles, compute_angle_histogram, compute_angle_histogram_circular,
+    plot_angle_histogram, 
+    filter_grid_segments, estimate_vanishing_points,
     refine_principal_point_from_vps, separate_line_families_kmeans,
     mark_segments, mark_segment_families, 
 )
@@ -99,6 +102,10 @@ def main(image_path: Optional[str] = None) -> None:
     # --------------------------------------------------------------
     raw = detect_grid_segments(img)                   # raw["lines"]
     raw_lines = raw["lines"]
+
+    angle_info = compute_segment_angles(raw)
+    hist_data = compute_angle_histogram_circular(angle_info, bins=72)
+    plot_angle_histogram(hist_data)
 
     # Split into two rough direction families (unsupervised)
     fam = separate_line_families_kmeans(raw_lines)
