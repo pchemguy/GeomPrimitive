@@ -29,6 +29,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
@@ -38,6 +39,11 @@ from pet_geom import (
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
     analyze_two_orientation_families, print_angle_analysis_console,
+    analyze_grid_periodicity_full, plot_periodicity_analysis,
+    reassign_and_rotate_families_by_image_center, draw_famxy_on_image,
+    compute_centerline_arrays, draw_centerline_arrays, yc_hist, plot_yc_hist,
+    plot_rotated_family_length_histograms, periodicity_detector_1d,
+    xc_hist_from_clusters, yc_hist_from_clusters, cluster_gridlines_1d,
     compute_family_kdes, plot_family_kdes,
     filter_grid_segments, estimate_vanishing_points,
     refine_principal_point_from_vps, split_segments_by_angle_circular,
@@ -125,19 +131,99 @@ def main(image_path: Optional[str] = None) -> None:
 
     # Debug image rotation
     # --------------------
-    img_fixed = apply_rotation_correction(img, analysis)
-    save_image(img_fixed, "rotated.jpg")
+    img_rotated = apply_rotation_correction(img, analysis_weighted)
+    save_image(img_rotated, "rotated.jpg")
 
     # Split into two rough direction families (unsupervised)
-    fam = split_segments_by_angle_circular(raw["lines"], angle_info, analysis)
+    fam = split_segments_by_angle_circular(raw["lines"], angle_info, analysis_weighted)
 
     raw_x = fam["family1"]
     raw_y = fam["family2"]
-
     # Debug: mark raw lines (green)
     dbg_raw = mark_segments(img, raw_lines, color=(0, 255, 0))
     save_image(dbg_raw, "debug_raw_segments.jpg")
 
+
+    famxy = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img)
+    img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
+
+    plot_rotated_family_length_histograms(famxy, bins=40)    
+    save_image(img_rotated_lines, "rotated_lines.jpg")
+
+    famxcyc = compute_centerline_arrays(famxy)
+    xcenters = famxcyc["xcenters"]   # shape (Nx, 3): [xc, yc, length]
+    ycenters = famxcyc["ycenters"]   # shape (Ny, 3): [xc, yc, length]
+
+    # -------------------------------------
+    # Y-family: vertical gridlines -> X-axis positions
+    # -------------------------------------
+    xc = ycenters[:, 0]       # X-midpoints
+    Ly = ycenters[:, 2]       # segment lengths
+
+    y_clusters = cluster_gridlines_1d(
+        positions=xc,
+        lengths=Ly,
+        max_gap_px=None,
+        min_cluster_members=2,
+        robust_factor=3.0,
+    )
+
+    # histogram from cluster centers
+    yc_hist_data = yc_hist_from_clusters(
+        y_clusters["centers"],       # FIXED
+        bin_size=10,
+        gap_size=0,
+        offset=0,
+        weights=y_clusters["weights"]
+    )
+
+    # Plot Y-family histogram
+    plot_yc_hist(yc_hist_data, title="Y-family X-Histogram", color="blue")
+
+    period_y = periodicity_detector_1d(
+        y_clusters["centers"],
+        weights=y_clusters["weights"]
+    )
+    print("Y-family spacing ->", period_y["best"])
+    plot_periodicity_analysis(period_y)
+
+    # -------------------------------------
+    # X-family: horizontal gridlines -> Y-axis positions
+    # -------------------------------------
+    yc = xcenters[:, 1]        # Y-midpoints
+    Lx = xcenters[:, 2]        # segment lengths
+
+    x_clusters = cluster_gridlines_1d(
+        positions=yc,
+        lengths=Lx,
+        max_gap_px=None,
+        min_cluster_members=2,
+        robust_factor=3.0,
+    )
+
+    # histogram from cluster centers
+    xc_hist_data = xc_hist_from_clusters(
+        x_clusters["centers"],       # FIXED
+        bin_size=10,
+        gap_size=0,
+        offset=0,
+        weights=x_clusters["weights"]
+    )
+
+    # Plot X-family histogram
+    plot_yc_hist(xc_hist_data, title="X-family Y-Histogram", color="red")
+
+    period_x = periodicity_detector_1d(
+        x_clusters["centers"],
+        weights=x_clusters["weights"]
+    )    
+    print("X-family spacing ->", period_x["best"])
+
+    img_rotated_centerline = draw_centerline_arrays(img_rotated, famxcyc)
+    save_image(img_rotated_centerline, "rotated_lines_centers.jpg")
+
+    #yc_hist_data = yc_hist(famxy, bin_size=10, gap_size=90, offset=5)
+    
     # --------------------------------------------------------------
     # 2. Filter + refine the line families
     # --------------------------------------------------------------
@@ -152,38 +238,7 @@ def main(image_path: Optional[str] = None) -> None:
     dbg_flt = mark_segment_families(img, flt_x, flt_y)
     save_image(dbg_flt, "debug_filtered_segments.jpg")
 
-    # --------------------------------------------------------------
-    # 3. Vanishing point estimation (projective geometry)
-    # --------------------------------------------------------------
-    vp_info = estimate_vanishing_points(
-        flt_x,
-        flt_y,
-        img_shape=(H, W),
-    )
-
-    vp_x = vp_info["vp_x"]
-    vp_y = vp_info["vp_y"]
-
-    print("--- Vanishing Point Diagnostics ---")
-    print("VP X:", vp_x, " RMS:", vp_info["rms_x"])
-    print("VP Y:", vp_y, " RMS:", vp_info["rms_y"])
-    print("Orthogonality angle error:", vp_info["angle_orth_error_deg"], "deg")
-    print("VP orth error:", vp_info["vp_orth_error_deg"], "deg")
-    print("Horizon line coefficients:", vp_info["horizon"])
-    print("-----------------------------------")
-
-    refined = refine_principal_point_from_vps(
-        vp_info["vp_x"],
-        vp_info["vp_y"],
-        (H, W),
-        radius_frac=0.1,    # 10% search radius
-        steps=30            # 30x30 grid
-    )
     
-    print("Original center:", refined["cx0"], refined["cy0"])
-    print("Refined center :", refined["cx_refined"], refined["cy_refined"])
-    print("Improved VP orth error:", refined["vp_orth_error_deg"])
-
     log.info("PET pipeline completed.")
 
 

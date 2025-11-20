@@ -851,18 +851,25 @@ def analyze_two_orientation_families(
     stats1 = _circular_family_stats(ang1, w1, angle_range=(lo, hi))
     stats2 = _circular_family_stats(ang2, w2, angle_range=(lo, hi))
 
-    # 5) Rotation angle (same logic)
+    # 5) Rotation angle based on PEAKS (correct)
+    # Determine dominant family by weight
     if stats1["total_weight"] >= stats2["total_weight"]:
-        mean_deg = stats1["mean_deg"]
+        dom_peak = p1
     else:
-        mean_deg = stats2["mean_deg"]
-
-    mean_deg_n = ((mean_deg - lo) % period) + lo
-
-    rot_h = (0.0  - mean_deg_n + 90.0) % 180.0 - 90.0
-    rot_v = (90.0 - mean_deg_n + 90.0) % 180.0 - 90.0
-
+        dom_peak = p2
+    
+    # Normalize dominant peak into [-45, 135)
+    peak_n = ((dom_peak - lo) % period) + lo
+    
+    # Desired targets: 0deg (horizontal) or 90deg (vertical)
+    # rotation = target - peak
+    rot_h = (0.0  - peak_n + 90.0) % 180.0 - 90.0
+    rot_v = (90.0 - peak_n + 90.0) % 180.0 - 90.0
+    
+    # Choose the smallest magnitude
     rotation_angle = rot_h if abs(rot_h) <= abs(rot_v) else rot_v
+    
+    # Clamp into [-45, +45] while preserving orientation correctness
     if rotation_angle < -45.0:
         rotation_angle += 90.0
     elif rotation_angle > 45.0:
@@ -930,6 +937,1032 @@ def apply_rotation_correction(
     )
 
     return rotated
+
+
+def reassign_and_rotate_families_by_image_center(
+    families: Dict[str, np.ndarray],
+    analysis: Dict[str, Any],
+    img: np.ndarray,
+) -> Dict[str, np.ndarray]:
+    """
+    Reassign families (xfam/yfam) based on angle (>45deg => yfam),
+    then rotate all segment endpoints around the IMAGE CENTER.
+
+    The rotation returned will have the correct segment geometry.
+    """
+    f1 = np.asarray(families["family1"], float)
+    f2 = np.asarray(families["family2"], float)
+    a1 = np.asarray(families["angles1"], float)
+    a2 = np.asarray(families["angles2"], float)
+
+    if f1.size == 0 and f2.size == 0:
+        return {
+            "xfam": f1,
+            "yfam": f2,
+            "xfam_angle": None,
+            "yfam_angle": None,
+            "pivot": (0.0, 0.0),
+        }
+
+    med1 = float(np.median(a1)) if a1.size else 0.0
+    med2 = float(np.median(a2)) if a2.size else 0.0
+
+    if med1 > med2:
+        yfam_raw, xfam_raw = f1, f2
+        yang, xang = med1, med2
+    else:
+        yfam_raw, xfam_raw = f2, f1
+        yang, xang = med2, med1
+
+    H, W = img.shape[:2]
+    cx = float(W * 0.5)
+    cy = float(H * 0.5)
+    pivot = np.array([cx, cy], dtype=float)
+
+    angle_deg = float(analysis["rotation_angle_deg"])
+    theta = np.deg2rad(angle_deg)
+
+    R = np.array([
+        [ np.cos(theta),  np.sin(theta) ],
+        [ -np.sin(theta), np.cos(theta) ],
+    ], dtype=float)
+
+    def rotate_segments_proper(segs: np.ndarray) -> np.ndarray:
+        if segs.size == 0:
+            return segs
+        p1 = segs[:, 0:2]
+        p2 = segs[:, 2:4]
+        p1r = (p1 - pivot) @ R.T + pivot
+        p2r = (p2 - pivot) @ R.T + pivot
+        return np.hstack([p1r, p2r])
+
+    xfam_rot = rotate_segments_proper(xfam_raw)
+    yfam_rot = rotate_segments_proper(yfam_raw)
+
+    return {
+        "xfam": xfam_rot,
+        "yfam": yfam_rot,
+        "xfam_angle": xang,
+        "yfam_angle": yang,
+        "pivot": (cx, cy),
+    }
+
+
+def compute_centerline_arrays(fams_rot: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """
+    Convert rotated xfam/yfam segments into center-point arrays:
+        [xc, yc, length]
+
+    Sorting rule:
+        - xfam (vertical-ish):  sort by yc
+        - yfam (horizontal-ish): sort by xc
+
+    Parameters
+    ----------
+    fams_rot : dict
+        Output of reassign_and_rotate_families_by_image_center().
+        Must contain "xfam" and "yfam" arrays.
+
+    Returns
+    -------
+    dict with:
+        {
+            "xcenters": (Nx,3) array [[xc,yc,length], ...],
+            "ycenters": (Ny,3) array
+        }
+    """
+    xfam = np.asarray(fams_rot["xfam"], float)
+    yfam = np.asarray(fams_rot["yfam"], float)
+
+    # ----------------------------------------
+    # Helper: convert (N,4) -> (N,3) array
+    # ----------------------------------------
+    def segs_to_centers(segs: np.ndarray) -> np.ndarray:
+        if segs.size == 0:
+            return np.zeros((0, 3), float)
+        x1 = segs[:, 0]
+        y1 = segs[:, 1]
+        x2 = segs[:, 2]
+        y2 = segs[:, 3]
+        xc = 0.5 * (x1 + x2)
+        yc = 0.5 * (y1 + y2)
+        lg = np.hypot(x2 - x1, y2 - y1)
+        return np.column_stack([xc, yc, lg])
+
+    xcenters = segs_to_centers(xfam)
+    ycenters = segs_to_centers(yfam)
+
+    # ----------------------------------------
+    # Sorting rule
+    # ----------------------------------------
+    if xcenters.size > 0:
+        xcenters = xcenters[np.argsort(xcenters[:, 1])]   # sort by yc
+    if ycenters.size > 0:
+        ycenters = ycenters[np.argsort(ycenters[:, 0])]   # sort by xc
+
+    return {
+        "xcenters": xcenters,
+        "ycenters": ycenters,
+    }
+
+
+def draw_centerline_arrays(
+    img: np.ndarray,
+    centers: Dict[str, np.ndarray],
+    color_x=(0, 0, 255),      # RED  (horizontal lines)
+    color_y=(255, 0, 0),      # BLUE (vertical lines)
+    radius: int = 2,
+    thickness: int = 1,
+) -> np.ndarray:
+    """
+    Draw centerlines derived from xcenters (horizontal) and
+    ycenters (vertical) over an image.
+
+    xcenters[i] = [xc, yc, length]  -> horizontal red ticks
+    ycenters[i] = [xc, yc, length]  -> vertical blue ticks
+    """
+
+    out = img.copy()
+
+    # ---------------------------------------
+    # Horizontal (xfam) - RED
+    # ---------------------------------------
+    xarr = np.asarray(centers.get("xcenters", []), float)
+    for (xc, yc, L) in xarr:
+        xc_i = int(round(xc))
+        yc_i = int(round(yc))
+
+        # Draw center point
+        cv2.circle(out, (xc_i, yc_i), radius, color_x, -1, cv2.LINE_AA)
+
+        # Horizontal line segment
+        dx = int(L)
+        cv2.line(
+            out,
+            (xc_i - dx, yc_i),
+            (xc_i + dx, yc_i),
+            color_x,
+            thickness,
+            cv2.LINE_AA,
+        )
+
+    # ---------------------------------------
+    # Vertical (yfam) - BLUE
+    # ---------------------------------------
+    yarr = np.asarray(centers.get("ycenters", []), float)
+    for (xc, yc, L) in yarr:
+        xc_i = int(round(xc))
+        yc_i = int(round(yc))
+
+        # Draw center
+        cv2.circle(out, (xc_i, yc_i), radius, color_y, -1, cv2.LINE_AA)
+
+        # Vertical line segment
+        dy = int(L)
+        cv2.line(
+            out,
+            (xc_i, yc_i - dy),
+            (xc_i, yc_i + dy),
+            color_y,
+            thickness,
+            cv2.LINE_AA,
+        )
+
+    return out
+
+
+def plot_rotated_family_length_histograms(
+    rotated_families: Dict[str, np.ndarray],
+    bins: int = 40,
+    title: str = "Segment Length Distribution (Rotated Families)"
+) -> None:
+    """
+    Produce two stacked plots:
+        Top  : Y-family (vertical) segment-length histogram (blue)
+        Bottom: X-family (horizontal) segment-length histogram (red)
+
+    Parameters
+    ----------
+    rotated_families : dict
+        Output of reassign_and_rotate_families_by_image_center().
+        Must contain "xfam" and "yfam" arrays (N,4) as segments.
+    bins : int
+        Number of histogram bins for both histograms.
+    title : str
+        Figure title.
+    """
+
+    xfam = np.asarray(rotated_families["xfam"], float)
+    yfam = np.asarray(rotated_families["yfam"], float)
+
+    # ---- Compute lengths ----
+    def seg_lengths(lines: np.ndarray) -> np.ndarray:
+        if lines.size == 0:
+            return np.zeros(0)
+        dx = lines[:, 2] - lines[:, 0]
+        dy = lines[:, 3] - lines[:, 1]
+        return np.hypot(dx, dy)
+
+    x_lengths = seg_lengths(xfam)
+    y_lengths = seg_lengths(yfam)
+
+    # ---- Plot ----
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(10, 7), sharex=False,
+        gridspec_kw={"height_ratios": [1, 1]}
+    )
+
+    plt.suptitle(title, fontsize=14, y=0.97)
+
+    # --- Y-family (top, blue) ---
+    ax1.hist(
+        y_lengths,
+        bins=bins,
+        color="blue",
+        alpha=0.75,
+        edgecolor="black",
+    )
+    ax1.set_ylabel("Count")
+    ax1.set_title("Y-family Length Distribution (vertical lines)")
+
+    # --- X-family (bottom, red) ---
+    ax2.hist(
+        x_lengths,
+        bins=bins,
+        color="red",
+        alpha=0.75,
+        edgecolor="black",
+    )
+    ax2.set_xlabel("Segment length (pixels)")
+    ax2.set_ylabel("Count")
+    ax2.set_title("X-family Length Distribution (horizontal lines)")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def yc_hist(
+    rotated_families: Dict[str, np.ndarray],
+    bin_size: int = 10,
+    gap_size: int = 0,
+    offset: int = 0,
+) -> Dict[str, np.ndarray]:
+    """
+    Build a histogram over the X coordinate of Y-family (vertical) lines,
+    but using bin blocks with optional initial offset and inter-bin gaps.
+
+    Each block: [offset + k*(bin_size + gap_size),
+                 offset + k*(bin_size + gap_size) + bin_size)
+
+    Parameters
+    ----------
+    rotated_families : dict
+        Output of reassign_and_rotate_families_by_image_center().
+    bin_size : int
+        Width of each active bin region.
+    gap_size : int
+        Number of pixels to skip after each bin.
+    offset : int
+        Pixels to skip at the beginning before first bin.
+
+    Returns
+    -------
+    dict with:
+        "bin_edges"   : array(float), 2 edges per bin (start,end)
+        "bin_centers" : centers of ACTIVE bins
+        "counts"      : weighted by segment lengths
+    """
+
+    yfam = np.asarray(rotated_families["yfam"], float)
+    if yfam.size == 0:
+        return {
+            "bin_edges": np.zeros(0),
+            "bin_centers": np.zeros(0),
+            "counts": np.zeros(0),
+        }
+
+    # ------------------------------
+    # Segment midpoints and lengths
+    # ------------------------------
+    x1 = yfam[:, 0]
+    y1 = yfam[:, 1]
+    x2 = yfam[:, 2]
+    y2 = yfam[:, 3]
+
+    xc = 0.5 * (x1 + x2)
+    lengths = np.hypot(x2 - x1, y2 - y1)
+
+    # ------------------------------
+    # Build custom "gapped" bins
+    # ------------------------------
+    xmin = float(np.min(xc))
+    xmax = float(np.max(xc))
+
+    # Shift xmin by `offset`
+    start = xmin + offset
+    if start > xmax:
+        # offset too large -> empty histogram
+        return {
+            "bin_edges": np.zeros(0),
+            "bin_centers": np.zeros(0),
+            "counts": np.zeros(0),
+        }
+
+    # List of active bin intervals
+    bin_edges = []
+    bin_centers = []
+    counts = []
+
+    # Iterate over active bins
+    left = start
+    step = bin_size + gap_size
+
+    while left < xmax:
+        right = left + bin_size
+        if right > xmax:
+            right = xmax
+
+        # Weighted count: sum lengths of segments whose xc lies in [left,right)
+        mask = (xc >= left) & (xc < right)
+        intensity = lengths[mask].sum()
+
+        # push new bin
+        bin_edges.append((left, right))
+        bin_centers.append(0.5 * (left + right))
+        counts.append(float(intensity))
+
+        left += step
+
+    # Convert to arrays
+    bin_edges = np.array(bin_edges, float)  # shape (nb,2)
+    bin_centers = np.array(bin_centers, float)
+    counts = np.array(counts, float)
+
+    return {
+        "bin_edges": bin_edges,
+        "bin_centers": bin_centers,
+        "counts": counts,
+    }
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def plot_yc_hist(hist: dict, title: str = "Y-family X-Histogram", color="blue"):
+    """
+    Plot 1D histogram returned by yc_hist_from_clusters().
+
+    hist must contain:
+        - hist["bin_centers"]: (K,) float array
+        - hist["counts"]:      (K,) float array
+        - hist["bin_edges"]:   (K+1,) float array
+    """
+
+    x = np.asarray(hist["bin_centers"], float)
+    y = np.asarray(hist["counts"], float)
+    edges = np.asarray(hist["bin_edges"], float)
+
+    if x.size == 0:
+        print("Empty histogram - nothing to plot.")
+        return
+
+    # bar width = edge-to-edge distance (ignores gap spacing)
+    if len(edges) >= 2:
+        width = edges[1] - edges[0]
+    else:
+        width = 5.0  # fallback
+
+    plt.figure(figsize=(10, 4))
+    plt.bar(x, y, width=width, color=color, alpha=0.7, align='center')
+
+    plt.xlabel("Position (pixels)")
+    plt.ylabel("Cluster weight")
+    plt.title(title)
+    plt.grid(True, linestyle=":", alpha=0.4)
+    plt.tight_layout()
+    plt.show()
+
+
+def yc_hist_from_clusters(
+    cluster_centers: np.ndarray,
+    bin_size: int = 10,
+    gap_size: int = 0,
+    offset: float = 0.0,
+    weights: np.ndarray | None = None,
+):
+    """
+    Histogram over X positions of Y-family (vertical) gridline cluster centers.
+
+    Parameters
+    ----------
+    cluster_centers : array
+        1D array of X-coordinates of clustered Y-family gridlines.
+    bin_size : int
+        Width of each histogram bin (in pixels).
+    gap_size : int
+        Space to skip after each bin (bin spacing).
+    offset : float
+        Shift histogram start by this many pixels.
+    weights : array or None
+        Optional per-cluster weights (default: all 1).
+
+    Returns
+    -------
+    dict with:
+        "bin_edges", "bin_centers", "counts"
+    """
+
+    centers = np.asarray(cluster_centers, float)
+    if centers.size == 0:
+        return {"bin_edges": np.zeros(0), "bin_centers": np.zeros(0), "counts": np.zeros(0)}
+
+    if weights is None:
+        weights = np.ones_like(centers)
+
+    # ---------------------------------------------
+    # Shift by offset
+    # ---------------------------------------------
+    centers_shifted = centers - offset
+
+    # ---------------------------------------------
+    # Compute bin edges with optional gap
+    # ---------------------------------------------
+    xmin = float(np.min(centers_shifted))
+    xmax = float(np.max(centers_shifted))
+
+    # Effective bin width = bin_size + gap_size
+    eff_bin = float(bin_size + gap_size)
+
+    nbins = max(1, int(np.ceil((xmax - xmin) / eff_bin)))
+    bin_edges = xmin + np.arange(nbins + 1) * eff_bin
+
+    # histogram
+    counts, _ = np.histogram(centers_shifted, bins=bin_edges, weights=weights)
+
+    # bin centers (just geometric centers, ignoring gap)
+    bin_centers = bin_edges[:-1] + bin_size * 0.5
+
+    return {
+        "bin_edges": bin_edges,
+        "bin_centers": bin_centers,
+        "counts": counts.astype(float),
+    }
+
+
+def xc_hist_from_clusters(
+    cluster_centers: np.ndarray,
+    bin_size: int = 10,
+    gap_size: int = 0,
+    offset: float = 0.0,
+    weights: np.ndarray | None = None,
+):
+    """
+    Histogram over Y positions of X-family (horizontal) gridline cluster centers.
+    Same logic as yc_hist_from_clusters.
+    """
+
+    centers = np.asarray(cluster_centers, float)
+    if centers.size == 0:
+        return {"bin_edges": np.zeros(0), "bin_centers": np.zeros(0), "counts": np.zeros(0)}
+
+    if weights is None:
+        weights = np.ones_like(centers)
+
+    centers_shifted = centers - offset
+
+    ymin = float(np.min(centers_shifted))
+    ymax = float(np.max(centers_shifted))
+
+    eff_bin = float(bin_size + gap_size)
+
+    nbins = max(1, int(np.ceil((ymax - ymin) / eff_bin)))
+    bin_edges = ymin + np.arange(nbins + 1) * eff_bin
+
+    counts, _ = np.histogram(centers_shifted, bins=bin_edges, weights=weights)
+    bin_centers = bin_edges[:-1] + bin_size * 0.5
+
+    return {
+        "bin_edges": bin_edges,
+        "bin_centers": bin_centers,
+        "counts": counts.astype(float),
+    }
+
+
+def cluster_gridlines_1d(
+    positions: np.ndarray,
+    lengths: Optional[np.ndarray] = None,
+    max_gap_px: Optional[float] = None,
+    min_cluster_members: int = 1,
+    robust_factor: float = 3.0,
+) -> Dict[str, Any]:
+    """
+    Cluster 1D gridline candidates (segment midpoints) into physical gridlines.
+
+    This is a 1D, order-preserving clustering:
+        - Sort positions
+        - Start a new cluster whenever the gap to the previous point
+          exceeds max_gap_px
+        - If max_gap_px is None, estimate it robustly from the small
+          nearest-neighbor differences (jitter scale) and multiply by
+          robust_factor.
+
+    Parameters
+    ----------
+    positions : np.ndarray
+        1D array of candidate line positions along an axis (e.g. xc for
+        vertical lines, yc for horizontal lines). Shape (N,).
+    lengths : np.ndarray or None
+        Optional 1D array of per-segment lengths used as weights.
+        If None, each point has weight=1. Shape (N,).
+    max_gap_px : float or None
+        Maximum allowed gap (in pixels) between consecutive sorted
+        positions to be considered part of the same cluster. If None,
+        it is estimated from the data using a robust heuristic.
+    min_cluster_members : int
+        Discard clusters with fewer than this many members.
+    robust_factor : float
+        Multiplier applied to the estimated jitter scale when computing
+        max_gap_px if it is not provided explicitly.
+
+    Returns
+    -------
+    dict
+        {
+            "centers":        (K,) array of cluster centers (median position),
+            "weights":        (K,) array of cluster weights (sum of member weights),
+            "median_lengths": (K,) array of median member lengths (NaN if no lengths),
+            "counts":         (K,) array of member counts,
+            "clusters":       list of np.ndarray index arrays, one per cluster,
+            "max_gap_px":     float, final threshold used,
+        }
+
+        K is the number of retained clusters (after min_cluster_members filter).
+
+    Notes
+    -----
+    - This function is designed to convert many fragmented segments that
+      belong to the same physical gridline into a single robust
+      "virtual line".
+    - It should be run separately for the two families (xfam, yfam),
+      e.g.:
+
+        xc = xcenters[:, 0]
+        Lx = xcenters[:, 2]
+        x_clusters = cluster_gridlines_1d(xc, lengths=Lx)
+
+        yc = ycenters[:, 1]
+        Ly = ycenters[:, 2]
+        y_clusters = cluster_gridlines_1d(yc, lengths=Ly)
+    """
+    positions = np.asarray(positions, dtype=float).ravel()
+    N = positions.size
+
+    if N == 0:
+        return {
+            "centers":        np.zeros(0, dtype=float),
+            "weights":        np.zeros(0, dtype=float),
+            "median_lengths": np.zeros(0, dtype=float),
+            "counts":         np.zeros(0, dtype=int),
+            "clusters":       [],
+            "max_gap_px":     max_gap_px,
+        }
+
+    if lengths is None:
+        weights = np.ones_like(positions, dtype=float)
+        lengths_array = None
+    else:
+        lengths_array = np.asarray(lengths, dtype=float).ravel()
+        if lengths_array.size != N:
+            raise ValueError("lengths must have the same size as positions")
+        weights = lengths_array.copy()
+
+    # -------------------------------------------------
+    # Sort by position, keep original indices
+    # -------------------------------------------------
+    order = np.argsort(positions)
+    pos_sorted = positions[order]
+    w_sorted = weights[order]
+    if lengths_array is not None:
+        L_sorted = lengths_array[order]
+    else:
+        L_sorted = None
+
+    # -------------------------------------------------
+    # Auto-estimate max_gap_px if not provided
+    # -------------------------------------------------
+    if max_gap_px is None:
+        if N == 1:
+            # Single point -> arbitrary small gap
+            est_gap = 1.0
+        else:
+            diffs = np.diff(pos_sorted)
+            # Keep only positive diffs
+            diffs = diffs[diffs > 0]
+
+            if diffs.size == 0:
+                est_gap = 1.0
+            else:
+                # Heuristic: small diffs correspond to within-line jitter,
+                # large diffs correspond to grid spacing.
+                # Pick lower quantile to capture jitter scale.
+                q25 = np.percentile(diffs, 25)
+                q50 = np.percentile(diffs, 50)
+                jitter_scale = min(q25, q50)
+
+                if jitter_scale <= 0:
+                    jitter_scale = np.median(diffs)
+
+                # Fall back if still degenerate
+                if jitter_scale <= 0:
+                    jitter_scale = max(1.0, float(np.min(diffs)))
+
+                est_gap = jitter_scale * robust_factor
+
+        max_gap_px = float(est_gap)
+
+    # -------------------------------------------------
+    # Run gap-based clustering in sorted order
+    # -------------------------------------------------
+    clusters_idx: List[np.ndarray] = []
+
+    current_start = 0
+    for i in range(1, N):
+        gap = pos_sorted[i] - pos_sorted[i - 1]
+        if gap > max_gap_px:
+            # close current cluster [current_start, i)
+            clusters_idx.append(np.arange(current_start, i, dtype=int))
+            current_start = i
+
+    # last cluster
+    clusters_idx.append(np.arange(current_start, N, dtype=int))
+
+    # -------------------------------------------------
+    # Convert sorted indices back to original indices
+    # and compute cluster stats
+    # -------------------------------------------------
+    centers_list = []
+    weights_list = []
+    med_lengths_list = []
+    counts_list = []
+    clusters_final: List[np.ndarray] = []
+
+    for c_sorted in clusters_idx:
+        if c_sorted.size < min_cluster_members:
+            continue
+
+        # original indices
+        c_orig = order[c_sorted]
+
+        # positions & weights in this cluster
+        pos_c = positions[c_orig]
+        w_c = weights[c_orig]
+
+        center = float(np.median(pos_c))
+        total_w = float(np.sum(w_c))
+        count = int(c_orig.size)
+
+        if L_sorted is not None:
+            L_c = lengths_array[c_orig]
+            med_L = float(np.median(L_c))
+        else:
+            med_L = float("nan")
+
+        centers_list.append(center)
+        weights_list.append(total_w)
+        med_lengths_list.append(med_L)
+        counts_list.append(count)
+        clusters_final.append(c_orig)
+
+    if len(centers_list) == 0:
+        return {
+            "centers":        np.zeros(0, dtype=float),
+            "weights":        np.zeros(0, dtype=float),
+            "median_lengths": np.zeros(0, dtype=float),
+            "counts":         np.zeros(0, dtype=int),
+            "clusters":       [],
+            "max_gap_px":     max_gap_px,
+        }
+
+    centers_arr = np.array(centers_list, dtype=float)
+    weights_arr = np.array(weights_list, dtype=float)
+    medL_arr = np.array(med_lengths_list, dtype=float)
+    counts_arr = np.array(counts_list, dtype=int)
+
+    return {
+        "centers":        centers_arr,
+        "weights":        weights_arr,
+        "median_lengths": medL_arr,
+        "counts":         counts_arr,
+        "clusters":       clusters_final,
+        "max_gap_px":     max_gap_px,
+    }
+
+
+def periodicity_detector_1d(
+    centers: np.ndarray,
+    weights: np.ndarray | None = None,
+    min_lines: int = 4,
+) -> dict:
+    """
+    Estimate gridline spacing (period) from 1D cluster centers.
+
+    Performs:
+        1) Median spacing (robust baseline)
+        2) Autocorrelation peak detection (best)
+        3) FFT dominant frequency (sanity check)
+
+    Parameters
+    ----------
+    centers : array
+        1D array of cluster center coordinates along the axis.
+    weights : array or None
+        Optional 1D weights per cluster (from cluster_gridlines_1d).
+        If None -> weight = 1.
+    min_lines : int
+        Require at least this many gridlines to estimate periodicity.
+
+    Returns
+    -------
+    dict with:
+        "n"               - number of cluster centers
+        "median_spacing"  - median diff between sorted centers
+        "autocorr_spacing"- spacing from autocorr peak (None if fail)
+        "fft_spacing"     - spacing from FFT (None if fail)
+        "best"            - chosen spacing (prefers autocorr)
+        "centers"         - sorted centers
+        "lags"            - autocorr lags
+        "autocorr"        - autocorrelation sequence
+        "freqs"           - FFT frequencies
+        "fft_mag"         - FFT magnitude spectrum
+    """
+
+    centers = np.asarray(centers, float).ravel()
+    n = centers.size
+
+    if n < min_lines:
+        return {
+            "n": n,
+            "median_spacing": None,
+            "autocorr_spacing": None,
+            "fft_spacing": None,
+            "best": None,
+            "centers": centers,
+            "lags": None,
+            "autocorr": None,
+            "freqs": None,
+            "fft_mag": None,
+        }
+
+    # ---------------------------------------------
+    # Sorted positions
+    # ---------------------------------------------
+    centers_sorted = np.sort(centers)
+
+    # ---------------------------------------------
+    # 1. Median spacing
+    # ---------------------------------------------
+    diffs = np.diff(centers_sorted)
+    median_spacing = float(np.median(diffs)) if diffs.size else None
+
+    # ---------------------------------------------
+    # 2. Autocorrelation-based spacing
+    # ---------------------------------------------
+    if weights is None:
+        w = np.ones_like(centers_sorted)
+    else:
+        w = np.asarray(weights, float).ravel()
+        w = w[np.argsort(centers)]  # align weights with sorted centers
+
+    # Normalize weights
+    w = w / np.max(w)
+
+    # Signal for autocorrelation
+    signal = (centers_sorted - centers_sorted.mean()) * w
+
+    # Autocorrelation (positive lags only)
+    corr = np.correlate(signal, signal, mode="full")
+    corr = corr[corr.size // 2:]
+    lags = np.arange(corr.size)
+
+    # Find first peak AFTER lag 0
+    peaks, _ = find_peaks(corr, distance=1)
+
+    if len(peaks) >= 2:
+        lag1 = peaks[1]         # skip lag0 (self-peak)
+        autocorr_spacing = float(centers_sorted[lag1] - centers_sorted[0]) \
+                           if lag1 < centers_sorted.size else None
+    else:
+        autocorr_spacing = None
+
+    # ---------------------------------------------
+    # 3. FFT-based spacing
+    # ---------------------------------------------
+    # Convert centers to histogram-like signal
+    # (dense sampling improves FFT)
+    N_fft = max(256, 2 ** int(np.ceil(np.log2(n * 8))))
+    x_norm = (centers_sorted - centers_sorted.min()) / (centers_sorted.max() - centers_sorted.min())
+    signal_dense = np.histogram(x_norm, bins=N_fft, weights=w)[0]
+
+    F = np.fft.rfft(signal_dense - signal_dense.mean())
+    freqs = np.fft.rfftfreq(signal_dense.size)
+
+    # find dominant nonzero frequency
+    if F.size > 2:
+        idx = np.argmax(np.abs(F[1:])) + 1
+        freq = freqs[idx]
+        fft_spacing = float(1.0 / freq) if freq > 0 else None
+    else:
+        fft_spacing = None
+
+    # ---------------------------------------------
+    # Decide best estimate
+    # ---------------------------------------------
+    if autocorr_spacing is not None:
+        best = autocorr_spacing
+    else:
+        best = median_spacing
+
+    return {
+        "n": n,
+        "median_spacing": median_spacing,
+        "autocorr_spacing": autocorr_spacing,
+        "fft_spacing": fft_spacing,
+        "best": best,
+        "centers": centers_sorted,
+        "lags": lags,
+        "autocorr": corr,
+        "freqs": freqs,
+        "fft_mag": np.abs(F),
+    }
+
+
+def plot_periodicity_analysis(period: dict, title="Gridline Periodicity Analysis"):
+    """
+    Visualize periodicity estimation diagnostics:
+        1) Sorted cluster centers
+        2) Autocorrelation (positive lags)
+        3) FFT magnitude spectrum
+
+    Parameters
+    ----------
+    period : dict
+        Output from periodicity_detector_1d()
+    title : str
+        Main title for figure
+    """
+
+    centers = period["centers"]
+    autocorr = period["autocorr"]
+    lags = period["lags"]
+    freqs = period["freqs"]
+    fft_mag = period["fft_mag"]
+
+    median_spacing = period["median_spacing"]
+    autocorr_spacing = period["autocorr_spacing"]
+    fft_spacing = period["fft_spacing"]
+    best = period["best"]
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 10))
+    fig.suptitle(title, fontsize=15, fontweight="bold")
+
+    # -------------------------------------------------------
+    # 1) Sorted Centers
+    # -------------------------------------------------------
+    ax = axes[0]
+    ax.plot(centers, np.zeros_like(centers), "o", color="black")
+    ax.set_title(f"Gridline centers (n={len(centers)})")
+    ax.set_xlabel("Position (px)")
+    ax.set_yticks([])
+    ax.grid(True, linestyle=":", alpha=0.4)
+
+    # Median spacing overlay
+    if median_spacing:
+        ax.text(0.05, 0.85,
+                f"Median spacing = {median_spacing:.2f}px",
+                transform=ax.transAxes,
+                fontsize=10,
+                bbox=dict(facecolor="white", alpha=0.7))
+
+    # -------------------------------------------------------
+    # 2) Autocorrelation
+    # -------------------------------------------------------
+    ax = axes[1]
+    ax.plot(lags, autocorr, color="blue")
+    ax.set_title("Autocorrelation of cluster-center signal")
+    ax.set_xlabel("Lag")
+    ax.set_ylabel("Autocorr")
+    ax.grid(True, linestyle=":", alpha=0.4)
+
+    # Mark autocorr spacing
+    if autocorr_spacing:
+        # find closest lag index
+        lag_idx = np.argmin(np.abs(centers - centers[0] - autocorr_spacing))
+        ax.axvline(lag_idx, color="red", linestyle="--", label=f"AC peak -> {autocorr_spacing:.2f}px")
+        ax.legend()
+
+    # -------------------------------------------------------
+    # 3) FFT magnitude
+    # -------------------------------------------------------
+    ax = axes[2]
+    ax.plot(freqs, fft_mag, color="purple")
+    ax.set_title("FFT magnitude spectrum")
+    ax.set_xlabel("Frequency (1/pixels)")
+    ax.set_ylabel("|FFT|")
+    ax.grid(True, linestyle=":", alpha=0.4)
+
+    if fft_spacing:
+        freq = 1.0 / fft_spacing
+        ax.axvline(freq, color="red", linestyle="--",
+                   label=f"FFT spacing -> {fft_spacing:.2f}px")
+        ax.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
+def analyze_grid_periodicity_full(
+    famxy: dict,
+    min_cluster_members: int = 2,
+    robust_factor: float = 3.0,
+):
+    """
+    Full periodicity analysis wrapper.
+
+    Takes:
+        famxy = compute_centerline_arrays(output of reassign_and_rotate_families_by_image_center)
+
+    Performs:
+        1) Extract x- and y-centers
+        2) cluster_gridlines_1d for each family
+        3) Run periodicity_detector_1d
+        4) Plot diagnostics for each axis
+        5) Return structured result
+
+    Returns:
+        {
+            "X": {...period_x...},
+            "Y": {...period_y...}
+        }
+    """
+
+    from math import isnan
+
+    # -----------------------------------------------------------
+    # Extract centerline arrays
+    # -----------------------------------------------------------
+    xcenters = famxy["xcenters"]  # [xc, yc, length]
+    ycenters = famxy["ycenters"]
+
+    xc_x = xcenters[:, 0]
+    yc_x = xcenters[:, 1]
+    Lx   = xcenters[:, 2]
+
+    xc_y = ycenters[:, 0]
+    yc_y = ycenters[:, 1]
+    Ly   = ycenters[:, 2]
+
+    # -----------------------------------------------------------
+    # Cluster Y-family (vertical gridlines)
+    # -----------------------------------------------------------
+    y_clusters = cluster_gridlines_1d(
+        positions=xc_y,
+        lengths=Ly,
+        max_gap_px=None,
+        min_cluster_members=min_cluster_members,
+        robust_factor=robust_factor,
+    )
+
+    period_y = periodicity_detector_1d(
+        y_clusters["centers"],
+        weights=y_clusters["weights"]
+    )
+
+    # -----------------------------------------------------------
+    # Cluster X-family (horizontal gridlines)
+    # -----------------------------------------------------------
+    x_clusters = cluster_gridlines_1d(
+        positions=yc_x,
+        lengths=Lx,
+        max_gap_px=None,
+        min_cluster_members=min_cluster_members,
+        robust_factor=robust_factor,
+    )
+
+    period_x = periodicity_detector_1d(
+        x_clusters["centers"],
+        weights=x_clusters["weights"]
+    )
+
+    # -----------------------------------------------------------
+    # Plot diagnostics
+    # -----------------------------------------------------------
+    plot_periodicity_analysis(period_y, title="Periodicity - Y-family (vertical lines)")
+    plot_periodicity_analysis(period_x, title="Periodicity - X-family (horizontal lines)")
+
+    return {
+        "X": period_x,
+        "Y": period_y,
+    }
 
 
 # ============================================================================
@@ -1563,6 +2596,75 @@ def plot_family_kdes(hist, analysis, fam_kdes, title="KDE FAMILY DIAGNOSTICS"):
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
+def draw_famxy_on_image(
+    img: np.ndarray,
+    fam_dict: dict,
+    color_x=(0, 0, 255),
+    color_y=(255, 0, 0),
+    draw_pivot=True,
+    thickness=1,
+) -> np.ndarray:
+    """
+    Draw rotated X/Y line families on top of an image using OpenCV.
+
+    Parameters
+    ----------
+    img : ndarray
+        BGR image (uint8 or float). Will not be modified; copy returned.
+    fam_dict : dict
+        Output of reassign_and_rotate_families_by_image_center(), containing:
+            - "xfam" : (N1,4) rotated segments
+            - "yfam" : (N2,4) rotated segments
+            - "pivot": (cx, cy)
+    color_x : tuple
+        BGR color for X-family (default red).
+    color_y : tuple
+        BGR color for Y-family (default blue).
+    draw_pivot : bool
+        If True, a small cross is drawn at the rotation pivot.
+    thickness : int
+        Line thickness.
+
+    Returns
+    -------
+    out : ndarray
+        Image with lines drawn (same dtype as input).
+    """
+
+    out = img.copy()
+
+    xfam = np.asarray(fam_dict.get("xfam", []), float)
+    yfam = np.asarray(fam_dict.get("yfam", []), float)
+    cx, cy = fam_dict.get("pivot", (None, None))
+
+    # ---- Draw X-family (red) ----
+    for (x1, y1, x2, y2) in xfam:
+        cv2.line(out,
+                 (int(round(x1)), int(round(y1))),
+                 (int(round(x2)), int(round(y2))),
+                 color_x,
+                 thickness,
+                 cv2.LINE_AA)
+
+    # ---- Draw Y-family (blue) ----
+    for (x1, y1, x2, y2) in yfam:
+        cv2.line(out,
+                 (int(round(x1)), int(round(y1))),
+                 (int(round(x2)), int(round(y2))),
+                 color_y,
+                 thickness,
+                 cv2.LINE_AA)
+
+    # ---- Draw pivot ----
+    if draw_pivot and cx is not None and cy is not None:
+        cx_i, cy_i = int(round(cx)), int(round(cy))
+        s = 6
+        cv2.line(out, (cx_i - s, cy_i), (cx_i + s, cy_i), (0,255,0), 1, cv2.LINE_AA)
+        cv2.line(out, (cx_i, cy_i - s), (cx_i, cy_i + s), (0,255,0), 1, cv2.LINE_AA)
+
+    return out
 
 
 def print_angle_analysis_console(
