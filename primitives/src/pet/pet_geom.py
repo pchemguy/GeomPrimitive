@@ -193,29 +193,32 @@ def filter_grid_segments(
 # 4) SIMPLE KMEANS-BASED FAMILY SPLIT
 # ============================================================================
 
-def separate_line_families_kmeans(lines: np.ndarray) -> Dict[str, np.ndarray]:
+def separate_line_families_kmeans(lines):
     """
-    Clusters lines into two families purely by angle (in degrees).
-
-    Returns:
-        {"family1": ..., "family2": ...}
+    Separate lines into two families using k-means on their angles.
+    Returns dict with 'family1', 'family2' arrays of shape (N,4).
     """
     if len(lines) < 4:
-        return {"family1": lines, "family2": np.zeros((0, 4))}
+        return {"family1": lines, "family2": np.empty((0,4))}
 
-    angs = np.array(
-        [_angle_deg(*seg) for seg in lines],
-        dtype=np.float64
-    ).reshape(-1, 1)
+    # Compute angles
+    angles = np.array([
+        _line_angle_deg(x1,y1,x2,y2) 
+        for (x1,y1,x2,y2) in lines
+    ], dtype=np.float64).reshape(-1,1)
 
-    km = KMeans(n_clusters=2, n_init=10, random_state=0)
-    labels = km.fit_predict(angs)
+    # Run k-means
+    kmeans = KMeans(n_clusters=2, n_init=10, random_state=0)
+    labels = kmeans.fit_predict(angles)
 
     fam1 = lines[labels == 0]
     fam2 = lines[labels == 1]
 
-    # Ensure stable ordering (family1 = smaller median angle)
-    if np.median(angs[labels == 0]) > np.median(angs[labels == 1]):
+    # Optional: normalize family angles around +/-90/0
+    # to ensure consistency (smaller median first)
+    med1 = np.median(angles[labels==0])
+    med2 = np.median(angles[labels==1])
+    if med1 > med2:
         fam1, fam2 = fam2, fam1
 
     return {"family1": fam1, "family2": fam2}
