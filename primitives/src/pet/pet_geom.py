@@ -97,7 +97,10 @@ def _average_direction_angle(lines: np.ndarray) -> Optional[float]:
     """
     if lines is None or len(lines) == 0:
         return None
-    angles = np.array([_line_angle_rad(s) for s in lines], float)
+    dx = lines[:,2] - lines[:,0]
+    dy = lines[:,3] - lines[:,1]
+    angles = np.arctan2(dy, dx).astype(float)
+    
     return float(np.median(np.mod(angles, np.pi)))
 
 
@@ -183,7 +186,9 @@ def filter_grid_segments(
     # -------------------------------------------------------
     # Compute angles for ALL segments
     # -------------------------------------------------------
-    angles = np.array([_line_angle_rad(s) for s in segs])
+    dx = segs[:,2] - segs[:,0]
+    dy = segs[:,3] - segs[:,1]
+    angles = np.arctan2(dy, dx)
 
     # -------------------------------------------------------
     # Cluster into 2 orientations
@@ -195,17 +200,11 @@ def filter_grid_segments(
     # -------------------------------------------------------
     # Filter by angle (ONLY)
     # -------------------------------------------------------
-    good_idx = []
-
-    for i, (ang, lab) in enumerate(zip(angles, labels)):
-        target = c0 if lab == 0 else c1
-        # Compute circular distance mod pi
-        diff = abs((ang - target + np.pi/2) % np.pi - np.pi/2)
-        if diff < tol:
-            good_idx.append(i)
-
+    targets = np.where(labels == 0, c0, c1)
+    diff = np.abs((angles - targets + np.pi/2) % np.pi - np.pi/2)
+    good_idx = diff < tol
     kept = segs[good_idx]
-    labels_good = np.array(labels)[good_idx]
+    labels_good = labels[good_idx]
 
     # -------------------------------------------------------
     # Output two angle families
@@ -235,10 +234,9 @@ def separate_line_families_kmeans(lines):
         return {"family1": lines, "family2": np.empty((0,4))}
 
     # Compute angles
-    angles = np.array([
-        _line_angle_deg((x1,y1,x2,y2)) 
-        for (x1,y1,x2,y2) in lines
-    ], dtype=np.float64).reshape(-1,1)
+    dx = lines[:,2] - lines[:,0]
+    dy = lines[:,3] - lines[:,1]
+    angles = (np.degrees(np.arctan2(dy, dx)) % 180.0).reshape(-1,1)
 
     # Run k-means
     kmeans = KMeans(n_clusters=2, n_init=10, random_state=0)
@@ -286,24 +284,29 @@ def _fit_vanishing_point_least_squares(
     S_aa = S_ab = S_bb = 0.0
     S_ac = S_bc = 0.0
 
-    for (x1, y1, x2, y2) in lines:
-        dx = x2 - x1
-        dy = y2 - y1
-        length = float(np.hypot(dx, dy))
-        if length < 1e-6:
-            continue
+    S_aa = S_ab = S_bb = 0.0
+    S_ac = S_bc = 0.0
 
-        # Normal vector (a,b) perpendicular to direction (dx,dy)
-        # Normalize so that sqrt(a^2 + b^2) == 1
-        a = dy / length
-        b = -dx / length
-        c = -(a * x1 + b * y1)
-
-        S_aa += a * a
-        S_ab += a * b
-        S_bb += b * b
-        S_ac += a * c
-        S_bc += b * c
+    x1 = lines[:,0]; y1 = lines[:,1]
+    x2 = lines[:,2]; y2 = lines[:,3]
+    
+    dx = x2 - x1
+    dy = y2 - y1
+    length = np.hypot(dx, dy)
+    
+    mask = length >= 1e-6
+    dx = dx[mask]; dy = dy[mask]; length = length[mask]
+    x1 = x1[mask]; y1 = y1[mask]
+    
+    a = dy / length
+    b = -dx / length
+    c = -(a * x1 + b * y1)
+    
+    S_aa = np.sum(a*a)
+    S_ab = np.sum(a*b)
+    S_bb = np.sum(b*b)
+    S_ac = np.sum(a*c)
+    S_bc = np.sum(b*c)
 
     # 2x2 system: [S_aa S_ab][x] = -[S_ac]
     #              [S_ab S_bb][y]    [S_bc]
@@ -322,23 +325,9 @@ def _fit_vanishing_point_least_squares(
     y_vp = inv_ab * bx + inv_bb * by
 
     # Compute RMS distance to lines as an error measure
-    dists_sq = []
-    for (x1, y1, x2, y2) in lines:
-        dx = x2 - x1
-        dy = y2 - y1
-        length = float(np.hypot(dx, dy))
-        if length < 1e-6:
-            continue
-        a = dy / length
-        b = -dx / length
-        c = -(a * x1 + b * y1)
-        d = a * x_vp + b * y_vp + c   # signed distance
-        dists_sq.append(d * d)
+    d = a * x_vp + b * y_vp + c
+    rms = float(np.sqrt(np.mean(d*d))) if d.size > 0 else None
 
-    if not dists_sq:
-        return (float(x_vp), float(y_vp)), None
-
-    rms = float(np.sqrt(np.mean(dists_sq)))
     return (float(x_vp), float(y_vp)), rms
 
 
@@ -477,19 +466,33 @@ def refine_principal_point_from_vps(
     xs = np.linspace(cx0 - r, cx0 + r, steps)
     ys = np.linspace(cy0 - r, cy0 + r, steps)
 
-    best_err = 1e9
-    best_cx = cx0
-    best_cy = cy0
-
-    # Coarse brute-force grid search
-    for cx in xs:
-        for cy in ys:
-            err = _vp_orth_error_deg(vp_x, vp_y, cx, cy)
-            if err < best_err:
-                best_err = err
-                best_cx = cx
-                best_cy = cy
-
+    CX, CY = np.meshgrid(xs, ys, indexing='xy')
+    
+    vx1, vy1 = vp_x
+    vx2, vy2 = vp_y
+    
+    v1x = vx1 - CX
+    v1y = vy1 - CY
+    v2x = vx2 - CX
+    v2y = vy2 - CY
+    
+    n1 = np.hypot(v1x, v1y)
+    n2 = np.hypot(v2x, v2y)
+    
+    valid = (n1 >= 1e-9) & (n2 >= 1e-9)
+    cosang = np.zeros_like(CX)
+    cosang[valid] = (v1x[valid] * v2x[valid] + v1y[valid] * v2y[valid]) / (n1[valid] * n2[valid])
+    cosang = np.clip(cosang, -1.0, 1.0)
+    
+    err = np.abs(np.rad2deg(np.arccos(cosang)) - 90.0)
+    err[~valid] = 1e9
+    
+    # find minimum
+    idx = np.argmin(err)
+    best_cx = CX.ravel()[idx]
+    best_cy = CY.ravel()[idx]
+    best_err = err.ravel()[idx]
+    
     return {
         "cx_refined": float(best_cx),
         "cy_refined": float(best_cy),
