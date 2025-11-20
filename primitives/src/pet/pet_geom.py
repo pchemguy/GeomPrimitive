@@ -184,14 +184,21 @@ def compute_segment_angles(raw: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     x2 = lines[:, 2]
     y2 = lines[:, 3]
 
+    # ------------------------------------------------------------
+    # Compute CCW angles properly (image coordinates -> math coords)
+    # ------------------------------------------------------------
+    # Image: y increases downward
+    # Math:  y increases upward
+    # Convert by flipping dy: dy_math = -(y2 - y1)
     dx = x2 - x1
-    dy = y2 - y1
+    dy_image = y2 - y1
+    dy = -dy_image
 
-    # Raw angles in (-pi, pi]
+    # Raw CCW angle in (-pi, pi]
     angles = np.arctan2(dy, dx)
 
-    # Normalize angles to [-pi/4, 3*pi/4)  i.e. [-45deg, 135deg)
-    angles_norm = (angles + np.pi / 4.0) % np.pi - np.pi / 4.0
+    # Normalize CCW angle into [-pi/4, 3pi/4) = [-45deg, 135deg)
+    angles_norm = (angles + np.pi/4) % np.pi - np.pi/4
     angles_deg = np.rad2deg(angles_norm)
 
     lengths = np.hypot(dx, dy)
@@ -414,6 +421,221 @@ def compute_angle_histogram_circular_weighted(
     }
 
 
+def compute_family_kdes(
+    hist_info: Dict[str, np.ndarray],
+    analysis: Dict[str, Any],
+    kde_samples: int = 720
+) -> Dict[str, np.ndarray]:
+    """
+    Recompute KDE per-family using wrapped Gaussian kernels with
+    automatic bandwidth selection (weighted Silverman rule).
+
+    Input:
+        hist_info  - from compute_angle_histogram_circular_weighted()
+        analysis   - from analyze_two_orientation_families()
+    
+    Output (same fixed format as compute_angle_histogram_circular_weighted):
+        {
+            "angles_deg": ang_all,
+            "weights": w_all,
+            "range": (lo, hi),
+            "period": period,
+            "hist_x": hist_x,
+            "hist_y": hist_y,
+            "kde_x": kde_x,
+            "kde_y": kde_combined,
+            "raw_count": N,
+            "raw_weight": total_weight,
+
+            # per-family extras
+            "fam1": {
+                "angles": ang1,
+                "weights": w1,
+                "kde_y": kde1,
+                "bw": bw1,
+                "skewness": skew1,
+                "kurtosis": kurt1,
+            },
+            "fam2": {
+                "angles": ang2,
+                "weights": w2,
+                "kde_y": kde2,
+                "bw": bw2,
+                "skewness": skew2,
+                "kurtosis": kurt2,
+            },
+        }
+    """
+
+    # ------------------------------------------------------------------
+    # Extract global info
+    # ------------------------------------------------------------------
+    lo, hi = hist_info["range"]
+    period = hi - lo
+
+    ang_all = np.asarray(hist_info["angles_deg"], float)
+    w_all   = np.asarray(hist_info["weights"], float)
+    N       = ang_all.size
+    total_weight = float(np.sum(w_all))
+
+    # ------------------------------------------------------------------
+    # Split into two families according to analysis masks
+    # (these are the same masks used in analyze_two_orientation_families)
+    # ------------------------------------------------------------------
+    p1, p2 = analysis["peaks"]
+    d1 = _ang_dist_circular_deg(ang_all, p1, period)
+    d2 = _ang_dist_circular_deg(ang_all, p2, period)
+    mask1 = d1 <= d2
+    mask2 = ~mask1
+
+    ang1 = ang_all[mask1]
+    ang2 = ang_all[mask2]
+    w1   = w_all[mask1]
+    w2   = w_all[mask2]
+
+    # Normalize to [lo, hi)
+    ang1 = ((ang1 - lo) % period) + lo
+    ang2 = ((ang2 - lo) % period) + lo
+
+    # ------------------------------------------------------------------
+    # KDE grid
+    # ------------------------------------------------------------------
+    kde_x = np.linspace(lo, hi, kde_samples, endpoint=False)
+    dx_deg = float(kde_x[1] - kde_x[0])  # uniform grid in degrees
+
+    # ------------------------------------------------------------------
+    # Wrapped Gaussian kernel KDE
+    #
+    # KDE(theta) = sum w_i * sum_{k=-inf..inf} exp(-(theta - a_i + k*period)^2/(2*bw^2))
+    # For practical purposes only k = [-1,0,1] needed.
+    # ------------------------------------------------------------------
+    def wrapped_gaussian_kde(angles, weights, bw):
+        if angles.size == 0 or np.sum(weights) == 0:
+            return np.zeros_like(kde_x)
+
+        var = (bw * bw * 2.0)
+        kde = np.zeros_like(kde_x)
+        for a, w in zip(angles, weights):
+            delta0 = kde_x - a
+            delta_p = delta0 + period
+            delta_m = delta0 - period
+            kde += w * (
+                np.exp(-(delta0 * delta0) / var) +
+                np.exp(-(delta_p * delta_p) / var) +
+                np.exp(-(delta_m * delta_m) / var)
+            )
+        # Normalize so integral = Sum weights
+        norm = np.sum(weights) * np.sqrt(2 * np.pi) * bw
+        return kde / norm
+
+    # ------------------------------------------------------------------
+    # Bandwidth selection (weighted Silverman rule)
+    #
+    # bw = 0.9 * min(std, IQR/1.34) * N^{-1/5}
+    # Periodicity is ignored for bandwidth estimation (standard practice).
+    # ------------------------------------------------------------------
+    def weighted_stats(a, w):
+        if a.size == 0:
+            return 0.0, 0.0
+        m = np.sum(a * w) / np.sum(w)
+        var = np.sum(w * (a - m)**2) / np.sum(w)
+        std = np.sqrt(var)
+        # percentiles (unweighted)
+        q25 = np.percentile(a, 25)
+        q75 = np.percentile(a, 75)
+        IQR = q75 - q25
+        return std, IQR
+
+    def silverman_bw(angles, weights):
+        if angles.size < 2:
+            return 5.0  # fall-back 5 degrees
+        std, IQR = weighted_stats(angles, weights)
+        s = min(std, IQR / 1.34)
+        Nw = np.sum(weights)
+        if Nw <= 0:
+            return 5.0
+        return 0.9 * s * (Nw ** (-0.2))  # N^(-1/5)
+
+    bw1 = silverman_bw(ang1, w1)
+    bw2 = silverman_bw(ang2, w2)
+
+    # ------------------------------------------------------------------
+    # Compute per-family KDEs
+    # ------------------------------------------------------------------
+    kde1 = wrapped_gaussian_kde(ang1, w1, bw1)
+    kde2 = wrapped_gaussian_kde(ang2, w2, bw2)
+
+    # Combined KDE = sum
+    kde_combined = kde1 + kde2
+
+    # ------------------------------------------------------------------
+    # Compute histograms again (weighted)
+    # ------------------------------------------------------------------
+    hist_y, hist_edges = np.histogram(
+        ang_all,
+        bins=hist_info["hist_x"].shape[0],
+        range=(lo, hi),
+        weights=w_all
+    )
+    hist_x = 0.5 * (hist_edges[:-1] + hist_edges[1:])
+
+    # ------------------------------------------------------------------
+    # Skewness and kurtosis (linear, weighted)
+    # NOTE: circular skewness/kurtosis exists but users typically want
+    #       classical moment-based ones for small spreads (< 10 deg).
+    # ------------------------------------------------------------------
+    def weighted_moments(a, w):
+        if a.size == 0:
+            return 0.0, 0.0
+        W = np.sum(w)
+        mu = np.sum(a * w) / W
+        c = a - mu
+        m2 = np.sum(w * c**2) / W
+        m3 = np.sum(w * c**3) / W
+        m4 = np.sum(w * c**4) / W
+        if m2 <= 1e-12:
+            return 0.0, -3.0  # degenerate
+        skew = m3 / (m2 ** 1.5)
+        kurt = m4 / (m2 * m2) - 3.0
+        return skew, kurt
+
+    skew1, kurt1 = weighted_moments(ang1, w1)
+    skew2, kurt2 = weighted_moments(ang2, w2)
+
+    # ------------------------------------------------------------------
+    # Output (same format as compute_angle_histogram_circular_weighted)
+    # ------------------------------------------------------------------
+    return {
+        "angles_deg": ang_all,
+        "weights": w_all,
+        "range": (lo, hi),
+        "period": period,
+        "hist_x": hist_x,
+        "hist_y": hist_y,
+        "kde_x": kde_x,
+        "kde_y": kde_combined,
+        "raw_count": N,
+        "raw_weight": total_weight,
+
+        "fam1": {
+            "angles": ang1,
+            "weights": w1,
+            "kde_y": kde1,
+            "bw": bw1,
+            "skewness": skew1,
+            "kurtosis": kurt1,
+        },
+        "fam2": {
+            "angles": ang2,
+            "weights": w2,
+            "kde_y": kde2,
+            "bw": bw2,
+            "skewness": skew2,
+            "kurtosis": kurt2,
+        },
+    }
+
+
 def _find_two_kde_peaks_circular(
     hist_info: Dict[str, np.ndarray],
     peak_prominence: float = 0.05,
@@ -517,18 +739,14 @@ def _circular_family_stats(
 ) -> Dict[str, Any]:
     """
     Compute circular statistics for a family of orientations.
-    Includes:
-        count, total_weight
-        mean_deg, R, circular variance
-        kappa (von Mises concentration)
-
-    NOTE:
-        Rayleigh test and linear-normality tests are intentionally removed.
-        They are not meaningful for weighted circular data.
+    Added:
+        - circular skewness
+        - circular kurtosis
+        - kde_kappa  (KDE bandwidth; identical to fitted kappa)
     """
 
     angles_deg = np.asarray(angles_deg, float)
-    weights = np.asarray(weights, float)
+    weights    = np.asarray(weights, float)
 
     count = int(angles_deg.size)
     total_weight = float(weights.sum())
@@ -541,12 +759,13 @@ def _circular_family_stats(
             "R": None,
             "circ_var": None,
             "kappa": None,
+            "kde_kappa": None,
+            "skewness": None,
+            "kurtosis": None,
         }
 
-    # Normalize weights internally
+    # Weighted normalization
     w_norm = weights / total_weight
-
-    # Convert to radians
     ang_rad = np.deg2rad(angles_deg)
 
     # Weighted vector sum
@@ -561,15 +780,26 @@ def _circular_family_stats(
     # Circular variance
     circ_var = 1.0 - R
 
-    # Kappa estimator (valid for moderate-high concentration)
+    # --- Kappa estimator (existing logic unchanged) ---
     if R < 1e-6:
         kappa = 0.0
     elif R < 0.53:
-        kappa = 2 * R + R**3 + 5 * (R**5) / 6
+        kappa = 2 * R + R**3 + 5*(R**5)/6.0
     elif R < 0.85:
-        kappa = -0.4 + 1.39 * R + 0.43 / (1 - R)
+        kappa = -0.4 + 1.39*R + 0.43/(1 - R)
     else:
-        kappa = 1.0 / (R**3 - 4 * R**2 + 3 * R)
+        kappa = 1.0 / (R**3 - 4*R**2 + 3*R)
+    kappa = float(kappa)
+
+    # --- KDE bandwidth autoselection ---
+    kde_kappa = kappa   # simply reuse kappa per-family
+
+    # --- Circular skewness ---
+    d = ang_rad - mean_rad
+    skew = float(np.sum(w_norm * np.sin(d)))
+
+    # --- Circular kurtosis ---
+    kurt = float(np.sum(w_norm * np.cos(2.0 * d)))
 
     return {
         "count": count,
@@ -577,7 +807,10 @@ def _circular_family_stats(
         "mean_deg": mean_deg,
         "R": R,
         "circ_var": circ_var,
-        "kappa": float(kappa),
+        "kappa": kappa,
+        "kde_kappa": kde_kappa,   # new
+        "skewness": skew,         # new
+        "kurtosis": kurt,         # new
     }
 
 
@@ -586,18 +819,8 @@ def analyze_two_orientation_families(
     peak_prominence: float = 0.05,
     min_peak_distance_deg: float = 20.0,
 ) -> Dict[str, Any]:
-    """
-    Analyze a circular angle distribution that must contain exactly two
-    dominant maxima. Uses KDE peaks for splitting.
 
-    Returns an extended dict including:
-        - peaks
-        - split_deg
-        - family1, family2 stats
-        - rotation_angle_deg  (deskew angle, in [-45, +45])
-    """
-
-    # 1) Find the two dominant peaks
+    # 1) Find the dominant peaks
     p1, p2 = _find_two_kde_peaks_circular(
         angle_hist,
         peak_prominence=peak_prominence,
@@ -607,11 +830,11 @@ def analyze_two_orientation_families(
     lo, hi = angle_hist["range"]
     period = hi - lo
 
-    # 2) Mid-split angle (diagnostics only)
+    # 2) Mid-split angle
     diff_p = _ang_diff_signed_deg(p2, p1, period=period)
     split_deg = float(((p1 + 0.5 * diff_p) - lo) % period + lo)
 
-    # 3) Assign angles to closest peak
+    # 3) Family assignment
     ang = angle_hist["angles_deg"]
     w   = angle_hist["weights"]
 
@@ -621,45 +844,25 @@ def analyze_two_orientation_families(
     mask1 = d1 <= d2
     mask2 = ~mask1
 
-    ang1 = ang[mask1]
-    ang2 = ang[mask2]
-    w1   = w[mask1]
-    w2   = w[mask2]
+    ang1, ang2 = ang[mask1], ang[mask2]
+    w1,   w2   = w[mask1],   w[mask2]
 
-    # 4) Circular stats per family
+    # 4) Stats (extended)
     stats1 = _circular_family_stats(ang1, w1, angle_range=(lo, hi))
     stats2 = _circular_family_stats(ang2, w2, angle_range=(lo, hi))
 
-    # ----------------------------------------------------------------------
-    # 5) Compute rotation angle: smallest rotation moving dominant family
-    #    mean angle into either 0° (horizontal) or 90° (vertical).
-    # ----------------------------------------------------------------------
-
-    # Determine dominant family by total weighted contribution
+    # 5) Rotation angle (same logic)
     if stats1["total_weight"] >= stats2["total_weight"]:
         mean_deg = stats1["mean_deg"]
     else:
         mean_deg = stats2["mean_deg"]
 
-    # Normalize mean angle into [-45, +135)
     mean_deg_n = ((mean_deg - lo) % period) + lo
 
-    # Candidates: align to 0° or 90°
-    # rotation = target - mean
-    rot_h = 0.0  - mean_deg_n      # to horizontal
-    rot_v = 90.0 - mean_deg_n      # to vertical
+    rot_h = (0.0  - mean_deg_n + 90.0) % 180.0 - 90.0
+    rot_v = (90.0 - mean_deg_n + 90.0) % 180.0 - 90.0
 
-    # Wrap both into [-90, +90] domain
-    rot_h = ((rot_h + 90.0) % 180.0) - 90.0
-    rot_v = ((rot_v + 90.0) % 180.0) - 90.0
-
-    # Choose rotation with smaller absolute value
-    if abs(rot_h) <= abs(rot_v):
-        rotation_angle = rot_h
-    else:
-        rotation_angle = rot_v
-
-    # Also clamp to [-45, +45] if preferred
+    rotation_angle = rot_h if abs(rot_h) <= abs(rot_v) else rot_v
     if rotation_angle < -45.0:
         rotation_angle += 90.0
     elif rotation_angle > 45.0:
@@ -671,13 +874,17 @@ def analyze_two_orientation_families(
         "family1": stats1,
         "family2": stats2,
         "rotation_angle_deg": float(rotation_angle),
+
+        # NEW: expose per-family KDE kappa
+        "kde_kappa_1": stats1["kde_kappa"],
+        "kde_kappa_2": stats2["kde_kappa"],
     }
 
 
 def apply_rotation_correction(
     img: np.ndarray,
     analysis: Dict[str, Any],
-    border_value: Tuple[int, int, int] | int = 255,
+    border_value: Tuple[int, int, int] | int = (255, 255, 255),
 ) -> np.ndarray:
     """
     Apply compensating rotation to an image based on angle-analysis result.
@@ -712,7 +919,7 @@ def apply_rotation_correction(
     # Compute rotation matrix
     M = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
 
-    # Warp — preserve dtype
+    # Warp - preserve dtype
     rotated = cv2.warpAffine(
         img,
         M,
@@ -1252,36 +1459,196 @@ def plot_angle_histogram_with_kde(hist_info: Dict[str, np.ndarray]):
     plt.show()
 
 
+def plot_family_kdes(hist, analysis, fam_kdes, title="KDE FAMILY DIAGNOSTICS"):
+    """
+    Plot:
+        - Global histogram
+        - Combined KDE (scaled to global hist)
+        - Family 1 histogram + KDE (scaled to family1 hist)
+        - Family 2 histogram + KDE (scaled to family2 hist)
+        - Peaks and split
+    """
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    lo, hi = hist["range"]
+    p1, p2 = analysis["peaks"]
+    split = analysis["split_deg"]
+
+    # ---------------------------------------------------------
+    # Extract histograms + KDEs
+    # ---------------------------------------------------------
+    g_hist_x = hist["hist_x"]
+    g_hist_y = hist["hist_y"]
+
+    f1 = fam_kdes["fam1"]
+    f2 = fam_kdes["fam2"]
+    comb = fam_kdes["combined"]
+
+    # Family histograms
+    f1_hist_x = f1["hist_x"]
+    f1_hist_y = f1["hist_y"]
+    f2_hist_x = f2["hist_x"]
+    f2_hist_y = f2["hist_y"]
+
+    # KDE x-axis
+    kx = comb["kde_x"]
+
+    # KDE y-values
+    kde_comb = comb["kde_y"]
+    kde_f1 = f1["kde_y"]
+    kde_f2 = f2["kde_y"]
+
+    # ---------------------------------------------------------
+    # KDE -> Histogram scaling **per family**
+    # ---------------------------------------------------------
+    def scale_to_hist(kde_y, hist_y):
+        hmax = max(hist_y.max(), 1e-12)
+        kmax = max(kde_y.max(), 1e-12)
+        return kde_y * (hmax / kmax)
+
+    kde_comb_s = scale_to_hist(kde_comb, g_hist_y)
+    kde_f1_s   = scale_to_hist(kde_f1, f1_hist_y)
+    kde_f2_s   = scale_to_hist(kde_f2, f2_hist_y)
+
+    # ---------------------------------------------------------
+    # Plotting
+    # ---------------------------------------------------------
+    plt.figure(figsize=(14, 6))
+    w = np.diff(g_hist_x).mean()
+
+    # Global histogram
+    plt.bar(
+        g_hist_x, g_hist_y,
+        width=w,
+        alpha=0.30,
+        label="Global histogram",
+        color="tab:cyan",
+    )
+
+    # ------------------ KDEs ------------------
+
+    # Combined KDE (global scaled)
+    plt.plot(
+        kx, kde_comb_s,
+        "k-", lw=2,
+        label="Combined KDE (scaled)"
+    )
+
+    # Family-1 KDE
+    plt.plot(
+        f1["kde_x"], kde_f1_s,
+        "r--", lw=2,
+        label=f"Family 1 KDE (scaled, bw={f1['bw_deg']:.2f}deg)"
+    )
+
+    # Family-2 KDE
+    plt.plot(
+        f2["kde_x"], kde_f2_s,
+        "b--", lw=2,
+        label=f"Family 2 KDE (scaled, bw={f2['bw_deg']:.2f}deg)"
+    )
+
+    # ------------------ Peaks & split ------------------
+    plt.axvline(p1, color="r", ls="-", lw=1)
+    plt.axvline(p2, color="b", ls="-", lw=1)
+    plt.axvline(split, color="g", ls=":", lw=2, label="Split angle")
+
+    # ------------------ Layout ------------------
+    plt.xlim(lo, hi)
+    plt.xlabel("Angle (deg)")
+    plt.ylabel("Counts (hist) / KDE (scaled)")
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 def print_angle_analysis_console(
     hist_info: Dict[str, np.ndarray],
     analysis: Dict[str, Any],
+    fam_kdes: Dict[str, Any],
     title: str = "ANGLE ANALYSIS REPORT",
 ):
     """
-    Pretty-print orientation family analysis to console.
+    Pretty-print extended orientation family analysis to console.
 
-    Expected analysis fields:
-        - peaks : [p1, p2]
-        - split_deg
-        - family1 : stats dict
-        - family2 : stats dict
-        - rotation_angle_deg : deskew/rectification angle
+    Now includes:
+        - KDE bandwidth per family
+        - Circular skewness / kurtosis per family
+        - Effective sample size per family
 
-    Expected hist_info fields:
-        - raw_count
-        - raw_weight
-        - range
+    Parameters
+    ----------
+    hist_info : dict
+        Output of compute_angle_histogram_circular_weighted()
+    analysis : dict
+        Output of analyze_two_orientation_families()
+    fam_kdes : dict
+        Output of compute_family_kdes()
     """
+
     lo, hi = hist_info["range"]
     p1, p2 = analysis["peaks"]
-    rot = analysis.get("rotation_angle_deg", None)
+    rot = analysis.get("rotation_angle_deg")
 
     fam1 = analysis["family1"]
     fam2 = analysis["family2"]
+    f1 = fam_kdes["fam1"]
+    f2 = fam_kdes["fam2"]
 
+    # ---------- circular skew & kurtosis ----------
+    def _circular_moments(angles_deg: np.ndarray, weights: np.ndarray):
+        if len(angles_deg) == 0:
+            return None, None
+
+        ang = np.deg2rad(angles_deg)
+        w = weights / np.sum(weights)
+
+        C = np.sum(w * np.cos(ang))
+        S = np.sum(w * np.sin(ang))
+        R = np.hypot(C, S)
+
+        # harmonics
+        C2 = np.sum(w * np.cos(2 * ang))
+        S2 = np.sum(w * np.sin(2 * ang))
+
+        # skew / kurtosis for circular
+        if (1 - R) < 1e-9:
+            return 0.0, 0.0
+
+        skew = S2 / (1 - R)
+        kurt = (C2 - R**2) / ((1 - R)**2)
+
+        return float(skew), float(kurt)
+
+    # ---------- formatting ----------
     def fmt(x):
         return f"{x:8.3f}" if isinstance(x, (float, np.floating)) else str(x)
 
+    def print_family(name, stats, kde):
+        skew, kurt = _circular_moments(kde["angles"], kde["weights"])
+        bw = kde["bw_deg"]
+        eff_n = (kde["weights"].sum())**2 / np.sum(kde["weights"]**2)
+
+        print(f"{name}")
+        print("-" * len(name))
+        print(f"  Count                : {stats['count']}")
+        print(f"  Total weight         : {stats['total_weight']:.3f}")
+        print(f"  Mean angle (deg)     : {fmt(stats['mean_deg'])}")
+        print(f"  Circular variance    : {fmt(stats['circ_var'])}")
+        print(f"  Resultant length R   : {fmt(stats['R'])}")
+        print(f"  Kappa (von Mises)    : {fmt(stats['kappa'])}")
+        print(f"  KDE bandwidth (deg)  : {fmt(bw)}")
+        print(f"  Skewness             : {fmt(skew)}")
+        print(f"  Kurtosis             : {fmt(kurt)}")
+        print(f"  Effective N          : {eff_n:8.1f}")
+        print("")
+
+    # ----------------------------------------------------------------------
+    # PRINT REPORT
+    # ----------------------------------------------------------------------
     print("\n" + "=" * 68)
     print(f"  {title}")
     print("=" * 68)
@@ -1300,19 +1667,191 @@ def print_angle_analysis_console(
         print(f"  Rotation (deskew)    : {rot:.3f} deg")
     print("")
 
-    # ------- helper block -------
-    def print_family(name, stats):
-        print(f"{name}")
-        print("-" * len(name))
-        print(f"  Count                : {stats['count']}")
-        print(f"  Total weight         : {stats['total_weight']:.3f}")
-        print(f"  Mean angle (deg)     : {fmt(stats['mean_deg'])}")
-        print(f"  Circular variance    : {fmt(stats['circ_var'])}")
-        print(f"  Resultant length R   : {fmt(stats['R'])}")
-        print(f"  K (von Mises)        : {fmt(stats['kappa'])}")
-        print("")
-
-    print_family("FAMILY 1", fam1)
-    print_family("FAMILY 2", fam2)
+    print_family("FAMILY 1", fam1, f1)
+    print_family("FAMILY 2", fam2, f2)
 
     print("=" * 68 + "\n")
+
+
+def print_family_stats_extended(
+    name: str,
+    stats: Dict[str, Any],
+    fam_kde: Dict[str, Any],
+):
+    """
+    Richer console output per family:
+        - circular moments
+        - KDE bandwidth
+        - effective sample size
+    """
+
+    skew, kurt = _circular_moments(fam_kde["angles"], fam_kde["weights"])
+    bw = fam_kde["bw_deg"]
+    eff_n = (fam_kde["weights"].sum())**2 / np.sum(fam_kde["weights"]**2)
+
+    def fmt(x):
+        return f"{x:8.3f}" if isinstance(x, (float, np.floating)) else str(x)
+
+    print(f"{name}")
+    print("-" * len(name))
+    print(f"  Count                : {stats['count']}")
+    print(f"  Total weight         : {stats['total_weight']:.3f}")
+    print(f"  Mean angle (deg)     : {fmt(stats['mean_deg'])}")
+    print(f"  Circular variance    : {fmt(stats['circ_var'])}")
+    print(f"  Resultant length R   : {fmt(stats['R'])}")
+    print(f"  Kappa (von Mises)    : {fmt(stats['kappa'])}")
+    print(f"  KDE bandwidth (deg)  : {fmt(bw)}")
+    print(f"  Skewness             : {fmt(skew)}")
+    print(f"  Kurtosis             : {fmt(kurt)}")
+    print(f"  Effective N          : {eff_n:8.1f}")
+    print("")
+
+
+def _circular_silverman_bw(angles_rad: np.ndarray) -> float:
+    """
+    Silverman's rule adapted for circular domain.
+    Returns bandwidth in radians.
+    """
+    if angles_rad.size < 2:
+        return 0.2  # fallback small bw
+
+    # unwrap to avoid artificial discontinuity
+    unwrapped = np.unwrap(angles_rad)
+    std = np.std(unwrapped)
+
+    bw = 1.06 * std * (angles_rad.size ** (-1 / 5))
+    return max(bw, np.deg2rad(1.0))  # avoid collapse
+
+
+def _wrapped_gaussian_kde(
+    angles_deg: np.ndarray,
+    weights: np.ndarray,
+    kde_x: np.ndarray,
+    bw_rad: float,
+    lo: float,
+    hi: float,
+) -> np.ndarray:
+    """
+    Compute wrapped-Gaussian KDE on domain [lo, hi) using bandwidth bw_rad.
+    """
+    period = hi - lo
+    out = np.zeros_like(kde_x)
+
+    ang_rad = np.deg2rad(angles_deg)
+    kx_rad = np.deg2rad(kde_x)
+
+    for shift in (-period, 0.0, +period):
+        shifted = np.deg2rad(angles_deg + shift)
+        d = kx_rad[:, None] - shifted[None, :]
+        out += np.sum(weights * np.exp(-(d ** 2) / (2 * bw_rad ** 2)), axis=1)
+
+    out /= (np.sqrt(2 * np.pi) * bw_rad)
+    return out / np.sum(out)  # normalize to unit mass        
+
+
+def compute_family_kdes(
+    hist: Dict[str, np.ndarray],
+    analysis: Dict[str, Any],
+    kde_samples: int = 720,
+) -> Dict[str, Any]:
+    """
+    Compute per-family wrapped Gaussian KDEs using auto-bandwidth.
+    Produce a fixed-format hist-like dict:
+        fam1_hist_x, fam1_hist_y, fam1_kde_x, fam1_kde_y
+        fam2_hist_x, fam2_hist_y, fam2_kde_x, fam2_kde_y
+        comb_kde_x, comb_kde_y
+    """
+
+    lo, hi = hist["range"]
+    period = hi - lo
+
+    # Extract global info
+    ang = hist["angles_deg"]
+    w = hist["weights"]
+
+    # Split using analysis masks
+    p1, p2 = analysis["peaks"]
+    d1 = np.abs(((ang - p1 + period/2) % period) - period/2)
+    d2 = np.abs(((ang - p2 + period/2) % period) - period/2)
+    mask1 = d1 <= d2
+    mask2 = ~mask1
+
+    a1, w1 = ang[mask1], w[mask1]
+    a2, w2 = ang[mask2], w[mask2]
+
+    # Histograms per family
+    bins = len(hist["hist_y"])
+    edges = np.linspace(lo, hi, bins + 1)
+
+    h1, _ = np.histogram(a1, bins=bins, range=(lo, hi), weights=w1)
+    h2, _ = np.histogram(a2, bins=bins, range=(lo, hi), weights=w2)
+    hx = 0.5 * (edges[:-1] + edges[1:])
+
+    # KDE X axis
+    kde_x = np.linspace(lo, hi, kde_samples, endpoint=False)
+
+    # Auto bandwidth per family
+    bw1 = _circular_silverman_bw(np.deg2rad(a1)) if len(a1) else np.deg2rad(3)
+    bw2 = _circular_silverman_bw(np.deg2rad(a2)) if len(a2) else np.deg2rad(3)
+
+    # KDEs
+    kde1 = _wrapped_gaussian_kde(a1, w1, kde_x, bw1, lo, hi) if len(a1) else np.zeros_like(kde_x)
+    kde2 = _wrapped_gaussian_kde(a2, w2, kde_x, bw2, lo, hi) if len(a2) else np.zeros_like(kde_x)
+
+    # Combined KDE
+    total = w1.sum() + w2.sum()
+    comb = kde1 * (w1.sum() / total) + kde2 * (w2.sum() / total)
+
+    return {
+        "fam1": {
+            "angles": a1,
+            "weights": w1,
+            "hist_x": hx,
+            "hist_y": h1,
+            "kde_x": kde_x,
+            "kde_y": kde1,
+            "bw_deg": np.rad2deg(bw1),
+        },
+        "fam2": {
+            "angles": a2,
+            "weights": w2,
+            "hist_x": hx,
+            "hist_y": h2,
+            "kde_x": kde_x,
+            "kde_y": kde2,
+            "bw_deg": np.rad2deg(bw2),
+        },
+        "combined": {
+            "kde_x": kde_x,
+            "kde_y": comb,
+        }
+    }
+
+
+def _circular_moments(angles_deg: np.ndarray, weights: np.ndarray):
+    """
+    Return circular skewness and kurtosis from angles and weights.
+    Fisher-style estimators for directional statistics.
+    """
+    if len(angles_deg) == 0:
+        return None, None
+
+    ang = np.deg2rad(angles_deg)
+    w = weights / np.sum(weights)
+
+    C = np.sum(w * np.cos(ang))
+    S = np.sum(w * np.sin(ang))
+    R = np.hypot(C, S)
+
+    # 2nd and 3rd harmonics
+    C2 = np.sum(w * np.cos(2 * ang))
+    S2 = np.sum(w * np.sin(2 * ang))
+    C3 = np.sum(w * np.cos(3 * ang))
+    S3 = np.sum(w * np.sin(3 * ang))
+
+    # Circular skewness & kurtosis
+    skew = S2 / (1 - R) if (1 - R) > 1e-9 else 0.0
+    kurt = (C2 - R**2) / (1 - R)**2 if (1 - R) > 1e-9 else 0.0
+
+    return float(skew), float(kurt)
+

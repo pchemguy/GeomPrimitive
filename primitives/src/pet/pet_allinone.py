@@ -30,7 +30,6 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import cv2
 import numpy as np
 
-
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
@@ -39,12 +38,11 @@ from pet_geom import (
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
     analyze_two_orientation_families, print_angle_analysis_console,
+    compute_family_kdes, plot_family_kdes,
     filter_grid_segments, estimate_vanishing_points,
     refine_principal_point_from_vps, split_segments_by_angle_circular,
     mark_segments, mark_segment_families, 
 )
-
-
 
 from pet_utils import image_loader, save_image
 
@@ -116,7 +114,9 @@ def main(image_path: Optional[str] = None) -> None:
     # -------------------
     analysis = analyze_two_orientation_families(hist)
     analysis_weighted = analyze_two_orientation_families(hist_weighted)
-    print_angle_analysis_console(hist, analysis)
+    fam_kdes = compute_family_kdes(hist_weighted, analysis_weighted)
+    print_angle_analysis_console(hist_weighted, analysis_weighted, fam_kdes)
+    plot_family_kdes(hist_weighted, analysis_weighted, fam_kdes)
 
     # Plot histograms
     # ---------------
