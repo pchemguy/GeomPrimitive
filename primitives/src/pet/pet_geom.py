@@ -1168,32 +1168,62 @@ def apply_rotation_correction(
 
 
 def reassign_and_rotate_families_by_image_center(
-    families: Dict[str, np.ndarray],
+    families: Dict[str, Dict[str, np.ndarray]],
     analysis: Dict[str, Any],
     img: np.ndarray,
-) -> Dict[str, np.ndarray]:
+) -> Dict[str, Dict[str, np.ndarray]]:
     """
-    Reassign families (xfam/yfam) based on angle (>45deg => yfam),
-    then rotate all segment endpoints around the IMAGE CENTER.
+    Reassign families (xfam/yfam) based on median angle,
+    then rotate all segment endpoints, centers, and angles
+    around the *image center*.
 
-    The rotation returned will have the correct segment geometry.
+    The returned structure contains the same fields as input families:
+        "lines", "widths", "precisions", "nfa",
+        "lengths", "centers", "angles"
+
+    After rotation, centers are recomputed from rotated segments,
+    and angles are adjusted by subtracting the rotation angle.
+
+    Output:
+        {
+            "xfam": {... full rotated dict ...},
+            "yfam": {... full rotated dict ...},
+            "xfam_angle": median_angle,
+            "yfam_angle": median_angle,
+            "pivot": (cx, cy)
+        }
     """
-    f1 = np.asarray(families["family1"], float)
-    f2 = np.asarray(families["family2"], float)
-    a1 = np.asarray(families["angles1"], float)
-    a2 = np.asarray(families["angles2"], float)
 
-    if f1.size == 0 and f2.size == 0:
+    # -----------------------------
+    # Extract family1 / family2
+    # -----------------------------
+    f1 = families["family1"]
+    f2 = families["family2"]
+
+    lines1 = np.asarray(f1["lines"], float)
+    lines2 = np.asarray(f2["lines"], float)
+    ang1   = np.asarray(f1["angles"], float)
+    ang2   = np.asarray(f2["angles"], float)
+
+    # Empty case
+    if lines1.size == 0 and lines2.size == 0:
+        empty = {k: np.zeros((0,), float) for k in
+                 ["widths","precisions","nfa","lengths","angles"]}
+        empty["lines"]   = np.zeros((0,4), float)
+        empty["centers"] = np.zeros((0,2), float)
         return {
-            "xfam": f1,
-            "yfam": f2,
+            "xfam": empty,
+            "yfam": empty,
             "xfam_angle": None,
             "yfam_angle": None,
             "pivot": (0.0, 0.0),
         }
 
-    med1 = float(np.median(a1)) if a1.size else 0.0
-    med2 = float(np.median(a2)) if a2.size else 0.0
+    # -----------------------------
+    # Determine which is X vs Y
+    # -----------------------------
+    med1 = float(np.median(ang1)) if ang1.size else 0.0
+    med2 = float(np.median(ang2)) if ang2.size else 0.0
 
     if med1 > med2:
         yfam_raw, xfam_raw = f1, f2
@@ -1202,95 +1232,81 @@ def reassign_and_rotate_families_by_image_center(
         yfam_raw, xfam_raw = f2, f1
         yang, xang = med2, med1
 
+    # -----------------------------
+    # Compute image pivot
+    # -----------------------------
     H, W = img.shape[:2]
-    cx = float(W * 0.5)
-    cy = float(H * 0.5)
-    pivot = np.array([cx, cy], dtype=float)
+    cx = W * 0.5
+    cy = H * 0.5
+    pivot = np.array([cx, cy], float)
 
+    # -----------------------------
+    # Rotation matrix
+    # -----------------------------
     angle_deg = float(analysis["rotation_angle_deg"])
     theta = np.deg2rad(angle_deg)
 
     R = np.array([
         [ np.cos(theta),  np.sin(theta) ],
         [ -np.sin(theta), np.cos(theta) ],
-    ], dtype=float)
+    ], float)
 
-    def rotate_segments_proper(segs: np.ndarray) -> np.ndarray:
-        if segs.size == 0:
-            return segs
-        p1 = segs[:, 0:2]
-        p2 = segs[:, 2:4]
+    # -----------------------------
+    # Rotate segments, centers, angles
+    # -----------------------------
+    def rotate_family(fam: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """
+        Rotate lines, centers, and angles for a single family.
+        Preserve all other LSD metadata unchanged.
+        """
+        lines = np.asarray(fam["lines"], float)
+        centers = np.asarray(fam["centers"], float)
+        angles = np.asarray(fam["angles"], float)
+
+        if lines.size == 0:
+            return {k: fam[k] for k in fam}
+
+        # ---- Rotate endpoints ----
+        p1 = lines[:, 0:2]
+        p2 = lines[:, 2:4]
+
         p1r = (p1 - pivot) @ R.T + pivot
         p2r = (p2 - pivot) @ R.T + pivot
-        return np.hstack([p1r, p2r])
+        lines_r = np.hstack([p1r, p2r])
 
-    xfam_rot = rotate_segments_proper(xfam_raw)
-    yfam_rot = rotate_segments_proper(yfam_raw)
+        # ---- Recompute centers from rotated segments ----
+        centers_r = np.column_stack([
+            0.5 * (lines_r[:, 0] + lines_r[:, 2]),
+            0.5 * (lines_r[:, 1] + lines_r[:, 3])
+        ])
 
+        # ---- Rotate angles ----
+        angles_r = angles - angle_deg
+        angles_r = ((angles_r + 180) % 180) - 90
+
+        # ---- Return same fields ----
+        return {
+            "lines":      lines_r,
+            "widths":     fam["widths"],
+            "precisions": fam["precisions"],
+            "nfa":        fam["nfa"],
+            "lengths":    fam["lengths"],
+            "centers":    centers_r,
+            "angles":     angles_r,
+        }
+
+    xfam_rot = rotate_family(xfam_raw)
+    yfam_rot = rotate_family(yfam_raw)
+
+    # -----------------------------
+    # Final return
+    # -----------------------------
     return {
         "xfam": xfam_rot,
         "yfam": yfam_rot,
         "xfam_angle": xang,
         "yfam_angle": yang,
         "pivot": (cx, cy),
-    }
-
-
-def compute_centerline_arrays(fams_rot: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-    """
-    Convert rotated xfam/yfam segments into center-point arrays:
-        [xc, yc, length]
-
-    Sorting rule:
-        - xfam (vertical-ish):  sort by yc
-        - yfam (horizontal-ish): sort by xc
-
-    Parameters
-    ----------
-    fams_rot : dict
-        Output of reassign_and_rotate_families_by_image_center().
-        Must contain "xfam" and "yfam" arrays.
-
-    Returns
-    -------
-    dict with:
-        {
-            "xcenters": (Nx,3) array [[xc,yc,length], ...],
-            "ycenters": (Ny,3) array
-        }
-    """
-    xfam = np.asarray(fams_rot["xfam"], float)
-    yfam = np.asarray(fams_rot["yfam"], float)
-
-    # ----------------------------------------
-    # Helper: convert (N,4) -> (N,3) array
-    # ----------------------------------------
-    def segs_to_centers(segs: np.ndarray) -> np.ndarray:
-        if segs.size == 0:
-            return np.zeros((0, 3), float)
-        x1 = segs[:, 0]
-        y1 = segs[:, 1]
-        x2 = segs[:, 2]
-        y2 = segs[:, 3]
-        xc = 0.5 * (x1 + x2)
-        yc = 0.5 * (y1 + y2)
-        lg = np.hypot(x2 - x1, y2 - y1)
-        return np.column_stack([xc, yc, lg])
-
-    xcenters = segs_to_centers(xfam)
-    ycenters = segs_to_centers(yfam)
-
-    # ----------------------------------------
-    # Sorting rule
-    # ----------------------------------------
-    if xcenters.size > 0:
-        xcenters = xcenters[np.argsort(xcenters[:, 1])]   # sort by yc
-    if ycenters.size > 0:
-        ycenters = ycenters[np.argsort(ycenters[:, 0])]   # sort by xc
-
-    return {
-        "xcenters": xcenters,
-        "ycenters": ycenters,
     }
 
 
@@ -1360,41 +1376,59 @@ def draw_centerline_arrays(
 
 
 def plot_rotated_family_length_histograms(
-    rotated_families: Dict[str, np.ndarray],
+    rotated_families: Dict[str, Dict[str, np.ndarray]],
     bin_size: float = 10.0,
     title: str = "Segment Length Distribution (Rotated Families)",
 ) -> None:
     """
     Produce two stacked histograms:
-        Top   - Y-family (vertical) segment length distribution (blue)
-        Bottom - X-family (horizontal) segment length distribution (red)
+        Top    - Y-family (vertical-ish) segment length distribution (blue)
+        Bottom - X-family (horizontal-ish) segment length distribution (red)
 
     Parameters
     ----------
     rotated_families : dict
         Output of reassign_and_rotate_families_by_image_center().
-        Must contain "xfam" and "yfam" as (N,4) arrays.
+        Must contain:
+            rotated_families["xfam"]["lines"]
+            rotated_families["xfam"]["lengths"]
+            rotated_families["yfam"]["lines"]
+            rotated_families["yfam"]["lengths"]
+
     bin_size : float
         Histogram bin width in pixels.
+
     title : str
         Figure title.
     """
 
-    xfam = np.asarray(rotated_families["xfam"], float)
-    yfam = np.asarray(rotated_families["yfam"], float)
+    # -----------------------------------------------------
+    # Extract lines + lengths safely (new structure)
+    # -----------------------------------------------------
+    xfam = rotated_families.get("xfam", {})
+    yfam = rotated_families.get("yfam", {})
 
-    # ---- Compute lengths ----
-    def seg_lengths(lines: np.ndarray) -> np.ndarray:
-        if lines.size == 0:
-            return np.zeros(0)
-        dx = lines[:, 2] - lines[:, 0]
-        dy = lines[:, 3] - lines[:, 1]
-        return np.hypot(dx, dy)
+    x_lines = np.asarray(xfam.get("lines", np.zeros((0,4))), float)
+    y_lines = np.asarray(yfam.get("lines", np.zeros((0,4))), float)
 
-    x_lengths = seg_lengths(xfam)
-    y_lengths = seg_lengths(yfam)
+    # Prefer precomputed LSD lengths (correct)
+    x_lengths = np.asarray(xfam.get("lengths", np.zeros(0)), float)
+    y_lengths = np.asarray(yfam.get("lengths", np.zeros(0)), float)
 
-    # ---- Compute histogram bin edges from bin_size ----
+    # Fallback: compute if missing
+    if x_lengths.size != x_lines.shape[0]:
+        dx = x_lines[:, 2] - x_lines[:, 0]
+        dy = x_lines[:, 3] - x_lines[:, 1]
+        x_lengths = np.hypot(dx, dy)
+
+    if y_lengths.size != y_lines.shape[0]:
+        dx = y_lines[:, 2] - y_lines[:, 0]
+        dy = y_lines[:, 3] - y_lines[:, 1]
+        y_lengths = np.hypot(dx, dy)
+
+    # -----------------------------------------------------
+    # Compute histogram edges
+    # -----------------------------------------------------
     def compute_edges(lengths: np.ndarray, bin_size: float) -> np.ndarray:
         if lengths.size == 0:
             return np.array([0, 1], float)
@@ -1406,7 +1440,9 @@ def plot_rotated_family_length_histograms(
     edges_y = compute_edges(y_lengths, bin_size)
     edges_x = compute_edges(x_lengths, bin_size)
 
-    # ---- Plot ----
+    # -----------------------------------------------------
+    # Plot
+    # -----------------------------------------------------
     fig, (ax1, ax2) = plt.subplots(
         2, 1, figsize=(10, 7),
         sharex=False,
@@ -1415,7 +1451,7 @@ def plot_rotated_family_length_histograms(
 
     plt.suptitle(title, fontsize=14, y=0.97)
 
-    # --- Y-family (top) ---
+    # ---- Y-family (top, blue)
     ax1.hist(
         y_lengths,
         bins=edges_y,
@@ -1426,7 +1462,7 @@ def plot_rotated_family_length_histograms(
     ax1.set_ylabel("Count")
     ax1.set_title("Y-family Length Distribution (vertical lines)")
 
-    # --- X-family (bottom) ---
+    # ---- X-family (bottom, red)
     ax2.hist(
         x_lengths,
         bins=edges_x,
@@ -2308,69 +2344,133 @@ def filter_grid_segments(
 # ============================================================================
 
 def split_segments_by_angle_circular(
-    segments: np.ndarray,
+    raw_lsd: Dict[str, np.ndarray],
     angle_info: Dict[str, np.ndarray],
     analysis: Dict[str, Any],
     angle_range: Tuple[float, float] = (-45.0, 135.0),
 ) -> Dict[str, np.ndarray]:
     """
-    Split raw segments into two angular families based on KDE-derived
-    peak positions. Returns segments AND their corresponding angles.
+    Split LSD segments into two angular families based on KDE-derived peak
+    separation.  The function takes the full raw_lsd structure:
 
-    Returns:
         {
-            "family1":  segments in family 1
-            "family2":  segments in family 2
-            "angles1":  angles belonging to family 1 (deg normalized)
-            "angles2":  angles belonging to family 2 (deg normalized)
-            "labels" :  array(N,) of 0/1 assignments
+            "lines": (N,4),
+            "widths": (N,),
+            "precisions": (N,),
+            "nfa": (N,),
+            "lengths": (N,),
+            "centers": (N,2)
+        }
+
+    Returns ONLY per-family subsets (NO labels field):
+
+        {
+            "family1": {
+                "lines": ...,
+                "widths": ...,
+                "precisions": ...,
+                "nfa": ...,
+                "lengths": ...,
+                "centers": ...,
+                "angles": ...,
+            },
+            "family2": { ...same fields... },
+            "angles1": 1D array of angles for family1,
+            "angles2": 1D array of angles for family2,
         }
     """
 
-    if segments.size == 0:
+    # ------------------------------
+    # Validate input
+    # ------------------------------
+    required_keys = ["lines", "widths", "precisions", "nfa", "lengths", "centers"]
+    for k in required_keys:
+        if k not in raw_lsd:
+            raise KeyError(f"raw_lsd missing required key '{k}'")
+
+    segments   = np.asarray(raw_lsd["lines"])
+    widths     = np.asarray(raw_lsd["widths"])
+    precisions = np.asarray(raw_lsd["precisions"])
+    nfa        = np.asarray(raw_lsd["nfa"])
+    lengths    = np.asarray(raw_lsd["lengths"])
+    centers    = np.asarray(raw_lsd["centers"])
+
+    N = segments.shape[0]
+    if N == 0:
+        empty = {
+            "lines": np.zeros((0,4), float),
+            "widths": np.zeros((0,), float),
+            "precisions": np.zeros((0,), float),
+            "nfa": np.zeros((0,), float),
+            "lengths": np.zeros((0,), float),
+            "centers": np.zeros((0,2), float),
+            "angles": np.zeros((0,), float),
+        }
         return {
-            "family1": segments,
-            "family2": segments,
-            "angles1": np.zeros((0,), float),
-            "angles2": np.zeros((0,), float),
-            "labels": np.zeros(0, int),
+            "family1": empty,
+            "family2": empty,
+            "angles1": empty["angles"],
+            "angles2": empty["angles"],
         }
 
-    # ----------------------------
-    # Extract angles (correct field)
-    # ----------------------------
+    # ------------------------------
+    # Angles
+    # ------------------------------
     if "angles_deg" not in angle_info:
         raise KeyError("angle_info must contain 'angles_deg' from compute_segment_angles()")
 
     angles = np.asarray(angle_info["angles_deg"], float)
+    if angles.shape[0] != N:
+        raise ValueError(
+            f"Angle array has {angles.shape[0]} items but segments have {N}"
+        )
 
-    # ----------------------------
-    # Extract peak split from analysis
-    # ----------------------------
+    # ------------------------------
+    # Peak split from analysis
+    # ------------------------------
     p1, p2 = analysis["peaks"]
     split_deg = float(analysis["split_deg"])
 
-    # Normalize split into domain [-45, 135)
+    # Normalize split into domain [-45,135)
     amin, amax = angle_range
     split_norm = ((split_deg - amin) % 180.0) + amin
 
-    # ----------------------------
-    # Assign families based on strict split
-    # ----------------------------
+    # ------------------------------
+    # Assign families
+    # ------------------------------
     labels = (angles > split_norm).astype(int)
 
-    family1 = segments[labels == 0]
-    family2 = segments[labels == 1]
+    # Masks
+    m1 = labels == 0
+    m2 = labels == 1
 
-    angles1 = angles[labels == 0]
-    angles2 = angles[labels == 1]
+    # ------------------------------
+    # Build family outputs
+    # ------------------------------
+    family1 = {
+        "lines":      segments[m1],
+        "widths":     widths[m1],
+        "precisions": precisions[m1],
+        "nfa":        nfa[m1],
+        "lengths":    lengths[m1],
+        "centers":    centers[m1],
+        "angles":     angles[m1],
+    }
+    family2 = {
+        "lines":      segments[m2],
+        "widths":     widths[m2],
+        "precisions": precisions[m2],
+        "nfa":        nfa[m2],
+        "lengths":    lengths[m2],
+        "centers":    centers[m2],
+        "angles":     angles[m2],
+    }
 
     return {
         "family1": family1,
         "family2": family2,
-        "angles1": angles1,
-        "angles2": angles2,
-        "labels": labels,
+        "angles1": angles[m1],
+        "angles2": angles[m2],
     }
 
 
@@ -2844,66 +2944,90 @@ def draw_famxy_on_image(
     fam_dict: dict,
     color_x=(0, 0, 255),
     color_y=(255, 0, 0),
+    draw_centers=True,
+    center_radius=1,
     draw_pivot=True,
     thickness=1,
 ) -> np.ndarray:
     """
-    Draw rotated X/Y line families on top of an image using OpenCV.
+    Draw rotated X/Y line families on top of an image using OpenCV,
+    compatible with the NEW family structure returned by
+    reassign_and_rotate_families_by_image_center().
 
-    Parameters
-    ----------
-    img : ndarray
-        BGR image (uint8 or float). Will not be modified; copy returned.
-    fam_dict : dict
-        Output of reassign_and_rotate_families_by_image_center(), containing:
-            - "xfam" : (N1,4) rotated segments
-            - "yfam" : (N2,4) rotated segments
-            - "pivot": (cx, cy)
-    color_x : tuple
-        BGR color for X-family (default red).
-    color_y : tuple
-        BGR color for Y-family (default blue).
-    draw_pivot : bool
-        If True, a small cross is drawn at the rotation pivot.
-    thickness : int
-        Line thickness.
-
-    Returns
-    -------
-    out : ndarray
-        Image with lines drawn (same dtype as input).
+    fam_dict must contain:
+        fam_dict["xfam"] = {
+            "lines": (Nx,4),
+            "centers": (Nx,2),
+            ... other LSD fields ...
+        }
+        fam_dict["yfam"] = { same structure }
+        fam_dict["pivot"] = (cx, cy)
     """
 
     out = img.copy()
 
-    xfam = np.asarray(fam_dict.get("xfam", []), float)
-    yfam = np.asarray(fam_dict.get("yfam", []), float)
+    # Extract family dicts
+    xfam = fam_dict.get("xfam", {})
+    yfam = fam_dict.get("yfam", {})
+
+    # Extract segments (safe fallback to empty arrays)
+    x_lines = np.asarray(xfam.get("lines", np.zeros((0,4))), float)
+    y_lines = np.asarray(yfam.get("lines", np.zeros((0,4))), float)
+
+    # Extract centers if present
+    x_centers = np.asarray(xfam.get("centers", np.zeros((0,2))), float)
+    y_centers = np.asarray(yfam.get("centers", np.zeros((0,2))), float)
+
+    # Extract pivot
     cx, cy = fam_dict.get("pivot", (None, None))
 
-    # ---- Draw X-family (red) ----
-    for (x1, y1, x2, y2) in xfam:
-        cv2.line(out,
-                 (int(round(x1)), int(round(y1))),
-                 (int(round(x2)), int(round(y2))),
-                 color_x,
-                 thickness,
-                 cv2.LINE_AA)
+    # ----------------------------------------------------
+    # Draw X-family (horizontal-ish) lines (default red)
+    # ----------------------------------------------------
+    for (x1, y1, x2, y2) in x_lines:
+        cv2.line(
+            out,
+            (int(round(x1)), int(round(y1))),
+            (int(round(x2)), int(round(y2))),
+            color_x,
+            thickness,
+            cv2.LINE_AA
+        )
 
-    # ---- Draw Y-family (blue) ----
-    for (x1, y1, x2, y2) in yfam:
-        cv2.line(out,
-                 (int(round(x1)), int(round(y1))),
-                 (int(round(x2)), int(round(y2))),
-                 color_y,
-                 thickness,
-                 cv2.LINE_AA)
+    # Optional centers
+    if draw_centers and x_centers.size > 0:
+        for (xc, yc) in x_centers:
+            cv2.circle(out, (int(round(xc)), int(round(yc))),
+                       center_radius, color_x, -1, cv2.LINE_AA)
 
-    # ---- Draw pivot ----
+    # ----------------------------------------------------
+    # Draw Y-family (vertical-ish) lines (default blue)
+    # ----------------------------------------------------
+    for (x1, y1, x2, y2) in y_lines:
+        cv2.line(
+            out,
+            (int(round(x1)), int(round(y1))),
+            (int(round(x2)), int(round(y2))),
+            color_y,
+            thickness,
+            cv2.LINE_AA
+        )
+
+    if draw_centers and y_centers.size > 0:
+        for (xc, yc) in y_centers:
+            cv2.circle(out, (int(round(xc)), int(round(yc))),
+                       center_radius, color_y, -1, cv2.LINE_AA)
+
+    # ----------------------------------------------------
+    # Draw pivot point
+    # ----------------------------------------------------
     if draw_pivot and cx is not None and cy is not None:
         cx_i, cy_i = int(round(cx)), int(round(cy))
         s = 6
-        cv2.line(out, (cx_i - s, cy_i), (cx_i + s, cy_i), (0,255,0), 1, cv2.LINE_AA)
-        cv2.line(out, (cx_i, cy_i - s), (cx_i, cy_i + s), (0,255,0), 1, cv2.LINE_AA)
+        cv2.line(out, (cx_i - s, cy_i), (cx_i + s, cy_i),
+                 (0,255,0), 1, cv2.LINE_AA)
+        cv2.line(out, (cx_i, cy_i - s), (cx_i, cy_i + s),
+                 (0,255,0), 1, cv2.LINE_AA)
 
     return out
 
@@ -3197,11 +3321,6 @@ def _circular_moments(angles_deg: np.ndarray, weights: np.ndarray):
     kurt = (C2 - R**2) / (1 - R)**2 if (1 - R) > 1e-9 else 0.0
 
     return float(skew), float(kurt)
-
-
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Dict, Any
 
 
 def plot_lsd_distributions(

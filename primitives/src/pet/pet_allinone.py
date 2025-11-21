@@ -41,7 +41,7 @@ from pet_geom import (
     analyze_two_orientation_families, print_angle_analysis_console,
     analyze_grid_periodicity_full, plot_periodicity_analysis,
     reassign_and_rotate_families_by_image_center, draw_famxy_on_image,
-    compute_centerline_arrays, draw_centerline_arrays, yc_hist, plot_yc_hist,
+    draw_centerline_arrays, yc_hist, plot_yc_hist,
     plot_rotated_family_length_histograms, periodicity_detector_1d,
     xc_hist_from_clusters, yc_hist_from_clusters, cluster_gridlines_1d,
     compute_family_kdes, plot_family_kdes,
@@ -114,6 +114,11 @@ def main(image_path: Optional[str] = None) -> None:
     # Drop extremely short segments.
     # ------------------------------
     flt = clamp_segment_length(raw, min_len=5, max_len=1000)
+    flt_lines = flt["lines"]
+
+    # Debug: mark flt lines (green)
+    dbg_flt = mark_segments(img, flt_lines, color=(0, 255, 0))
+    save_image(dbg_flt, "debug_flt_segments.jpg")
 
     # Generate angle histograms
     # -------------------------
@@ -141,14 +146,10 @@ def main(image_path: Optional[str] = None) -> None:
     save_image(img_rotated, "rotated.jpg")
 
     # Split into two rough direction families (unsupervised)
-    fam = split_segments_by_angle_circular(flt["lines"], angle_info, analysis_weighted)
+    fam = split_segments_by_angle_circular(flt, angle_info, analysis_weighted)
 
-    raw_x = fam["family1"]
-    raw_y = fam["family2"]
-    # Debug: mark raw lines (green)
-    dbg_raw = mark_segments(img, raw_lines, color=(0, 255, 0))
-    save_image(dbg_raw, "debug_raw_segments.jpg")
-
+    raw_x = fam["family1"]["lines"]
+    raw_y = fam["family2"]["lines"]
 
     famxy = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img)
     img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
@@ -156,9 +157,8 @@ def main(image_path: Optional[str] = None) -> None:
     plot_rotated_family_length_histograms(famxy, bin_size=2)    
     save_image(img_rotated_lines, "rotated_lines.jpg")
 
-    famxcyc = compute_centerline_arrays(famxy)
-    xcenters = famxcyc["xcenters"]   # shape (Nx, 3): [xc, yc, length]
-    ycenters = famxcyc["ycenters"]   # shape (Ny, 3): [xc, yc, length]
+    xcenters = np.column_stack((famxy["xfam"]["centers"], famxy["xfam"]["lengths"]))   # shape (Nx, 3): [xc, yc, length]
+    ycenters = np.column_stack((famxy["yfam"]["centers"], famxy["yfam"]["lengths"]))   # shape (Ny, 3): [xc, yc, length]
 
     # -------------------------------------
     # Y-family: vertical gridlines -> X-axis positions
@@ -225,6 +225,8 @@ def main(image_path: Optional[str] = None) -> None:
     )    
     print("X-family spacing ->", period_x["best"])
 
+    famxcyc = {"xcenters": xcenters, "ycenters": ycenters}
+
     img_rotated_centerline = draw_centerline_arrays(img_rotated, famxcyc)
     save_image(img_rotated_centerline, "rotated_lines_centers.jpg")
 
@@ -233,16 +235,16 @@ def main(image_path: Optional[str] = None) -> None:
     # --------------------------------------------------------------
     # 2. Filter + refine the line families
     # --------------------------------------------------------------
-    flt = filter_grid_segments(
+    flt_ang = filter_grid_segments(
         raw,
         angle_tol_deg=20
     )
-    flt_x = flt["lines_x"]
-    flt_y = flt["lines_y"]
+    flt_x = flt_ang["lines_x"]
+    flt_y = flt_ang["lines_y"]
 
     # Debug: filtered families (x=red, y=blue)
-    dbg_flt = mark_segment_families(img, flt_x, flt_y)
-    save_image(dbg_flt, "debug_filtered_segments.jpg")
+    dbg_flt_ang = mark_segment_families(img, flt_x, flt_y)
+    save_image(dbg_flt_ang, "debug_split_segments_filter_angle.jpg")
 
     
     log.info("PET pipeline completed.")
