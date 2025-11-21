@@ -39,13 +39,11 @@ from pet_geom import (
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
     analyze_two_orientation_families, print_angle_analysis_console,
-    analyze_grid_periodicity_full, plot_periodicity_analysis,
     reassign_and_rotate_families_by_image_center, draw_famxy_on_image,
-    draw_centerline_arrays, yc_hist, plot_yc_hist,
-    plot_rotated_family_length_histograms, periodicity_detector_1d,
-    xc_hist_from_clusters, yc_hist_from_clusters, cluster_gridlines_1d,
+    draw_centerline_arrays,
+    plot_rotated_family_length_histograms, 
     compute_family_kdes, plot_family_kdes,
-    filter_grid_segments, estimate_vanishing_points,
+    filter_grid_segments,
     refine_principal_point_from_vps, split_segments_by_angle_circular,
     mark_segments, mark_segment_families, mark_segments_w, mark_segment_families_w,
     plot_lsd_distributions,
@@ -127,8 +125,6 @@ def main(image_path: Optional[str] = None) -> None:
     
     # Hard split by thickness (minor / major / outliers)
     thickness_groups = cluster_line_thickness(flt, analysis=width_analysis, robust_sigma=3.0,)
-    for term in thickness_groups:
-        print(f"{term} is None: {thickness_groups[term] is None}")
     
     lsd_minor       = thickness_groups["minor"]
     lsd_major       = thickness_groups["major"]
@@ -197,72 +193,6 @@ def main(image_path: Optional[str] = None) -> None:
 
     xcenters = np.column_stack((famxy["xfam"]["centers"], famxy["xfam"]["lengths"]))   # shape (Nx, 3): [xc, yc, length]
     ycenters = np.column_stack((famxy["yfam"]["centers"], famxy["yfam"]["lengths"]))   # shape (Ny, 3): [xc, yc, length]
-
-    # -------------------------------------
-    # Y-family: vertical gridlines -> X-axis positions
-    # -------------------------------------
-    xc = ycenters[:, 0]       # X-midpoints
-    Ly = ycenters[:, 2]       # segment lengths
-
-    y_clusters = cluster_gridlines_1d(
-        positions=xc,
-        lengths=Ly,
-        max_gap_px=None,
-        min_cluster_members=2,
-        robust_factor=3.0,
-    )
-
-    # histogram from cluster centers
-    yc_hist_data = yc_hist_from_clusters(
-        y_clusters["centers"],       # FIXED
-        bin_size=10,
-        gap_size=0,
-        offset=0,
-        weights=y_clusters["weights"]
-    )
-
-    # Plot Y-family histogram
-    plot_yc_hist(yc_hist_data, title="Y-family X-Histogram", color="blue")
-
-    period_y = periodicity_detector_1d(
-        y_clusters["centers"],
-        weights=y_clusters["weights"]
-    )
-    print("Y-family spacing ->", period_y["best"])
-    plot_periodicity_analysis(period_y)
-
-    # -------------------------------------
-    # X-family: horizontal gridlines -> Y-axis positions
-    # -------------------------------------
-    yc = xcenters[:, 1]        # Y-midpoints
-    Lx = xcenters[:, 2]        # segment lengths
-
-    x_clusters = cluster_gridlines_1d(
-        positions=yc,
-        lengths=Lx,
-        max_gap_px=None,
-        min_cluster_members=2,
-        robust_factor=3.0,
-    )
-
-    # histogram from cluster centers
-    xc_hist_data = xc_hist_from_clusters(
-        x_clusters["centers"],       # FIXED
-        bin_size=10,
-        gap_size=0,
-        offset=0,
-        weights=x_clusters["weights"]
-    )
-
-    # Plot X-family histogram
-    plot_yc_hist(xc_hist_data, title="X-family Y-Histogram", color="red")
-
-    period_x = periodicity_detector_1d(
-        x_clusters["centers"],
-        weights=x_clusters["weights"]
-    )    
-    print("X-family spacing ->", period_x["best"])
-
     famxcyc = {"xcenters": xcenters, "ycenters": ycenters}
 
     img_rotated_centerline = draw_centerline_arrays(img_rotated, famxcyc)
