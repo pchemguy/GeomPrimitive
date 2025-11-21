@@ -1136,6 +1136,7 @@ def apply_rotation_correction(
     img: np.ndarray,
     analysis: Dict[str, Any],
     border_value: Tuple[int, int, int] | int = (255, 255, 255),
+    dominant_angle: bool = True,
 ) -> np.ndarray:
     """
     Apply compensating rotation to an image based on angle-analysis result.
@@ -1160,7 +1161,11 @@ def apply_rotation_correction(
     if "rotation_angle_deg" not in analysis:
         raise KeyError("analysis must contain 'rotation_angle_deg'")
 
-    angle = float(analysis["rotation_angle_deg"])
+    if dominant_angle:
+        angle = float(analysis["rotation_angle_deg"])
+    else:
+        angle = float(analysis["rotation_angle2_deg"])
+
     if abs(angle) < 1e-12:
         return img.copy()  # no rotation needed
 
@@ -1187,6 +1192,7 @@ def reassign_and_rotate_families_by_image_center(
     families: Dict[str, Dict[str, np.ndarray]],
     analysis: Dict[str, Any],
     img: np.ndarray,
+    dominant_angle: bool = True,
 ) -> Dict[str, Dict[str, np.ndarray]]:
     """
     Reassign families (xfam/yfam) based on median angle,
@@ -1209,7 +1215,6 @@ def reassign_and_rotate_families_by_image_center(
             "pivot": (cx, cy)
         }
     """
-
     # -----------------------------
     # Extract family1 / family2
     # -----------------------------
@@ -1259,7 +1264,10 @@ def reassign_and_rotate_families_by_image_center(
     # -----------------------------
     # Rotation matrix
     # -----------------------------
-    angle_deg = float(analysis["rotation_angle_deg"])
+    if dominant_angle:
+        angle_deg = float(analysis["rotation_angle_deg"])
+    else:
+        angle_deg = float(analysis["rotation_angle2_deg"])
     theta = np.deg2rad(angle_deg)
 
     R = np.array([
@@ -1297,7 +1305,7 @@ def reassign_and_rotate_families_by_image_center(
         ])
 
         # ---- Rotate angles ----
-        angles_r = angles - angle_deg
+        angles_r = angles + angle_deg
         angles_r = ((angles_r + 180) % 180) - 90
 
         # ---- Return same fields ----

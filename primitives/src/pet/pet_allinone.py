@@ -179,17 +179,36 @@ def main(image_path: Optional[str] = None) -> None:
     img_rotated = apply_rotation_correction(img, analysis_weighted)
     save_image(img_rotated, "rotated.jpg")
 
+    img_rotated2 = apply_rotation_correction(img, analysis_weighted, dominant_angle=False)
+    save_image(img_rotated2, "rotated2.jpg")
+
     # Split into two rough direction families (unsupervised)
     fam = split_segments_by_angle_circular(flt, angle_info, analysis_weighted)
 
     raw_x = fam["family1"]["lines"]
     raw_y = fam["family2"]["lines"]
 
+    # Dominant angle
+    # --------------
     famxy = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img)
     img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
 
     plot_rotated_family_length_histograms(famxy, bin_size=2)    
     save_image(img_rotated_lines, "rotated_lines.jpg")
+
+    print(f"xfam angle: {famxy["xfam_angle"]}deg")
+    print(f"yfam angle: {famxy["yfam_angle"]}deg")
+
+    # Second angle
+    # --------------
+    famxy2 = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img, dominant_angle=False)
+    img_rotated2_lines = draw_famxy_on_image(img_rotated2, famxy2)
+
+    plot_rotated_family_length_histograms(famxy2, bin_size=2)    
+    save_image(img_rotated2_lines, "rotated2_lines.jpg")
+
+    print(f"xfam angle: {famxy2["xfam_angle"]}deg")
+    print(f"yfam angle: {famxy2["yfam_angle"]}deg")
 
     xcenters = np.column_stack((famxy["xfam"]["centers"], famxy["xfam"]["lengths"]))   # shape (Nx, 3): [xc, yc, length]
     ycenters = np.column_stack((famxy["yfam"]["centers"], famxy["yfam"]["lengths"]))   # shape (Ny, 3): [xc, yc, length]
