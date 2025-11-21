@@ -47,12 +47,16 @@ from pet_geom import (
     compute_family_kdes, plot_family_kdes,
     filter_grid_segments, estimate_vanishing_points,
     refine_principal_point_from_vps, split_segments_by_angle_circular,
-    mark_segments, mark_segment_families, 
+    mark_segments, mark_segment_families, mark_segments_w, mark_segment_families_w,
     plot_lsd_distributions,
 )
 
-from pet_utils import image_loader, save_image
-
+from pet_lsd_width_analysis import (
+    analyze_lsd_widths, 
+    cluster_line_thickness,
+    merge_lsd_dicts,
+    split_widths_hist,
+)
 
 # ======================================================================
 # MODULE CONSTANTS
@@ -109,17 +113,47 @@ def main(image_path: Optional[str] = None) -> None:
     # --------------------------------------------------------------
     raw = detect_grid_segments(img)                   # raw["lines"]
     raw_lines = raw["lines"]
-    plot_lsd_distributions(raw)
+    lsd_dist_bins = 50
+    plot_lsd_distributions(raw, bins=lsd_dist_bins)
 
     # Drop extremely short segments.
     # ------------------------------
     flt = clamp_segment_length(raw, min_len=5, max_len=1000, width_percentile=95)
     flt_lines = flt["lines"]
-    plot_lsd_distributions(flt)
+    plot_lsd_distributions(flt, bins=lsd_dist_bins)
+
+    # Diagnostics (optional)
+    width_analysis = analyze_lsd_widths(flt, max_components=3, plot=True)
+    
+    # Hard split by thickness (minor / major / outliers)
+    thickness_groups = cluster_line_thickness(flt, analysis=width_analysis, robust_sigma=3.0,)
+    for term in thickness_groups:
+        print(f"{term} is None: {thickness_groups[term] is None}")
+    
+    lsd_minor       = thickness_groups["minor"]
+    lsd_major       = thickness_groups["major"]
+    lsd_outliers_lo = thickness_groups["outliers_lo"]
+    lsd_outliers_hi = thickness_groups["outliers_hi"]
+    split_widths_hist(thickness_groups)
+
+    lsd_major = merge_lsd_dicts(lsd_major, lsd_outliers_hi)
+
+    dbg = mark_segments_w(img, lsd_minor)
+    save_image(dbg, "debug_flt_minor.jpg")
+    dbg = mark_segments_w(img, lsd_major)
+    save_image(dbg, "debug_flt_major.jpg")
+    dbg = mark_segments_w(img, lsd_outliers_lo)
+    save_image(dbg, "debug_flt_outliers_lo.jpg")
+    dbg = mark_segments_w(img, lsd_outliers_hi)
+    save_image(dbg, "debug_flt_outliers_hi.jpg")
 
     # Debug: mark flt lines (green)
+    # -----------------------------
     dbg_flt = mark_segments(img, flt_lines, color=(0, 255, 0))
     save_image(dbg_flt, "debug_flt_segments.jpg")
+
+    dbg_flt_w = mark_segments_w(img, flt)
+    save_image(dbg_flt_w, "debug_flt_segments_w.jpg")
 
     # Generate angle histograms
     # -------------------------

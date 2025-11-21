@@ -2775,6 +2775,148 @@ def mark_segment_families(
     return out
 
 
+def mark_segments_w(
+    img: np.ndarray,
+    lsd: dict,
+    color_rgb=(255, 0, 0),
+    use_fallback: bool = False,
+) -> np.ndarray:
+    """
+    Draw LSD-detected segments on an image using per-segment width.
+
+    Parameters
+    ----------
+    img : ndarray (H,W,3)
+        BGR image.
+
+    lsd : dict
+        Full LSD structure as returned by detect_grid_segments():
+            {
+                "lines": (N,4) float32,
+                "widths": (N,) float32,
+                "precisions": (N,) float32,
+                "nfa": (N,) float32,
+                "lengths": (N,) float32,
+                "centers": (N,2) float32
+            }
+
+    color_rgb : tuple(int,int,int)
+
+    use_fallback : bool
+        If True -> draw all segments with thickness 1.
+        If False -> thickness = max(1, round(width)) per LSD.
+
+    Returns
+    -------
+    out : ndarray
+        Image with drawn segments.
+    """
+    # ---- Color: RGB -> BGR ----
+    if len(color_rgb) != 3:
+        raise ValueError("color_rgb must be a tuple of 3 integers (RGB)")
+    color_bgr = (color_rgb[2], color_rgb[1], color_rgb[0])
+
+    # ---- Extract LSD info ----
+    segs = np.asarray(lsd["lines"], float)
+    widths = np.asarray(lsd["widths"], float)
+
+    N = segs.shape[0]
+    if N == 0:
+        return img.copy()
+
+    # ---- Pre-round all segment coordinates ----
+    segs_i = np.rint(segs).astype(np.int32)
+
+    # ---- Compute thicknesses ----
+    if use_fallback:
+        thick = np.ones(N, dtype=np.int32)
+    else:
+        thick = np.maximum(1, np.rint(widths).astype(np.int32))
+
+    # ---- Draw ----
+    out = img.copy()
+    for (x1, y1, x2, y2), t in zip(segs_i, thick):
+        cv2.line(
+            out,
+            (x1, y1),
+            (x2, y2),
+            color_bgr,
+            int(t),
+            cv2.LINE_AA,
+        )
+
+    return out
+
+
+def (
+    img: np.ndarray,
+    famxy: Dict[str, Dict[str, np.ndarray]],
+    color_x=(0, 0, 255),     # red (BGR)
+    color_y=(255, 0, 0),     # blue (BGR)
+    min_thickness: int = 1
+) -> np.ndarray:
+    """
+    Draw X-family and Y-family segments on the image using **their
+    individual LSD-derived widths**.
+
+    Expected famxy structure (output of reassign_and_rotate_families_by_image_center):
+        famxy = {
+            "xfam": {
+                "lines":   (Nx,4) float32,
+                "widths":  (Nx,)  float32,
+                ...
+            },
+            "yfam": {
+                "lines":   (Ny,4),
+                "widths":  (Ny,),
+                ...
+            }
+        }
+
+    Returns a copy of the image with segments rendered.
+    """
+
+    out = img.copy()
+
+    # ------------------------
+    # helper: draw one family
+    # ------------------------
+    def _draw_family(lines: np.ndarray, widths: np.ndarray, color):
+        if lines is None or widths is None:
+            return
+        if len(lines) == 0:
+            return
+
+        for (x1, y1, x2, y2), w in zip(lines, widths):
+            # LSD width -> visible thickness
+            t = max(min_thickness, int(round(float(w))))
+            cv2.line(
+                out,
+                (int(round(x1)), int(round(y1))),
+                (int(round(x2)), int(round(y2))),
+                color,
+                t,
+                cv2.LINE_AA,
+            )
+
+    # Draw both families
+    xf = famxy.get("xfam", {})
+    yf = famxy.get("yfam", {})
+
+    _draw_family(
+        np.asarray(xf.get("lines", []), float),
+        np.asarray(xf.get("widths", []), float),
+        color_x,
+    )
+    _draw_family(
+        np.asarray(yf.get("lines", []), float),
+        np.asarray(yf.get("widths", []), float),
+        color_y,
+    )
+
+    return out
+
+
 def plot_angle_histogram(
     hist_data: Dict[str, np.ndarray],
     ax=None,
@@ -3327,7 +3469,7 @@ def _circular_moments(angles_deg: np.ndarray, weights: np.ndarray):
 
 
 def plot_lsd_distributions(
-    lsd_output: Dict[str, Any],
+    lsd: Dict[str, Any],
     title: str = "LSD Output Distributions",
     bins: int = 60,
     log_nfa: bool = True,
@@ -3346,14 +3488,14 @@ def plot_lsd_distributions(
         min / max / mean / median / std for width, precision, and NFA.
     """
 
-    widths = np.asarray(lsd_output.get("widths", []), float)
+    widths = np.asarray(lsd.get("widths", []), float)
     # Add percentile summary ONLY for width
     p95  = np.percentile(widths, 95)
     p99  = np.percentile(widths, 99)
     p997 = np.percentile(widths, 99.7)  # ~3sigma
 
-    precisions = np.asarray(lsd_output.get("precisions", []), float)
-    nfa = np.asarray(lsd_output.get("nfa", []), float)
+    precisions = np.asarray(lsd.get("precisions", []), float)
+    nfa = np.asarray(lsd.get("nfa", []), float)
 
     if widths.size == 0:
         print("plot_lsd_distributions: EMPTY LSD OUTPUT.")
