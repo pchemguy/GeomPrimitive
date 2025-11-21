@@ -113,8 +113,9 @@ def main(image_path: Optional[str] = None) -> None:
 
     # Drop extremely short segments.
     # ------------------------------
-    flt = clamp_segment_length(raw, min_len=5, max_len=1000)
+    flt = clamp_segment_length(raw, min_len=5, max_len=1000, width_percentile=95)
     flt_lines = flt["lines"]
+    plot_lsd_distributions(flt)
 
     # Debug: mark flt lines (green)
     dbg_flt = mark_segments(img, flt_lines, color=(0, 255, 0))

@@ -235,39 +235,32 @@ def clamp_segment_length(
     raw_lsd: Dict[str, np.ndarray],
     min_len: float = 0.0,
     max_len: float = float("inf"),
+    width_percentile: float = 100.0,
 ) -> Dict[str, np.ndarray]:
     """
-    Filter LSD output by segment length.
+    Filter LSD output by:
+        1. Segment length limits: min_len <= length <= max_len
+        2. Width percentile: remove widths above percentile(widths, width_percentile)
 
-    Input and output structure:
-        {
-            "lines":      (N,4) float32,
-            "widths":     (N,)  float32,
-            "precisions": (N,)  float32,
-            "nfa":        (N,)  float32,
-            "lengths":    (N,)  float32,
-            "centers":    (N,2) float32
-        }
-    """
+    Percentile filter applies to **widths only**, not lengths.
 
-    # ---- Required fields ----
-    required_keys = [
+    Input/output fields:
         "lines", "widths", "precisions", "nfa",
         "lengths", "centers"
-    ]
+    """
+
+    required_keys = ["lines", "widths", "precisions", "nfa", "lengths", "centers"]
     for k in required_keys:
         if k not in raw_lsd:
-            raise KeyError(f"raw_lsd missing required key: '{k}'")
+            raise KeyError(f"raw_lsd missing required key '{k}'")
 
-    # ---- Extract & normalize ----
     lines      = np.asarray(raw_lsd["lines"])
     widths     = np.asarray(raw_lsd["widths"])
     precisions = np.asarray(raw_lsd["precisions"])
     nfa        = np.asarray(raw_lsd["nfa"])
     lengths    = np.asarray(raw_lsd["lengths"])
-    centers    = np.asarray(raw_lsd["centers"])   # (N,2)
+    centers    = np.asarray(raw_lsd["centers"])
 
-    # ---- Handle empty LSD ----
     if lines.size == 0:
         return {
             "lines":      np.zeros((0,4), np.float32),
@@ -278,25 +271,35 @@ def clamp_segment_length(
             "centers":    np.zeros((0,2), np.float32),
         }
 
-    # ---- Validate shapes ----
+    # ---- validate shapes ----
     N = lines.shape[0]
-    checks = [
+    for arr, name in [
         (widths, "widths"),
         (precisions, "precisions"),
         (nfa, "nfa"),
         (lengths, "lengths"),
         (centers, "centers"),
-    ]
-    for arr, name in checks:
+    ]:
         if arr.shape[0] != N:
             raise ValueError(
-                f"Inconsistent LSD arrays: 'lines' has {N} rows but '{name}' has {arr.shape[0]}"
+                f"'lines' has {N} entries but '{name}' has {arr.shape[0]}"
             )
 
-    # ---- Build mask ----
-    mask = (lengths >= min_len) & (lengths <= max_len)
+    # ---- compute width threshold ----
+    width_percentile = float(width_percentile)
+    if not (0 <= width_percentile <= 100):
+        raise ValueError("width_percentile must be between 0 and 100")
 
-    # ---- Apply mask safely ----
+    width_threshold = np.percentile(widths, width_percentile)
+
+    # ---- combined mask (LENGTH + WIDTH) ----
+    mask = (
+        (lengths >= min_len) &
+        (lengths <= max_len) &
+        (widths  <= width_threshold)
+    )
+
+    # ---- return filtered structure ----
     return {
         "lines":      lines[mask].astype(np.float32),
         "widths":     widths[mask].astype(np.float32),
@@ -3344,6 +3347,11 @@ def plot_lsd_distributions(
     """
 
     widths = np.asarray(lsd_output.get("widths", []), float)
+    # Add percentile summary ONLY for width
+    p95  = np.percentile(widths, 95)
+    p99  = np.percentile(widths, 99)
+    p997 = np.percentile(widths, 99.7)  # ~3sigma
+
     precisions = np.asarray(lsd_output.get("precisions", []), float)
     nfa = np.asarray(lsd_output.get("nfa", []), float)
 
@@ -3367,6 +3375,11 @@ def plot_lsd_distributions(
     # Console output: raw (non-log) values
     # -------------------------------------------------------
     _print_stats("Width", widths)
+
+    print("    p95     = {:.6g}".format(p95))
+    print("    p99     = {:.6g}".format(p99))
+    print("    p99.7   = {:.6g}".format(p997))
+
     _print_stats("Precision", precisions)
     _print_stats("NFA (raw)", nfa)
 
