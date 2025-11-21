@@ -136,6 +136,7 @@ def main(image_path: Optional[str] = None) -> None:
     lsd_outliers_hi = thickness_groups["outliers_hi"]
     split_widths_hist(thickness_groups)
 
+    # lsd_outliers_hi actually belong to major grid
     lsd_major = merge_lsd_dicts(lsd_major, lsd_outliers_hi)
 
     dbg = mark_segments_w(img, lsd_minor)
@@ -147,6 +148,8 @@ def main(image_path: Optional[str] = None) -> None:
     dbg = mark_segments_w(img, lsd_outliers_hi)
     save_image(dbg, "debug_flt_outliers_hi.jpg")
 
+    flt = lsd_major
+    
     # Debug: mark flt lines (green)
     # -----------------------------
     dbg_flt = mark_segments(img, flt_lines, color=(0, 255, 0))

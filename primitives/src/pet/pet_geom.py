@@ -1082,23 +1082,30 @@ def analyze_two_orientation_families(
     stats1 = _circular_family_stats(ang1, w1, angle_range=(lo, hi))
     stats2 = _circular_family_stats(ang2, w2, angle_range=(lo, hi))
 
-    # 5) Rotation angle based on PEAKS (correct)
+    # 5) Rotation angle based on PEAKS
+
     # Determine dominant family by weight
     if stats1["total_weight"] >= stats2["total_weight"]:
         dom_peak = p1
+        aux_peak = p2
     else:
         dom_peak = p2
+        aux_peak = p1
     
     # Normalize dominant peak into [-45, 135)
     peak_n = ((dom_peak - lo) % period) + lo
+    peak_aux_n = ((aux_peak - lo) % period) + lo
     
     # Desired targets: 0deg (horizontal) or 90deg (vertical)
     # rotation = target - peak
     rot_h = (0.0  - peak_n + 90.0) % 180.0 - 90.0
     rot_v = (90.0 - peak_n + 90.0) % 180.0 - 90.0
+    rot_aux_h = (0.0  - peak_aux_n + 90.0) % 180.0 - 90.0
+    rot_aux_v = (90.0 - peak_aux_n + 90.0) % 180.0 - 90.0
     
     # Choose the smallest magnitude
     rotation_angle = rot_h if abs(rot_h) <= abs(rot_v) else rot_v
+    rotation_angle2 = rot_aux_h if abs(rot_aux_h) <= abs(rot_aux_v) else rot_aux_v
     
     # Clamp into [-45, +45] while preserving orientation correctness
     if rotation_angle < -45.0:
@@ -1106,12 +1113,18 @@ def analyze_two_orientation_families(
     elif rotation_angle > 45.0:
         rotation_angle -= 90.0
 
+    if rotation_angle2 < -45.0:
+        rotation_angle2 += 90.0
+    elif rotation_angle2 > 45.0:
+        rotation_angle2 -= 90.0
+
     return {
         "peaks": [p1, p2],
         "split_deg": split_deg,
         "family1": stats1,
         "family2": stats2,
         "rotation_angle_deg": float(rotation_angle),
+        "rotation_angle2_deg": float(rotation_angle2),
 
         # NEW: expose per-family KDE kappa
         "kde_kappa_1": stats1["kde_kappa"],
@@ -2848,7 +2861,7 @@ def mark_segments_w(
     return out
 
 
-def (
+def mark_segment_families_w(
     img: np.ndarray,
     famxy: Dict[str, Dict[str, np.ndarray]],
     color_x=(0, 0, 255),     # red (BGR)
@@ -2875,7 +2888,6 @@ def (
 
     Returns a copy of the image with segments rendered.
     """
-
     out = img.copy()
 
     # ------------------------
@@ -2900,17 +2912,17 @@ def (
             )
 
     # Draw both families
-    xf = famxy.get("xfam", {})
-    yf = famxy.get("yfam", {})
+    xf = famxy["xfam"]
+    yf = famxy["yfam"]
 
     _draw_family(
-        np.asarray(xf.get("lines", []), float),
-        np.asarray(xf.get("widths", []), float),
+        np.asarray(xf["lines"], float),
+        np.asarray(xf["widths"], float),
         color_x,
     )
     _draw_family(
-        np.asarray(yf.get("lines", []), float),
-        np.asarray(yf.get("widths", []), float),
+        np.asarray(yf["lines"], float),
+        np.asarray(yf["widths"], float),
         color_y,
     )
 
