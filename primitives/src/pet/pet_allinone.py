@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
-    detect_grid_segments,
+    detect_grid_segments, clamp_segment_length,
     compute_segment_angles, compute_angle_histogram,
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
@@ -48,6 +48,7 @@ from pet_geom import (
     filter_grid_segments, estimate_vanishing_points,
     refine_principal_point_from_vps, split_segments_by_angle_circular,
     mark_segments, mark_segment_families, 
+    plot_lsd_distributions,
 )
 
 from pet_utils import image_loader, save_image
@@ -108,10 +109,15 @@ def main(image_path: Optional[str] = None) -> None:
     # --------------------------------------------------------------
     raw = detect_grid_segments(img)                   # raw["lines"]
     raw_lines = raw["lines"]
+    plot_lsd_distributions(raw)
+
+    # Drop extremely short segments.
+    # ------------------------------
+    flt = clamp_segment_length(raw, min_len=5, max_len=1000)
 
     # Generate angle histograms
     # -------------------------
-    angle_info = compute_segment_angles(raw)
+    angle_info = compute_segment_angles(flt)
     hist = compute_angle_histogram_circular_weighted(angle_info, bins=72)
     angle_info = compute_segment_lengths(angle_info)
     hist_weighted = compute_angle_histogram_circular_weighted(angle_info)    
@@ -135,7 +141,7 @@ def main(image_path: Optional[str] = None) -> None:
     save_image(img_rotated, "rotated.jpg")
 
     # Split into two rough direction families (unsupervised)
-    fam = split_segments_by_angle_circular(raw["lines"], angle_info, analysis_weighted)
+    fam = split_segments_by_angle_circular(flt["lines"], angle_info, analysis_weighted)
 
     raw_x = fam["family1"]
     raw_y = fam["family2"]
@@ -147,7 +153,7 @@ def main(image_path: Optional[str] = None) -> None:
     famxy = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img)
     img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
 
-    plot_rotated_family_length_histograms(famxy, bins=40)    
+    plot_rotated_family_length_histograms(famxy, bin_size=2)    
     save_image(img_rotated_lines, "rotated_lines.jpg")
 
     famxcyc = compute_centerline_arrays(famxy)

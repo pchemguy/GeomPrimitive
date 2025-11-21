@@ -31,51 +31,171 @@ import matplotlib.pyplot as plt
 # ============================================================================
 
 def _create_lsd():
-    """Create an OpenCV LSD detector with backward-compat fallbacks."""
     try:
-        return cv2.createLineSegmentDetector(refine=cv2.LSD_REFINE_STD)
+        # OpenCV 4.5+ signature
+        return cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
     except TypeError:
         try:
-            return cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
+            # OpenCV 4.7+ signature
+            return cv2.createLineSegmentDetector(_refine=cv2.LSD_REFINE_STD)
         except TypeError:
+            # Final fallback: manual refine removal
             return cv2.createLineSegmentDetector()
 
 
 def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     """
-    Run LSD (Line Segment Detector) and return *raw* segments only.
+    Run LSD (Line Segment Detector) and return raw segments
+    with full per-segment information.
 
-    Returns:
-        {
-            "lines": (N,4) float32
-            "widths": (N,)
-            "precisions": (N,)
-            "nfa": (N,)
-        }
+    Returns
+    -------
+    dict with:
+        "lines"      : (N,4) float32 [x1,y1,x2,y2]
+        "widths"     : (N,)  float32
+        "precisions" : (N,)  float32
+        "nfa"        : (N,)  float32
+        "lengths"    : (N,)  float32
+        "centers"    : (N,2) float32 [xc,yc]
     """
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     lsd = _create_lsd()
     lines, widths, prec, nfa = lsd.detect(gray)
 
+    # ---------------------------------------
+    # Empty detector output
+    # ---------------------------------------
     if lines is None:
         return {
             "lines": np.zeros((0, 4), np.float32),
             "widths": np.zeros((0,), np.float32),
             "precisions": np.zeros((0,), np.float32),
             "nfa": np.zeros((0,), np.float32),
+            "lengths": np.zeros((0,), np.float32),
+            "centers": np.zeros((0,2), np.float32),
         }
 
+    # ---------------------------------------
+    # Normalize shapes + dtypes
+    # ---------------------------------------
     lines = lines.reshape(-1, 4).astype(np.float32)
-    widths = widths.reshape(-1) if widths is not None else np.zeros(len(lines))
-    prec = prec.reshape(-1) if prec is not None else np.zeros(len(lines))
-    nfa = nfa.reshape(-1) if nfa is not None else np.zeros(len(lines))
+    N = lines.shape[0]
+
+    widths = (
+        widths.reshape(-1).astype(np.float32)
+        if widths is not None else np.zeros(N, np.float32)
+    )
+    prec = (
+        prec.reshape(-1).astype(np.float32)
+        if prec is not None else np.zeros(N, np.float32)
+    )
+    nfa = (
+        nfa.reshape(-1).astype(np.float32)
+        if nfa is not None else np.zeros(N, np.float32)
+    )
+
+    # ---------------------------------------
+    # Geometric properties
+    # ---------------------------------------
+    x1 = lines[:, 0]
+    y1 = lines[:, 1]
+    x2 = lines[:, 2]
+    y2 = lines[:, 3]
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    lengths = np.hypot(dx, dy).astype(np.float32)
+
+    # midpoints
+    xc = (x1 + x2) * 0.5
+    yc = (y1 + y2) * 0.5
+    centers = np.stack([xc, yc], axis=1).astype(np.float32)
 
     return {
         "lines": lines,
         "widths": widths,
         "precisions": prec,
         "nfa": nfa,
+        "lengths": lengths,
+        "centers": centers,
+    }
+
+
+def clamp_segment_length(
+    raw_lsd: Dict[str, np.ndarray],
+    min_len: float = 0.0,
+    max_len: float = float("inf"),
+) -> Dict[str, np.ndarray]:
+    """
+    Filter LSD output by segment length.
+
+    Input and output structure:
+        {
+            "lines":      (N,4) float32,
+            "widths":     (N,)  float32,
+            "precisions": (N,)  float32,
+            "nfa":        (N,)  float32,
+            "lengths":    (N,)  float32,
+            "centers":    (N,2) float32
+        }
+    """
+
+    # ---- Required fields ----
+    required_keys = [
+        "lines", "widths", "precisions", "nfa",
+        "lengths", "centers"
+    ]
+    for k in required_keys:
+        if k not in raw_lsd:
+            raise KeyError(f"raw_lsd missing required key: '{k}'")
+
+    # ---- Extract & normalize ----
+    lines      = np.asarray(raw_lsd["lines"])
+    widths     = np.asarray(raw_lsd["widths"])
+    precisions = np.asarray(raw_lsd["precisions"])
+    nfa        = np.asarray(raw_lsd["nfa"])
+    lengths    = np.asarray(raw_lsd["lengths"])
+    centers    = np.asarray(raw_lsd["centers"])   # (N,2)
+
+    # ---- Handle empty LSD ----
+    if lines.size == 0:
+        return {
+            "lines":      np.zeros((0,4), np.float32),
+            "widths":     np.zeros((0,),  np.float32),
+            "precisions": np.zeros((0,),  np.float32),
+            "nfa":        np.zeros((0,),  np.float32),
+            "lengths":    np.zeros((0,),  np.float32),
+            "centers":    np.zeros((0,2), np.float32),
+        }
+
+    # ---- Validate shapes ----
+    N = lines.shape[0]
+    checks = [
+        (widths, "widths"),
+        (precisions, "precisions"),
+        (nfa, "nfa"),
+        (lengths, "lengths"),
+        (centers, "centers"),
+    ]
+    for arr, name in checks:
+        if arr.shape[0] != N:
+            raise ValueError(
+                f"Inconsistent LSD arrays: 'lines' has {N} rows but '{name}' has {arr.shape[0]}"
+            )
+
+    # ---- Build mask ----
+    mask = (lengths >= min_len) & (lengths <= max_len)
+
+    # ---- Apply mask safely ----
+    return {
+        "lines":      lines[mask].astype(np.float32),
+        "widths":     widths[mask].astype(np.float32),
+        "precisions": precisions[mask].astype(np.float32),
+        "nfa":        nfa[mask].astype(np.float32),
+        "lengths":    lengths[mask].astype(np.float32),
+        "centers":    centers[mask].astype(np.float32),
     }
 
 
@@ -1133,21 +1253,21 @@ def draw_centerline_arrays(
 
 def plot_rotated_family_length_histograms(
     rotated_families: Dict[str, np.ndarray],
-    bins: int = 40,
-    title: str = "Segment Length Distribution (Rotated Families)"
+    bin_size: float = 10.0,
+    title: str = "Segment Length Distribution (Rotated Families)",
 ) -> None:
     """
-    Produce two stacked plots:
-        Top  : Y-family (vertical) segment-length histogram (blue)
-        Bottom: X-family (horizontal) segment-length histogram (red)
+    Produce two stacked histograms:
+        Top   - Y-family (vertical) segment length distribution (blue)
+        Bottom - X-family (horizontal) segment length distribution (red)
 
     Parameters
     ----------
     rotated_families : dict
         Output of reassign_and_rotate_families_by_image_center().
-        Must contain "xfam" and "yfam" arrays (N,4) as segments.
-    bins : int
-        Number of histogram bins for both histograms.
+        Must contain "xfam" and "yfam" as (N,4) arrays.
+    bin_size : float
+        Histogram bin width in pixels.
     title : str
         Figure title.
     """
@@ -1166,18 +1286,31 @@ def plot_rotated_family_length_histograms(
     x_lengths = seg_lengths(xfam)
     y_lengths = seg_lengths(yfam)
 
+    # ---- Compute histogram bin edges from bin_size ----
+    def compute_edges(lengths: np.ndarray, bin_size: float) -> np.ndarray:
+        if lengths.size == 0:
+            return np.array([0, 1], float)
+        Lmin = float(np.min(lengths))
+        Lmax = float(np.max(lengths))
+        nbins = max(1, int(np.ceil((Lmax - Lmin) / bin_size)))
+        return np.linspace(Lmin, Lmin + nbins * bin_size, nbins + 1)
+
+    edges_y = compute_edges(y_lengths, bin_size)
+    edges_x = compute_edges(x_lengths, bin_size)
+
     # ---- Plot ----
     fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(10, 7), sharex=False,
-        gridspec_kw={"height_ratios": [1, 1]}
+        2, 1, figsize=(10, 7),
+        sharex=False,
+        gridspec_kw={"height_ratios": [1, 1]},
     )
 
     plt.suptitle(title, fontsize=14, y=0.97)
 
-    # --- Y-family (top, blue) ---
+    # --- Y-family (top) ---
     ax1.hist(
         y_lengths,
-        bins=bins,
+        bins=edges_y,
         color="blue",
         alpha=0.75,
         edgecolor="black",
@@ -1185,10 +1318,10 @@ def plot_rotated_family_length_histograms(
     ax1.set_ylabel("Count")
     ax1.set_title("Y-family Length Distribution (vertical lines)")
 
-    # --- X-family (bottom, red) ---
+    # --- X-family (bottom) ---
     ax2.hist(
         x_lengths,
-        bins=bins,
+        bins=edges_x,
         color="red",
         alpha=0.75,
         edgecolor="black",
@@ -2957,3 +3090,100 @@ def _circular_moments(angles_deg: np.ndarray, weights: np.ndarray):
 
     return float(skew), float(kurt)
 
+
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Dict, Any
+
+
+def plot_lsd_distributions(
+    lsd_output: Dict[str, Any],
+    title: str = "LSD Output Distributions",
+    bins: int = 60,
+    log_nfa: bool = True,
+    fig_size=(12, 10),
+    color_width="#1f77b4",
+    color_precision="#ff7f0e",
+    color_nfa="#2ca02c",
+):
+    """
+    Plot stacked histograms of LSD outputs:
+        - width distribution
+        - precision distribution
+        - NFA distribution (optionally log-scaled)
+
+    Also prints to console:
+        min / max / mean / median / std for width, precision, and NFA.
+    """
+
+    widths = np.asarray(lsd_output.get("widths", []), float)
+    precisions = np.asarray(lsd_output.get("precisions", []), float)
+    nfa = np.asarray(lsd_output.get("nfa", []), float)
+
+    if widths.size == 0:
+        print("plot_lsd_distributions: EMPTY LSD OUTPUT.")
+        return
+
+    # -------------------------------------------------------
+    # Print statistics helper
+    # -------------------------------------------------------
+    def _print_stats(name: str, arr: np.ndarray):
+        print(f"\n{name} statistics:")
+        print(f"    count   = {arr.size}")
+        print(f"    min     = {np.min(arr):.6g}")
+        print(f"    max     = {np.max(arr):.6g}")
+        print(f"    mean    = {np.mean(arr):.6g}")
+        print(f"    median  = {np.median(arr):.6g}")
+        print(f"    std     = {np.std(arr):.6g}")
+
+    # -------------------------------------------------------
+    # Console output: raw (non-log) values
+    # -------------------------------------------------------
+    _print_stats("Width", widths)
+    _print_stats("Precision", precisions)
+    _print_stats("NFA (raw)", nfa)
+
+    # -------------------------------------------------------
+    # Prepare NFA display array
+    # -------------------------------------------------------
+    if log_nfa:
+        eps = 1e-12
+        nfa_disp = np.log10(nfa + eps)
+        nfa_label = "log10(NFA)"
+    else:
+        nfa_disp = nfa
+        nfa_label = "NFA"
+
+    # -------------------------------------------------------
+    # Create figure with 3 vertical subplots
+    # -------------------------------------------------------
+    fig, ax = plt.subplots(3, 1, figsize=fig_size)
+    fig.suptitle(title, fontsize=16, weight="bold")
+
+    # ----------------------
+    # 1) WIDTH DISTRIBUTION
+    # ----------------------
+    ax[0].hist(widths, bins=bins, color=color_width, alpha=0.75)
+    ax[0].set_title("Width Distribution")
+    ax[0].set_ylabel("Count")
+    ax[0].grid(True, ls=":", alpha=0.35)
+
+    # ------------------------
+    # 2) PRECISION DISTRIBUTION
+    # ------------------------
+    ax[1].hist(precisions, bins=bins, color=color_precision, alpha=0.75)
+    ax[1].set_title("Precision Distribution")
+    ax[1].set_ylabel("Count")
+    ax[1].grid(True, ls=":", alpha=0.35)
+
+    # -------------------
+    # 3) NFA DISTRIBUTION
+    # -------------------
+    ax[2].hist(nfa_disp, bins=bins, color=color_nfa, alpha=0.75)
+    ax[2].set_title(f"NFA Distribution ({nfa_label})")
+    ax[2].set_xlabel("Value")
+    ax[2].set_ylabel("Count")
+    ax[2].grid(True, ls=":", alpha=0.35)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
