@@ -1220,6 +1220,7 @@ def reassign_and_rotate_families_by_image_center(
     # -----------------------------
     f1 = families["family1"]
     f2 = families["family2"]
+    p1, p2 = analysis["peaks"]
 
     lines1 = np.asarray(f1["lines"], float)
     lines2 = np.asarray(f2["lines"], float)
@@ -1243,15 +1244,16 @@ def reassign_and_rotate_families_by_image_center(
     # -----------------------------
     # Determine which is X vs Y
     # -----------------------------
-    med1 = float(np.median(ang1)) if ang1.size else 0.0
-    med2 = float(np.median(ang2)) if ang2.size else 0.0
+    #med1 = float(np.median(ang1)) if ang1.size else 0.0
+    #med2 = float(np.median(ang2)) if ang2.size else 0.0
+    #print(med1, p1, med2, p2)
 
-    if med1 > med2:
+    if abs(p1) > abs(p2):
         yfam_raw, xfam_raw = f1, f2
-        yang, xang = med1, med2
+        yang, xang = p1, p2
     else:
         yfam_raw, xfam_raw = f2, f1
-        yang, xang = med2, med1
+        yang, xang = p2, p1
 
     # -----------------------------
     # Compute image pivot
@@ -1321,6 +1323,8 @@ def reassign_and_rotate_families_by_image_center(
 
     xfam_rot = rotate_family(xfam_raw)
     yfam_rot = rotate_family(yfam_raw)
+    xang += angle_deg
+    yang += angle_deg
 
     # -----------------------------
     # Final return
@@ -3068,4 +3072,131 @@ def plot_lsd_distributions(
     ax[2].grid(True, ls=":", alpha=0.35)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+def compute_sorted_gaps(centers: np.ndarray, which_coord: str) -> np.ndarray:
+    """
+    centers : (N,3) array  [xc, yc, length]
+    which_coord : "x" or "y"
+    
+    Returns:
+        gaps : (N,) array
+            gaps[0] = 0
+            gaps[i] = sorted_coord[i] - sorted_coord[i-1]
+    """
+    if which_coord.lower() not in ("x", "y"):
+        raise ValueError("which_coord must be 'x' or 'y'")
+
+    # 0 = xc, 1 = yc
+    idx = 0 if which_coord.lower() == "x" else 1
+
+    coords = centers[:, idx].astype(float)
+
+    # sort
+    coords_sorted = np.sort(coords)
+
+    # compute gaps
+    N = coords_sorted.size
+    gaps = np.zeros(N, dtype=float)
+    if N > 1:
+        gaps[1:] = coords_sorted[1:] - coords_sorted[:-1]
+
+    return gaps
+
+
+def plot_gap_histograms(
+    gaps_x: np.ndarray,
+    gaps_y: np.ndarray,
+    bins: int = 40,
+    title: str = "Gap Distributions (X vs Y)"
+) -> None:
+    """
+    Plot stacked histograms of gap_y (top, blue) and gap_x (bottom, red).
+
+    Parameters
+    ----------
+    gaps_x : 1D array
+        Horizontal-family gap array.
+    gaps_y : 1D array
+        Vertical-family gap array.
+    bins : int
+        Number of histogram bins for both plots.
+    title : str
+        Figure title.
+    """
+
+    gx = np.asarray(gaps_x, float)
+    gy = np.asarray(gaps_y, float)
+
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(10, 7),
+        sharex=False,
+        gridspec_kw={"height_ratios": [1, 1]},
+    )
+
+    plt.suptitle(title, fontsize=14, y=0.97)
+
+    # --- Y-family (top, blue) ---
+    ax1.hist(
+        gy, bins=bins, color="blue", alpha=0.75, edgecolor="black"
+    )
+    ax1.set_ylabel("Count")
+    ax1.set_title("Y-family gaps (vertical spacing)")
+
+    # --- X-family (bottom, red) ---
+    ax2.hist(
+        gx, bins=bins, color="red", alpha=0.75, edgecolor="black"
+    )
+    ax2.set_xlabel("Gap value (pixels)")
+    ax2.set_ylabel("Count")
+    ax2.set_title("X-family gaps (horizontal spacing)")
+
+    plt.tight_layout()
+    plt.show()
+
+
+def xy_scatter_from_centers(centers: np.ndarray,
+                            title: str = "Centerline XY Scatter",
+                            color: str = "blue",
+                            size_scale: float = 1.0,
+                            alpha: float = 0.7):
+    """
+    Plot an (xc, yc) scatter from a (N,3) centers array:
+        centers[:,0] = xc
+        centers[:,1] = yc
+        centers[:,2] = length  (optional marker size scaling)
+
+    Parameters
+    ----------
+    centers : (N,3) ndarray
+        Result of np.column_stack((fam['centers'], fam['lengths'])).
+    title : str
+        Plot title.
+    color : str
+        Marker color.
+    size_scale : float
+        Controls marker size proportional to segment length.
+    alpha : float
+        Marker transparency.
+    """
+
+    if centers.size == 0:
+        print("xy_scatter_from_centers: empty centers array")
+        return
+
+    xc = centers[:, 0]
+    yc = centers[:, 1]
+
+    sizes = size_scale
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(xc, yc, s=sizes, c=color, alpha=alpha, edgecolors="none")
+
+    plt.gca().invert_yaxis()  # because image coords grow downwards
+    plt.xlabel("X coordinate (px)")
+    plt.ylabel("Y coordinate (px)")
+    plt.title(title)
+    plt.grid(True, linestyle=":", alpha=0.35)
+    plt.tight_layout()
     plt.show()

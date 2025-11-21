@@ -47,6 +47,7 @@ from pet_geom import (
     refine_principal_point_from_vps, split_segments_by_angle_circular,
     mark_segments, mark_segment_families, mark_segments_w, mark_segment_families_w,
     plot_lsd_distributions,
+    compute_sorted_gaps, plot_gap_histograms, xy_scatter_from_centers,
 )
 
 from pet_lsd_width_analysis import (
@@ -198,6 +199,13 @@ def main(image_path: Optional[str] = None) -> None:
 
     print(f"xfam angle: {famxy["xfam_angle"]}deg")
     print(f"yfam angle: {famxy["yfam_angle"]}deg")
+    
+    if abs(famxy["xfam_angle"]) < 0.5:
+        y_coords = famxy["xfam"]["centers"][:,1]
+        y_dists = compute_sorted_gaps(famxy["xfam"]["centers"], "y")
+    else:
+        x_coords = famxy["xfam"]["centers"][:,0]
+        x_dists = compute_sorted_gaps(famxy["yfam"]["centers"], "x")
 
     # Second angle
     # --------------
@@ -209,6 +217,22 @@ def main(image_path: Optional[str] = None) -> None:
 
     print(f"xfam angle: {famxy2["xfam_angle"]}deg")
     print(f"yfam angle: {famxy2["yfam_angle"]}deg")
+
+    if abs(famxy2["xfam_angle"]) < 0.5:
+        y_coords = famxy2["xfam"]["centers"][:,1]
+        y_dists = compute_sorted_gaps(famxy2["xfam"]["centers"], "y")
+    else:
+        x_coords = famxy2["xfam"]["centers"][:,0]
+        x_dists = compute_sorted_gaps(famxy2["yfam"]["centers"], "x")
+
+    xy_scatter_from_centers(famxy2["yfam"]["centers"], size_scale=4)
+    
+    plot_gap_histograms(
+        famxy["xfam"]["centers"][:,0],
+        famxy["xfam"]["centers"][:,1],
+        bins=400
+    )
+
 
     xcenters = np.column_stack((famxy["xfam"]["centers"], famxy["xfam"]["lengths"]))   # shape (Nx, 3): [xc, yc, length]
     ycenters = np.column_stack((famxy["yfam"]["centers"], famxy["yfam"]["lengths"]))   # shape (Ny, 3): [xc, yc, length]
