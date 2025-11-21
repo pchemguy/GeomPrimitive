@@ -123,6 +123,114 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     }
 
 
+def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
+    """
+    Full LSD extraction wrapper.
+    Safely extracts:
+        - line segments
+        - widths
+        - precisions
+        - nfa
+        - lengths
+        - centers
+
+    Returns a dictionary with guaranteed shape consistency:
+        {
+            "lines":      (N,4) float32  [x1,y1,x2,y2]
+            "widths":     (N,)  float32
+            "precisions": (N,)  float32
+            "nfa":        (N,)  float32
+            "lengths":    (N,)  float32
+            "centers":    (N,2) float32
+        }
+    """
+
+    # -------------------------------------------------------
+    # 1) Convert to grayscale
+    # -------------------------------------------------------
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # -------------------------------------------------------
+    # 2) Create LSD with proper compatibility hacks
+    # -------------------------------------------------------
+    def _create_lsd():
+        """Robustly create LSD across OpenCV versions."""
+        try:
+            # OpenCV >= 4.5
+            return cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
+        except Exception:
+            try:
+                # OpenCV build that uses named argument
+                return cv2.createLineSegmentDetector(_refine=cv2.LSD_REFINE_STD)
+            except Exception:
+                # Very old or non-standard build
+                return cv2.createLineSegmentDetector()
+
+    lsd = _create_lsd()
+
+    # -------------------------------------------------------
+    # 3) Run LSD detection (may return missing fields!)
+    # -------------------------------------------------------
+    lines, widths, precisions, nfa = lsd.detect(gray)
+
+    # LSD returns None if no segments detected
+    if lines is None:
+        return {
+            "lines":      np.zeros((0,4), np.float32),
+            "widths":     np.zeros((0,),  np.float32),
+            "precisions": np.zeros((0,),  np.float32),
+            "nfa":        np.zeros((0,),  np.float32),
+            "lengths":    np.zeros((0,),  np.float32),
+            "centers":    np.zeros((0,2), np.float32),
+        }
+
+    # -------------------------------------------------------
+    # 4) Normalize shapes
+    # -------------------------------------------------------
+    lines = lines.reshape(-1, 4).astype(np.float32)
+    N = lines.shape[0]
+
+    def _safe_vec(v):
+        """Normalize LSD side outputs which may be None."""
+        if v is None:
+            return np.zeros(N, np.float32)
+        v = np.asarray(v).reshape(-1)
+        if v.size != N:
+            # Some OpenCV builds return broken shapes
+            v = np.zeros(N, np.float32)
+        return v.astype(np.float32)
+
+    widths     = _safe_vec(widths)
+    precisions = _safe_vec(precisions)
+    nfa        = _safe_vec(nfa)
+
+    # -------------------------------------------------------
+    # 5) Compute geometric properties
+    # -------------------------------------------------------
+    x1 = lines[:, 0]
+    y1 = lines[:, 1]
+    x2 = lines[:, 2]
+    y2 = lines[:, 3]
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    lengths = np.hypot(dx, dy).astype(np.float32)
+    centers = np.column_stack([(x1 + x2) * 0.5, (y1 + y2) * 0.5]).astype(np.float32)
+
+    # -------------------------------------------------------
+    # 6) Return full dictionary
+    # -------------------------------------------------------
+    return {
+        "lines":      lines,
+        "widths":     widths,
+        "precisions": precisions,
+        "nfa":        nfa,
+        "lengths":    lengths,
+        "centers":    centers,
+    }
+
+
 def clamp_segment_length(
     raw_lsd: Dict[str, np.ndarray],
     min_len: float = 0.0,
