@@ -123,6 +123,7 @@ def analyze_grid_centers(centers, optimize_axis='x', search_angle=0.0):
         'coarse_guess': float(coarse_period)
     }
 
+
 def _get_optimal_angle(centers, axis, ref_angle):
     # Center data
     pts = centers - centers.mean(axis=0)

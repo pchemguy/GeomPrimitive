@@ -63,14 +63,17 @@ from pet_period import (
 
 from pet_grid_solver import analyze_grid_centers
 from pet_grid_solver_extended import (
-    GridHierarchicalSolver, plot_grid_analysis, save_grid_analysis_frames
+    GridHierarchicalSolver, plot_grid_analysis, save_grid_analysis_frames,
 )
 from pet_grid_postprocessor import GridPostProcessor
+# from pet_grid_auto_crop import detect_grid_area_density
+
+from pet_grid_solver_xy import GridHierarchicalXYSolver, GridPostProcessorXY
+
 
 # ======================================================================
 # MODULE CONSTANTS
 # ======================================================================
-
 
 SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"   # relative to script location
 
@@ -237,27 +240,39 @@ def main(image_path: Optional[str] = None) -> None:
 
     xy_scatter_from_centers(famxy2["yfam"]["centers"], size_scale=6)
 
-    centers = famxy2["yfam"]["centers"]
-    spacing = calculate_multi_slice_spacing(centers, True)
-    validate_period(centers, spacing)
-    monte_carlo_grid_spacing(centers, num_runs=100, max_slices=10)
+    # -------------------------------------------------------------------------------------------------------------------
 
-    result = analyze_grid_centers(centers, optimize_axis='x')
+    xcenters = famxy2["yfam"]["centers"]
+    ycenters = famxy2["xfam"]["centers"]
+    spacing = calculate_multi_slice_spacing(xcenters, True)
+    validate_period(xcenters, spacing)
+    monte_carlo_grid_spacing(xcenters, num_runs=100, max_slices=10)
+
+    result = analyze_grid_centers(xcenters, optimize_axis='x')
     print(result)
 
+    source_image = img
+
+    # bbox = detect_grid_area_density(source_image)
+    # 
+    # # Filter centers
+    # mask = (centers[:,0] >= bbox[0]) & (centers[:,0] <= bbox[2]) & \
+    #        (centers[:,1] >= bbox[1]) & (centers[:,1] <= bbox[3])
+    # centers = centers[mask]
+    
     # --- RUN THE SOLVER ---
-    solver = GridHierarchicalSolver(centers)
+    solver = GridHierarchicalSolver(xcenters)
     
     # Solve for X-spacing (Vertical Lines)
     # This will likely split 1x1, 2x2, 3x3... 
     # And then might extend to 3x4, 3x5 (splitting Y more) because splitting X kills the period.
 
     results = solver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
-    save_grid_analysis_frames(results, centers, output_dir="output")
-    plot_grid_analysis(results, centers)
+    save_grid_analysis_frames(results, xcenters, output_dir="output")
+    plot_grid_analysis(results, xcenters)
 
     # 1. Create Processor
-    processor = GridPostProcessor(results, centers)
+    processor = GridPostProcessor(results, xcenters)
     
     # 2. Run Filter Pipeline
     valid_cells, stats = processor.run_robust_analysis(
@@ -267,7 +282,23 @@ def main(image_path: Optional[str] = None) -> None:
     )
     
     # 3. Generate & Plot Consensus
-    processor.plot_consensus(source_image=img)
+    processor.plot_consensus(source_image=source_image)
+
+
+    # -------------------------------------------------------------------------------------------------------------------
+
+    # 1. Solve
+    xy_solver = GridHierarchicalXYSolver(xcenters, ycenters)
+    xy_results = xy_solver.run_multiscale_analysis(max_global_split=10)
+    
+    # 2. Post-Process
+    xy_processor = GridPostProcessorXY(xy_results, xcenters, ycenters)
+    xy_processor.run_robust_analysis()
+    
+    # 3. Viz
+    xy_processor.plot_xy_dashboard(output_dir="output", source_image=source_image)    
+    
+    # -------------------------------------------------------------------------------------------------------------------
 
     plot_gap_histograms(
         famxy2["xfam"]["centers"][:,0],

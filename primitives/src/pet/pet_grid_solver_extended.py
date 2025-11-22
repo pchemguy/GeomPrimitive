@@ -6,6 +6,8 @@ pet_grid_solver_extended.py
 
 import os
 import numpy as np
+import cv2
+from scipy.ndimage import label, find_objects, binary_fill_holes, binary_dilation, binary_closing
 from scipy.optimize import minimize_scalar
 from scipy.signal import correlate, find_peaks
 import matplotlib.pyplot as plt
