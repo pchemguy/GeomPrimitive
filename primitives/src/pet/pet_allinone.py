@@ -220,6 +220,8 @@ def main(image_path: Optional[str] = None) -> None:
         x_coords = famxy["xfam"]["centers"][:,0]
         x_dists = compute_sorted_gaps(famxy["yfam"]["centers"], "x")
 
+    xy_scatter_from_centers(famxy["xfam"]["centers"], size_scale=6)
+
     # Second angle
     # --------------
     famxy2 = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img, dominant_angle=False)
@@ -243,7 +245,7 @@ def main(image_path: Optional[str] = None) -> None:
     # -------------------------------------------------------------------------------------------------------------------
 
     xcenters = famxy2["yfam"]["centers"]
-    ycenters = famxy2["xfam"]["centers"]
+    ycenters = famxy["xfam"]["centers"]
     spacing = calculate_multi_slice_spacing(xcenters, True)
     validate_period(xcenters, spacing)
     monte_carlo_grid_spacing(xcenters, num_runs=100, max_slices=10)
@@ -261,36 +263,53 @@ def main(image_path: Optional[str] = None) -> None:
     # centers = centers[mask]
     
     # --- RUN THE SOLVER ---
-    solver = GridHierarchicalSolver(xcenters)
+    xsolver = GridHierarchicalSolver(xcenters)
     
     # Solve for X-spacing (Vertical Lines)
     # This will likely split 1x1, 2x2, 3x3... 
     # And then might extend to 3x4, 3x5 (splitting Y more) because splitting X kills the period.
 
-    results = solver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
-    save_grid_analysis_frames(results, xcenters, output_dir="output")
-    plot_grid_analysis(results, xcenters)
+    xresults = xsolver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
+    save_grid_analysis_frames(xresults, xcenters, output_dir="output/xaxis")
+    plot_grid_analysis(xresults, xcenters)
 
     # 1. Create Processor
-    processor = GridPostProcessor(results, xcenters)
+    xprocessor = GridPostProcessor(xresults, xcenters)
     
     # 2. Run Filter Pipeline
-    valid_cells, stats = processor.run_robust_analysis(
+    valid_cells, stats = xprocessor.run_robust_analysis(
         rms_threshold=15.0,           # Reject noisy cells
         layer_failure_tolerance=0.4,  # Reject broken 6x11 layers
         outlier_tolerance=0.25        # Reject periods > 25% off median
     )
     
     # 3. Generate & Plot Consensus
-    processor.plot_consensus(source_image=source_image)
+    xprocessor.plot_consensus(source_image=source_image)
 
 
+    ysolver = GridHierarchicalSolver(ycenters)
+    yresults = ysolver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
+    save_grid_analysis_frames(yresults, ycenters, output_dir="output/yaxis")
+    plot_grid_analysis(yresults, ycenters)
+    yprocessor = GridPostProcessor(yresults, ycenters)    
+    valid_cells, stats = yprocessor.run_robust_analysis(
+        rms_threshold=15.0,           # Reject noisy cells
+        layer_failure_tolerance=0.4,  # Reject broken 6x11 layers
+        outlier_tolerance=0.25        # Reject periods > 25% off median
+    )
+    yprocessor.plot_consensus(source_image=source_image)
+    
+    
+    
     # -------------------------------------------------------------------------------------------------------------------
 
     # 1. Solve
     xy_solver = GridHierarchicalXYSolver(xcenters, ycenters)
     xy_results = xy_solver.run_multiscale_analysis(max_global_split=10)
     
+
+    xy_solver.save_debug_frames(xy_results, output_base="output")
+
     # 2. Post-Process
     xy_processor = GridPostProcessorXY(xy_results, xcenters, ycenters)
     xy_processor.run_robust_analysis()

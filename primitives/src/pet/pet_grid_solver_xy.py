@@ -10,26 +10,20 @@ import cv2
 import matplotlib.pyplot as plt
 
 
-from pet_grid_solver_extended import GridHierarchicalSolver
+from pet_grid_solver_extended import GridHierarchicalSolver, save_grid_analysis_frames
 from pet_grid_postprocessor import GridPostProcessor
 
 
 class GridHierarchicalXYSolver:
     """
     Orchestrates the solution of a 2D grid by treating it as 
-    two independent 1D problems (Vertical lines and Horizontal lines).
+    two independent 1D problems.
     """
     def __init__(self, x_centers, y_centers):
-        """
-        Args:
-            x_centers: (N,2) array of points belonging to Vertical Lines.
-            y_centers: (M,2) array of points belonging to Horizontal Lines.
-        """
         self.x_centers = x_centers
         self.y_centers = y_centers
         
         # Initialize independent solvers
-        # They will optimize angles independently, handling shear/perspective.
         self.solver_x = GridHierarchicalSolver(x_centers)
         self.solver_y = GridHierarchicalSolver(y_centers)
 
@@ -37,21 +31,44 @@ class GridHierarchicalXYSolver:
         """
         Runs hierarchical analysis on both axes.
         """
-        print(f"=== SOLVING X-AXIS (Vertical Lines, Horizontal Period) ===")
-        # optimize_axis='x' means we project onto X to find spacing
+        print(f"=== SOLVING X-AXIS (Vertical Lines) ===")
+        # optimize_axis='x' means we project onto X to find horizontal spacing
         results_x = self.solver_x.run_multiscale_analysis(
             optimize_axis='x', 
             max_global_split=max_global_split
         )
         
-        print(f"\n=== SOLVING Y-AXIS (Horizontal Lines, Vertical Period) ===")
-        # optimize_axis='y' means we project onto Y to find spacing
+        print(f"\n=== SOLVING Y-AXIS (Horizontal Lines) ===")
+        # optimize_axis='y' means we project onto Y to find vertical spacing
         results_y = self.solver_y.run_multiscale_analysis(
             optimize_axis='y', 
             max_global_split=max_global_split
         )
         
         return {'x': results_x, 'y': results_y}
+
+    def save_debug_frames(self, results_xy, output_base="output"):
+        """
+        Saves the intermediate visualization frames for both axes.
+        Creates subfolders to prevent filename collisions.
+        """
+        print(f"\n--- Saving Intermediate Debug Frames to '{output_base}' ---")
+        
+        # 1. Save X-Axis Results
+        dir_x = os.path.join(output_base, "axis_x")
+        if not os.path.exists(dir_x): os.makedirs(dir_x)
+        
+        print(f"Rendering X-Axis frames to {dir_x}...")
+        save_grid_analysis_frames(results_xy['x'], self.x_centers, output_dir=dir_x)
+        
+        # 2. Save Y-Axis Results
+        dir_y = os.path.join(output_base, "axis_y")
+        if not os.path.exists(dir_y): os.makedirs(dir_y)
+        
+        print(f"Rendering Y-Axis frames to {dir_y}...")
+        save_grid_analysis_frames(results_xy['y'], self.y_centers, output_dir=dir_y)
+        
+        print("All debug frames saved.")
 
 
 class GridPostProcessorXY:
