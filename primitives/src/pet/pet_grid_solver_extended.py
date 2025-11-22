@@ -130,7 +130,7 @@ class GridHierarchicalSolver:
         self.x_bounds = (centers[:, 0].min(), centers[:, 0].max())
         self.y_bounds = (centers[:, 1].min(), centers[:, 1].max())
         
-    def determine_robust_limits(self, optimize_axis, min_points_per_cell=25, min_periods_per_cell=2.5):
+    def determine_robust_limits(self, optimize_axis, min_points_per_cell=25, min_periods_per_cell=3.5):
         """
         Determines the maximum safe split count for parallel and perpendicular axes.
         
@@ -559,7 +559,8 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
         colors = []
         
         for key in layer_keys:
-            periods = [c['period'] for c in results_tree[key] if c['confidence'] in ['HIGH', 'MODERATE']]
+            # periods = [c['period'] for c in results_tree[key] if c['confidence'] in ['HIGH', 'MODERATE']]
+            periods = [c['period'] for c in results_tree[key] if c['period'] > 10]
             if periods:
                 plot_data.append(periods)
                 labels.append(key)
