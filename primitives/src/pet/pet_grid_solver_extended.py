@@ -448,11 +448,6 @@ def plot_grid_analysis(results_tree, centers, title="Grid Analysis Report"):
     plt.show()
 
 
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import numpy as np
-import os
-
 def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
     """
     Generates and saves two sets of JPEG images for EACH split configuration.
@@ -510,9 +505,9 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
                 rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='white', facecolor=color, alpha=0.6)
                 ax1.add_patch(rect)
                 
-                # STYLE UPDATE: Black text, White Box, Size 16
+                # STYLE UPDATE: 1 Decimal (.1f), Size 16, Black on White Box
                 if w > 80 and h > 80: 
-                    ax1.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.2f}", 
+                    ax1.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.1f}", 
                              ha='center', va='center', fontsize=16, color='black', fontweight='bold',
                              bbox=dict(facecolor='white', edgecolor='none', pad=2.0))
 
@@ -520,7 +515,7 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         
-        # FORMAT UPDATE: 0 Decimals for Colorbar
+        # Colorbar: 0 Decimals
         cbar = plt.colorbar(sm, ax=ax1, format='%.0f')
         cbar.set_label('Measured Period (px)')
 
@@ -547,7 +542,7 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
             rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='gray', facecolor=color, alpha=alpha)
             ax2.add_patch(rect)
             
-            # STYLE UPDATE: 1 Decimal, Size 16, Black on White Box
+            # RMS: 1 Decimal, Size 16
             if w > 80 and h > 80 and rms < 10:
                  ax2.text(bx[0]+w/2, by[0]+h/2, f"{rms:.1f}", 
                           ha='center', va='center', fontsize=16, color='black', fontweight='bold',
@@ -614,9 +609,9 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
                 rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='white', facecolor=color, alpha=0.6)
                 ax_map.add_patch(rect)
                 
-                # STYLE UPDATE: Giant Font (26), Black on White Box
+                # STYLE UPDATE: 1 Decimal (.1f), Giant Font (26), Black on White Box
                 if w > 80 and h > 80: 
-                    ax_map.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.2f}", 
+                    ax_map.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.1f}", 
                              ha='center', va='center', fontsize=26, color='black', fontweight='bold',
                              bbox=dict(facecolor='white', edgecolor='none', pad=4.0))
 
