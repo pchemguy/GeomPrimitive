@@ -448,17 +448,23 @@ def plot_grid_analysis(results_tree, centers, title="Grid Analysis Report"):
     plt.show()
 
 
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+import os
+
 def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
     """
-    Generates and saves a JPEG dashboard for EACH split configuration found in results_tree.
+    Generates and saves two sets of JPEG images for EACH split configuration.
+    1. 'summary_RowxCol.jpg': The full dashboard.
+    2. 'period_map_RowxCol.jpg': Just the period map with giant labels.
     """
     # 1. Setup Directory
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         print(f"Created directory: {output_dir}")
 
-    # 2. Determine Global Color Limits (Crucial for consistent comparison)
-    # We look at ALL layers to find the global min/max period.
+    # 2. Determine Global Color Limits
     all_valid_periods = []
     for key in results_tree:
         all_valid_periods.extend([c['period'] for c in results_tree[key] if c['confidence'] != 'FAIL'])
@@ -467,24 +473,25 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
         print("No valid data found in any layer.")
         return
 
-    # Robust Scaling (5th-95th percentile of the WHOLE dataset)
+    # Robust Scaling
     p_min, p_max = np.percentile(all_valid_periods, [5, 95])
     
-    # Sort keys by complexity (number of cells)
+    # Sort keys by complexity
     layer_keys = sorted(results_tree.keys(), key=lambda k: len(results_tree[k]))
 
-    print(f"Generating {len(layer_keys)} images in '{output_dir}'...")
+    print(f"Generating images for {len(layer_keys)} configurations in '{output_dir}'...")
 
     # 3. Loop through each split configuration
     for current_key in layer_keys:
         current_data = results_tree[current_key]
         
-        fig = plt.figure(figsize=(20, 12))
-        fig.suptitle(f"Grid Analysis: Configuration {current_key}", fontsize=16, fontweight='bold')
+        # --- SERIES 1: SUMMARY DASHBOARD ---
+        fig_summary = plt.figure(figsize=(20, 12))
+        fig_summary.suptitle(f"Grid Analysis: Configuration {current_key}", fontsize=16, fontweight='bold')
         
-        # --- SUBPLOT 1: Spatial Map (Current Layer) ---
-        ax1 = fig.add_subplot(2, 2, 1)
-        ax1.set_title(f"Spatial Period Map ({current_key})\nColor Scale Fixed Globally", fontsize=12)
+        # ... SUBPLOT 1: Spatial Map (Period) ...
+        ax1 = fig_summary.add_subplot(2, 2, 1)
+        ax1.set_title(f"Spatial Period Map ({current_key})", fontsize=12)
         ax1.scatter(centers[:, 0], centers[:, 1], s=1, c='lightgray', alpha=0.5)
         
         cmap = plt.cm.viridis
@@ -503,21 +510,23 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
                 rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='white', facecolor=color, alpha=0.6)
                 ax1.add_patch(rect)
                 
-                # Only label if not too crowded
+                # STYLE UPDATE: Black text, White Box, Size 16
                 if w > 80 and h > 80: 
-                    text = ax1.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.2f}", 
-                             ha='center', va='center', fontsize=8, color='white', fontweight='bold')
-                    text.set_path_effects([path_effects.withStroke(linewidth=2, foreground='black')])
+                    ax1.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.2f}", 
+                             ha='center', va='center', fontsize=16, color='black', fontweight='bold',
+                             bbox=dict(facecolor='white', edgecolor='none', pad=2.0))
 
         ax1.invert_yaxis()
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax1, format='%.1f')
+        
+        # FORMAT UPDATE: 0 Decimals for Colorbar
+        cbar = plt.colorbar(sm, ax=ax1, format='%.0f')
         cbar.set_label('Measured Period (px)')
 
-        # --- SUBPLOT 2: Reliability Map (Current Layer) ---
-        ax2 = fig.add_subplot(2, 2, 2)
-        ax2.set_title(f"Reliability Map ({current_key})\nRMS Error", fontsize=12)
+        # ... SUBPLOT 2: Reliability Map (RMS) ...
+        ax2 = fig_summary.add_subplot(2, 2, 2)
+        ax2.set_title(f"Reliability Map ({current_key})", fontsize=12)
         ax2.scatter(centers[:, 0], centers[:, 1], s=1, c='lightgray', alpha=0.5)
         
         for cell in current_data:
@@ -538,13 +547,16 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
             rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='gray', facecolor=color, alpha=alpha)
             ax2.add_patch(rect)
             
+            # STYLE UPDATE: 1 Decimal, Size 16, Black on White Box
             if w > 80 and h > 80 and rms < 10:
-                 ax2.text(bx[0]+w/2, by[0]+h/2, f"{rms:.2f}", ha='center', va='center', fontsize=8)
+                 ax2.text(bx[0]+w/2, by[0]+h/2, f"{rms:.1f}", 
+                          ha='center', va='center', fontsize=16, color='black', fontweight='bold',
+                          bbox=dict(facecolor='white', edgecolor='none', pad=2.0))
 
         ax2.invert_yaxis()
 
-        # --- SUBPLOT 3: Boxplot (Global Context) ---
-        ax3 = fig.add_subplot(2, 1, 2)
+        # ... SUBPLOT 3: Boxplot ...
+        ax3 = fig_summary.add_subplot(2, 1, 2)
         ax3.set_title(f"Convergence History (Highlighting {current_key})", fontsize=12)
         
         plot_data = []
@@ -556,7 +568,6 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
             if periods:
                 plot_data.append(periods)
                 labels.append(key)
-                # Highlight the current key in the boxplot
                 if key == current_key:
                     colors.append("orange") 
                 else:
@@ -575,12 +586,50 @@ def save_grid_analysis_frames(results_tree, centers, output_dir="output"):
             ax3.axhline(global_median, color='red', linestyle='--', linewidth=1, label=f'Global Median: {global_median:.3f}')
             ax3.legend()
 
-        # --- SAVE ---
+        # SAVE SUMMARY
         plt.tight_layout()
-        filename = os.path.join(output_dir, f"{current_key}.jpg")
-        plt.savefig(filename, dpi=150) # 150 DPI is good for standard screens
-        plt.close(fig) # FREE MEMORY
-        print(f"  Saved {filename}")
+        summary_filename = os.path.join(output_dir, f"summary_{current_key}.jpg")
+        plt.savefig(summary_filename, dpi=150)
+        plt.close(fig_summary)
+        print(f"  Saved {summary_filename}")
+
+        # --- SERIES 2: BARE PERIOD MAP ---
+        fig_map = plt.figure(figsize=(10, 10))
+        ax_map = fig_map.add_subplot(1, 1, 1)
+        ax_map.scatter(centers[:, 0], centers[:, 1], s=1, c='lightgray', alpha=0.5)
+        
+        cmap = plt.cm.viridis
+        norm = plt.Normalize(vmin=p_min, vmax=p_max)
+        
+        for cell in current_data:
+            bx = cell['bounds_x']
+            by = cell['bounds_y']
+            w, h = bx[1] - bx[0], by[1] - by[0]
+            
+            if cell['confidence'] == 'FAIL':
+                rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='red', facecolor='none', hatch='xx', alpha=0.5)
+                ax_map.add_patch(rect)
+            else:
+                color = cmap(norm(cell['period']))
+                rect = patches.Rectangle((bx[0], by[0]), w, h, linewidth=1, edgecolor='white', facecolor=color, alpha=0.6)
+                ax_map.add_patch(rect)
+                
+                # STYLE UPDATE: Giant Font (26), Black on White Box
+                if w > 80 and h > 80: 
+                    ax_map.text(bx[0]+w/2, by[0]+h/2, f"{cell['period']:.2f}", 
+                             ha='center', va='center', fontsize=26, color='black', fontweight='bold',
+                             bbox=dict(facecolor='white', edgecolor='none', pad=4.0))
+
+        ax_map.invert_yaxis()
+        ax_map.set_xticks([])
+        ax_map.set_yticks([])
+
+        # SAVE MAP
+        plt.tight_layout()
+        map_filename = os.path.join(output_dir, f"period_map_{current_key}.jpg")
+        plt.savefig(map_filename, dpi=150, bbox_inches='tight')
+        plt.close(fig_map)
+        print(f"  Saved {map_filename}")
 
     print("Batch export complete.")
 
