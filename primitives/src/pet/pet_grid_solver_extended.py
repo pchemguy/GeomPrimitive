@@ -130,7 +130,7 @@ class GridHierarchicalSolver:
         self.x_bounds = (centers[:, 0].min(), centers[:, 0].max())
         self.y_bounds = (centers[:, 1].min(), centers[:, 1].max())
         
-    def determine_robust_limits(self, optimize_axis, min_points_per_cell=25, min_periods_per_cell=3.5):
+    def determine_robust_limits(self, optimize_axis, min_points_per_cell=40, min_periods_per_cell=3.5):
         """
         Determines the maximum safe split count for parallel and perpendicular axes.
         
@@ -228,67 +228,75 @@ class GridHierarchicalSolver:
                 cells.append(self.centers[mask])
         return cells
 
-    def run_multiscale_analysis(self, optimize_axis='x', max_global_split=5):
+
+    def run_multiscale_analysis(self, optimize_axis='x', max_global_split=15):
         """
-        Executes the "Square then Ortho-Extend" strategy.
+        Executes the "Square then Ortho-Extend" strategy with strict clamping.
         """
         # 1. Determine Limits
-        # max_sol: max splits along the measuring axis (usually low, e.g., 3)
-        # max_ortho: max splits perpendicular (usually high, e.g., 10)
-        max_sol, max_ortho = self.determine_robust_limits(optimize_axis)
+        max_sol, max_ortho = self.determine_robust_limits(optimize_axis, min_periods_per_cell=3.5)
         
-        # Cap at user request (global 5x5 limit logic)
-        max_sol = min(max_sol, max_global_split)
-        max_ortho = min(max_ortho, max_global_split) # Or allow higher if desired
-        
-        print(f"--- Auto-Detected Limits: SolAxis={max_sol}, OrthoAxis={max_ortho} ---")
+        # Calculate the ABSOLUTE hard caps based on user input + physics
+        # We never go higher than what physics allows (max_sol/ortho)
+        # AND we never go higher than what the user requested (max_global_split)
+        abs_limit_sol = min(max_sol, max_global_split)
+        abs_limit_ortho = min(max_ortho, max_global_split)
+
+        print(f"--- Limits: Physics=(Sol:{max_sol}, Ortho:{max_ortho}) | UserCap={max_global_split} | FinalCap=(Sol:{abs_limit_sol}, Ortho:{abs_limit_ortho}) ---")
         
         results_tree = {}
-        
-        # 2. Strategy: Equal Increase first
-        # "Increase split count equally first up to the minimum of the two"
-        limit_equal = min(max_sol, max_ortho)
-        
         configurations = []
         
-        # Phase 1: Square (1,1) -> (L, L)
-        for k in range(1, limit_equal + 1):
-            if optimize_axis == 'x':
-                conf = (k, k) # (nx, ny)
-            else:
-                conf = (k, k)
-            configurations.append(conf)
-            
-        # Phase 2: Extend Orthogonal
-        # "Keep increasing the other split count until its maximum"
-        # If optimize 'x', Sol is X (cols). We keep increasing Y (rows).
-        # If optimize 'y', Sol is Y (rows). We keep increasing X (cols).
+        # 2. Generate Valid Configurations (The "Square" Growth)
+        # Iterate k up to the larger of the two limits to ensure we reach the edge
+        loop_limit = max(abs_limit_sol, abs_limit_ortho)
         
-        if max_ortho > limit_equal:
-            for k in range(limit_equal + 1, max_ortho + 1):
-                if optimize_axis == 'x':
-                    # Sol=X (fixed at limit), Ortho=Y (increasing)
-                    conf = (limit_equal, k)
-                else:
-                    # Sol=Y (fixed at limit), Ortho=X (increasing)
-                    conf = (k, limit_equal)
-                configurations.append(conf)
+        for k in range(1, loop_limit + 1):
+            if optimize_axis == 'x':
+                # Sol=X, Ortho=Y
+                nx = min(k, abs_limit_sol)   
+                ny = min(k, abs_limit_ortho) 
+            else:
+                # Sol=Y, Ortho=X
+                nx = min(k, abs_limit_ortho) 
+                ny = min(k, abs_limit_sol)   
+            
+            if (nx, ny) not in configurations:
+                configurations.append((nx, ny))
+                
+        # 3. Extended Ortho Scan (The "Tall Thin Strip" logic)
+        # We explicitly check if we stopped early on the Ortho axis due to the 'k' loop
+        # and fill in the rest UP TO abs_limit_ortho (which respects user cap).
+        
+        last_nx, last_ny = configurations[-1]
+        
+        if optimize_axis == 'x':
+            # Sol=X (fixed at limit), Ortho=Y (grow)
+            fixed_nx = abs_limit_sol
+            start_ny = last_ny + 1
+            # FIX: Use abs_limit_ortho instead of max_ortho to respect max_global_split
+            for y_split in range(start_ny, abs_limit_ortho + 1):
+                configurations.append((fixed_nx, y_split))
+        else:
+            # Sol=Y (fixed at limit), Ortho=X (grow)
+            fixed_ny = abs_limit_sol
+            start_nx = last_nx + 1
+            # FIX: Use abs_limit_ortho instead of max_ortho to respect max_global_split
+            for x_split in range(start_nx, abs_limit_ortho + 1):
+                configurations.append((x_split, fixed_ny))
 
-        # 3. Execution Loop
+        # 4. Execution Loop
         for (nx, ny) in configurations:
             print(f"\nProcessing Grid Configuration: {nx}x{ny} ...")
             
-            # Generate bounds
             x_edges = np.linspace(self.x_bounds[0], self.x_bounds[1], nx + 1)
             y_edges = np.linspace(self.y_bounds[0], self.y_bounds[1], ny + 1)
             
             layer_key = f"{nx}x{ny}"
             results_tree[layer_key] = []
             
-            # Iterate Rows (Y) then Cols (X)
             for r in range(ny):
                 for c in range(nx):
-                    # Slicing
                     mask = (
                         (self.centers[:, 0] >= x_edges[c]) & 
                         (self.centers[:, 0] < x_edges[c+1]) & 
@@ -296,22 +304,18 @@ class GridHierarchicalSolver:
                         (self.centers[:, 1] < y_edges[r+1])
                     )
                     cell_data = self.centers[mask]
-                    
-                    # Analysis
                     res = analyze_grid_centers(cell_data, optimize_axis=optimize_axis)
                     
-                    # Tagging
-                    res['grid_index'] = (r, c) # (row, col)
+                    res['grid_index'] = (r, c)
                     res['bounds_x'] = (int(x_edges[c]), int(x_edges[c+1]))
                     res['bounds_y'] = (int(y_edges[r]), int(y_edges[r+1]))
                     
                     results_tree[layer_key].append(res)
                     
-                    # Optional: Print compact status
                     status = res.get('confidence', 'FAIL')
                     per = res.get('period', 0)
-                    rms = res.get('rms_error', 999) # <--- Extract RMS
-                    print(f"  Cell [{r:>2},{c:<2}] ({len(cell_data):>3} pts): {status:<8} | P={round(per, 1):>4.1f} px | RMS={round(rms, 2):<6.2f}")
+                    rms = res.get('rms_error', 999)
+                    print(f"  Cell [{r:>2},{c:<2}] ({len(cell_data):>3} pts): {status:<8} | P={per:>8.3f} px | RMS={rms:>6.4f}")
 
         return results_tree
 

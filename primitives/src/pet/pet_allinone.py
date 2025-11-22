@@ -65,6 +65,7 @@ from pet_grid_solver import analyze_grid_centers
 from pet_grid_solver_extended import (
     GridHierarchicalSolver, plot_grid_analysis, save_grid_analysis_frames
 )
+from pet_grid_postprocessor import GridPostProcessor
 
 # ======================================================================
 # MODULE CONSTANTS
@@ -134,7 +135,7 @@ def main(image_path: Optional[str] = None) -> None:
     width_analysis = analyze_lsd_widths(flt, max_components=3, plot=True)
     
     # Hard split by thickness (minor / major / outliers)
-    thickness_groups = cluster_line_thickness(flt, analysis=width_analysis, robust_sigma=3.0,)
+    thickness_groups = cluster_line_thickness(flt, analysis=width_analysis, robust_sigma=3.0)
     
     lsd_minor       = thickness_groups["minor"]
     lsd_major       = thickness_groups["major"]
@@ -255,12 +256,24 @@ def main(image_path: Optional[str] = None) -> None:
     save_grid_analysis_frames(results, centers, output_dir="output")
     plot_grid_analysis(results, centers)
 
+    # 1. Create Processor
+    processor = GridPostProcessor(results, centers)
+    
+    # 2. Run Filter Pipeline
+    valid_cells, stats = processor.run_robust_analysis(
+        rms_threshold=15.0,           # Reject noisy cells
+        layer_failure_tolerance=0.4,  # Reject broken 6x11 layers
+        outlier_tolerance=0.25        # Reject periods > 25% off median
+    )
+    
+    # 3. Generate & Plot Consensus
+    processor.plot_consensus()
+
     plot_gap_histograms(
         famxy2["xfam"]["centers"][:,0],
         famxy2["xfam"]["centers"][:,1],
         bins=100
     )
-
 
     xcenters = np.column_stack((famxy["xfam"]["centers"], famxy["xfam"]["lengths"]))   # shape (Nx, 3): [xc, yc, length]
     ycenters = np.column_stack((famxy["yfam"]["centers"], famxy["yfam"]["lengths"]))   # shape (Ny, 3): [xc, yc, length]
