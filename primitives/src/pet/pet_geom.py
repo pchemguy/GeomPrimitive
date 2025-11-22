@@ -21,10 +21,12 @@ from sklearn.cluster import KMeans
 from typing import Dict, List, Tuple, Optional
 
 from scipy.signal import find_peaks
+from scipy.optimize import minimize_scalar
 from scipy import stats
 
 import matplotlib.pyplot as plt
 
+from pet_grid_align import get_optimal_rotation
 
 # ============================================================================
 # 1) RAW LSD SEGMENT EXTRACTION
@@ -1244,17 +1246,23 @@ def reassign_and_rotate_families_by_image_center(
     # -----------------------------
     # Determine which is X vs Y
     # -----------------------------
-    #med1 = float(np.median(ang1)) if ang1.size else 0.0
-    #med2 = float(np.median(ang2)) if ang2.size else 0.0
-    #print(med1, p1, med2, p2)
+    ang_mean1 = float(np.mean(ang1)) if ang1.size else 0.0
+    ang_mean2 = float(np.mean(ang2)) if ang2.size else 0.0
 
-    if abs(p1) > abs(p2):
+    if abs(ang_mean1) > abs(ang_mean2):
         yfam_raw, xfam_raw = f1, f2
-        yang, xang = p1, p2
+        yang, xang = ang_mean1, ang_mean2
     else:
         yfam_raw, xfam_raw = f2, f1
-        yang, xang = p2, p1
+        yang, xang = ang_mean2, ang_mean1
 
+    if yang > 0:
+        yrot = 90 - yang
+    else:
+        yrot = -(90 + yang)
+    
+    xrot = -xang
+    
     # -----------------------------
     # Compute image pivot
     # -----------------------------
@@ -1266,10 +1274,18 @@ def reassign_and_rotate_families_by_image_center(
     # -----------------------------
     # Rotation matrix
     # -----------------------------
+    # angle_deg = float(analysis["rotation_angle_deg"])
     if dominant_angle:
-        angle_deg = float(analysis["rotation_angle_deg"])
+        angle_deg = yrot
+        centers = yfam_raw["centers"]
     else:
-        angle_deg = float(analysis["rotation_angle2_deg"])
+        angle_deg = xrot
+        centers = xfam_raw["centers"]
+
+    print(f"Base rotation angle: {angle_deg}")
+    angle_deg = -get_optimal_rotation(centers, reference_angle=-angle_deg, optimize_axis="x", bin_method="fd")
+    print(f"Adjusted rotation angle: {angle_deg}")
+
     theta = np.deg2rad(angle_deg)
 
     R = np.array([
@@ -3200,3 +3216,4 @@ def xy_scatter_from_centers(centers: np.ndarray,
     plt.grid(True, linestyle=":", alpha=0.35)
     plt.tight_layout()
     plt.show()
+
