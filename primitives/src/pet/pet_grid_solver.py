@@ -1,3 +1,9 @@
+"""
+```
+pet_grid_solver.py
+------------------
+"""
+
 # https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942
 
 import numpy as np
@@ -110,11 +116,11 @@ def analyze_grid_centers(centers, optimize_axis='x', search_angle=0.0):
     else: confidence = "LOW"
 
     return {
-        'period': round(fine_period, 4),
-        'angle': round(best_angle, 4),
-        'rms_error': round(final_rms, 4),
+        'period': float(round(fine_period, 4)),
+        'angle': float(round(best_angle, 4)),
+        'rms_error': float(round(final_rms, 4)),
         'confidence': confidence,
-        'coarse_guess': coarse_period
+        'coarse_guess': float(coarse_period)
     }
 
 def _get_optimal_angle(centers, axis, ref_angle):
@@ -152,3 +158,7 @@ if __name__ == "__main__":
     # result = analyze_grid_centers(centers, optimize_axis='x')
     # print(result)
     pass
+
+"""
+```
+"""

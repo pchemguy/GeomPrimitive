@@ -62,6 +62,9 @@ from pet_period import (
 )
 
 from pet_grid_solver import analyze_grid_centers
+from pet_grid_solver_extended import (
+    GridHierarchicalSolver, plot_grid_analysis, save_grid_analysis_frames
+)
 
 # ======================================================================
 # MODULE CONSTANTS
@@ -240,7 +243,18 @@ def main(image_path: Optional[str] = None) -> None:
 
     result = analyze_grid_centers(centers, optimize_axis='x')
     print(result)
+
+    # --- RUN THE SOLVER ---
+    solver = GridHierarchicalSolver(centers)
     
+    # Solve for X-spacing (Vertical Lines)
+    # This will likely split 1x1, 2x2, 3x3... 
+    # And then might extend to 3x4, 3x5 (splitting Y more) because splitting X kills the period.
+
+    results = solver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
+    save_grid_analysis_frames(results, centers, output_dir="output")
+    plot_grid_analysis(results, centers)
+
     plot_gap_histograms(
         famxy2["xfam"]["centers"][:,0],
         famxy2["xfam"]["centers"][:,1],
