@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from pet_histxy import plot_interactive_histogram
+from pet_kde_interactive import plot_kde_interactive
 
 
 def find_grid_nodes(source_img, output_dir="output"):
@@ -117,7 +118,8 @@ if __name__ == "__main__":
     # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
     nodes = find_grid_nodes(source_image, output_dir="output")
     
-    plot_interactive_histogram(nodes)
+    #plot_interactive_histogram(nodes)
+    plot_kde_interactive(nodes)
 
     print(f"Done. Found {len(nodes)} intersections.")
     print("Check 'output/' for visualization.")
