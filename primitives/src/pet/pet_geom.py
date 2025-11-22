@@ -1341,6 +1341,8 @@ def reassign_and_rotate_families_by_image_center(
     yfam_rot = rotate_family(yfam_raw)
     xang += angle_deg
     yang += angle_deg
+    xang = ((xang + 180) % 180) - 90
+    yang = ((yang + 180) % 180) - 90
 
     # -----------------------------
     # Final return

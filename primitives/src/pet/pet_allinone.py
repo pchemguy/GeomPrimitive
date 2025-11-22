@@ -61,13 +61,14 @@ from pet_period import (
     calculate_multi_slice_spacing, validate_period, monte_carlo_grid_spacing,
 )
 
+from pet_grid_auto_crop import detect_grid_area_density
+from pet_grid_node_detector import find_grid_nodes
+
 from pet_grid_solver import analyze_grid_centers
 from pet_grid_solver_extended import (
     GridHierarchicalSolver, plot_grid_analysis, save_grid_analysis_frames,
 )
 from pet_grid_postprocessor import GridPostProcessor
-# from pet_grid_auto_crop import detect_grid_area_density
-
 from pet_grid_solver_xy import GridHierarchicalXYSolver, GridPostProcessorXY
 
 
@@ -75,7 +76,7 @@ from pet_grid_solver_xy import GridHierarchicalXYSolver, GridPostProcessorXY
 # MODULE CONSTANTS
 # ======================================================================
 
-SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"   # relative to script location
+SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00_90.jpg"   # relative to script location
 
 
 # ======================================================================
@@ -122,10 +123,30 @@ def main(image_path: Optional[str] = None) -> None:
     img, img_meta = image_loader(image_path or SAMPLE_IMAGE)              
     H, W = img.shape[:2]
 
+    # Detect grid bounding box (presently not used further)
+    # Saves debug image with detected bounding box.
+    # This routine is based on detecting grid edges, and applying any
+    # of Photoshop Auto- Contrast/Tone/Color/Curves may improve quality.
+    # -------------------------------------------------------------------
+    bbox = detect_grid_area_density(img)
+
+    # Detect grid nodes (presently not used further)
+    # Saves debug image with detected nodes.
+    # Note: Application of any of Photoshop Auto- Contrast/Tone/Color/Curves
+    #       (following normalization of local contrast) may considerably
+    #       increase node detection rate. Visiually, these option result
+    #       only in limited noise level increase, though more nodes are labled
+    #       on major grid edges. Whether actual covearage quality is improved
+    #       needs to be assessed.
+    # ----------------------------------------------
+    nodes = find_grid_nodes(img, output_dir="output")
+
     # --------------------------------------------------------------
     # 1. Detect raw line segments
     # --------------------------------------------------------------
     # LSD OpenCV segment detector
+    # Note applying any of Photoshop Auto- Contrast/Tone/Color/Curves
+    # may improve quality.
     # ---------------------------
     raw = detect_grid_segments(img)
     raw_lines = raw["lines"]
@@ -146,7 +167,6 @@ def main(image_path: Optional[str] = None) -> None:
     flt_lines = flt["lines"]
     plot_lsd_distributions(flt, bins=lsd_dist_bins)
     
-    # Diagnostics (optional)
     # Statistical analysis of segment width distribution - bimodal distribution.
     # --------------------------------------------------------------------------
     width_analysis = analyze_lsd_widths(flt, max_components=3, plot=True)
@@ -181,73 +201,80 @@ def main(image_path: Optional[str] = None) -> None:
     dbg = mark_segments_w(img, lsd_outliers_hi)
     save_image(dbg, "debug_flt_outliers_hi.jpg")
 
+    # Focus on major gridlines group
+    # ------------------------------
     flt = lsd_major
     
-    # Debug: mark flt lines (green)
-    # -----------------------------
+    # Debug: mark flt lines (green) - fixed line width
+    # ------------------------------------------------
     dbg_flt = mark_segments(img, flt_lines, color=(0, 255, 0))
     save_image(dbg_flt, "debug_flt_segments.jpg")
 
+    # Debug: mark flt lines (green) - line width as returned by LSD detector
+    # ----------------------------------------------------------------------
     dbg_flt_w = mark_segments_w(img, flt)
     save_image(dbg_flt_w, "debug_flt_segments_w.jpg")
 
-    # Generate angle histograms
-    # -------------------------
+    # Compute segment angles and length and generate angle histogram
+    # --------------------------------------------------------------
     angle_info = compute_segment_angles(flt)
-    hist = compute_angle_histogram_circular_weighted(angle_info, bins=72)
     angle_info = compute_segment_lengths(angle_info)
-    hist_weighted = compute_angle_histogram_circular_weighted(angle_info)    
+    hist = compute_angle_histogram_circular_weighted(angle_info, bins=72)    
     
-    # Analyze angle stats
-    # -------------------
-    analysis = analyze_two_orientation_families(hist)
-    analysis_weighted = analyze_two_orientation_families(hist_weighted)
-    fam_kdes = compute_family_kdes(hist_weighted, analysis_weighted)
-    print_angle_analysis_console(hist_weighted, analysis_weighted, fam_kdes)
-    plot_family_kdes(hist_weighted, analysis_weighted, fam_kdes)
-
-    # Plot histograms
-    # ---------------
+    # Plot angle histograms
+    # ---------------------
     plot_angle_histogram_with_kde(hist)
-    plot_angle_histogram_with_kde(hist_weighted)
+
+    # Analyze angle histogram distribution and split into to families (X/Y)
+    # ---------------------------------------------------------------------
+    analysis = analyze_two_orientation_families(hist)
+    fam_kdes = compute_family_kdes(hist, analysis)
+    print_angle_analysis_console(hist, analysis, fam_kdes)
+    plot_family_kdes(hist, analysis, fam_kdes)
 
     # Debug image rotation
     # --------------------
-    img_rotated = apply_rotation_correction(img, analysis_weighted)
+    img_rotated = apply_rotation_correction(img, analysis)
     save_image(img_rotated, "rotated.jpg")
 
-    img_rotated2 = apply_rotation_correction(img, analysis_weighted, dominant_angle=False)
+    img_rotated2 = apply_rotation_correction(img, analysis, dominant_angle=False)
     save_image(img_rotated2, "rotated2.jpg")
 
-    # Split into two rough direction families (unsupervised)
-    fam = split_segments_by_angle_circular(flt, angle_info, analysis_weighted)
+    # Split into two direction families
+    # ---------------------------------
+    fam = split_segments_by_angle_circular(flt, angle_info, analysis)
 
     raw_x = fam["family1"]["lines"]
     raw_y = fam["family2"]["lines"]
 
     # Dominant angle
-    # --------------
-    famxy = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img)
-    img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
+    # Reassign the two families as X/Y and perform initial alignment / rotation.
+    # --------------------------------------------------------------------------
+    famxy = reassign_and_rotate_families_by_image_center(fam, analysis, img)
+    plot_rotated_family_length_histograms(famxy, bin_size=2)
 
-    plot_rotated_family_length_histograms(famxy, bin_size=2)    
+    # Rotate image for visual confirmation with rotated lines
+    # -------------------------------------------------------
+    img_rotated_lines = draw_famxy_on_image(img_rotated, famxy)
     save_image(img_rotated_lines, "rotated_lines.jpg")
 
     print(f"xfam angle: {famxy["xfam_angle"]}deg")
     print(f"yfam angle: {famxy["yfam_angle"]}deg")
     
-    if abs(famxy["xfam_angle"]) < 0.5:
-        y_coords = famxy["xfam"]["centers"][:,1]
-        y_dists = compute_sorted_gaps(famxy["xfam"]["centers"], "y")
-    else:
-        x_coords = famxy["xfam"]["centers"][:,0]
-        x_dists = compute_sorted_gaps(famxy["yfam"]["centers"], "x")
-
+    # Create debug XY scatter plots of grid segments center families.
+    # For proper datasets, centers should form vertical or horizontal lines
+    # corresponding to major grid lines. If periodic structure is not observed,
+    # data is not good or something went wrong. In either case, grid analysis 
+    # will likely fail.
+    # ------------------------------------------------------------------------
+    xcenters = famxy["yfam"]["centers"] # yfam contains segments || to Y projecting to X
+    ycenters = famxy["xfam"]["centers"] # xfam contains segments || to X projecting to Y
     xy_scatter_from_centers(famxy["xfam"]["centers"], size_scale=6)
+    xy_scatter_from_centers(famxy["yfam"]["centers"], size_scale=6)
 
     # Second angle
     # --------------
-    famxy2 = reassign_and_rotate_families_by_image_center(fam, analysis_weighted, img, dominant_angle=False)
+    famxy2 = reassign_and_rotate_families_by_image_center(fam, analysis, img, dominant_angle=False)
     img_rotated2_lines = draw_famxy_on_image(img_rotated2, famxy2)
 
     plot_rotated_family_length_histograms(famxy2, bin_size=2)    
@@ -268,7 +295,10 @@ def main(image_path: Optional[str] = None) -> None:
     # -------------------------------------------------------------------------------------------------------------------
 
     xcenters = famxy2["yfam"]["centers"]
-    ycenters = famxy["xfam"]["centers"]
+    ycenters = famxy2["xfam"]["centers"]
+    xy_scatter_from_centers(famxy["xfam"]["centers"], size_scale=6)
+    xy_scatter_from_centers(famxy["yfam"]["centers"], size_scale=6)
+    return
     spacing = calculate_multi_slice_spacing(xcenters, True)
     validate_period(xcenters, spacing)
     monte_carlo_grid_spacing(xcenters, num_runs=100, max_slices=10)

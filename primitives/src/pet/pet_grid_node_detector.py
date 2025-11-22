@@ -5,9 +5,13 @@ pet_grid_node_detector.py
 """
 
 import os
+import sys
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+
+from pet_histxy import plot_interactive_histogram
+
 
 def find_grid_nodes(source_img, output_dir="output"):
     """
@@ -95,23 +99,28 @@ if __name__ == "__main__":
     # 1. Define Input Path
     # Using the filename you provided earlier
     image_path = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"
+    #"photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"
     
     # 2. Load Image
     if not os.path.exists(image_path):
         print(f"Error: Image file not found at {image_path}")
-    else:
-        print(f"Processing {image_path}...")
-        source_img = cv2.imread(image_path)
-        
-        if source_img is None:
-            print("Error: Failed to decode image.")
-        else:
-            # 3. Run Node Detection
-            # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
-            nodes = find_grid_nodes(source_img, output_dir="output")
-            
-            print(f"Done. Found {len(nodes)} intersections.")
-            print("Check 'output/' for visualization.")
+        sys.exit()
+
+    print(f"Processing {image_path}...")
+    source_image = cv2.imread(image_path)
+    
+    if source_image is None:
+        print("Error: Failed to decode image.")
+        sys.exit()
+
+    # 3. Run Node Detection
+    # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
+    nodes = find_grid_nodes(source_image, output_dir="output")
+    
+    plot_interactive_histogram(nodes)
+
+    print(f"Done. Found {len(nodes)} intersections.")
+    print("Check 'output/' for visualization.")
 
 """
 ```
