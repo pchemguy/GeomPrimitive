@@ -117,38 +117,61 @@ def main(image_path: Optional[str] = None) -> None:
     log = setup_logging()
     log.info("Starting PET prototype pipeline...")
 
-    img, img_meta = image_loader(image_path or SAMPLE_IMAGE)
+    # Load image
+    # ----------
+    img, img_meta = image_loader(image_path or SAMPLE_IMAGE)              
     H, W = img.shape[:2]
 
     # --------------------------------------------------------------
     # 1. Detect raw line segments
     # --------------------------------------------------------------
-    raw = detect_grid_segments(img)                   # raw["lines"]
+    # LSD OpenCV segment detector
+    # ---------------------------
+    raw = detect_grid_segments(img)
     raw_lines = raw["lines"]
-    lsd_dist_bins = 50
-    plot_lsd_distributions(raw, bins=lsd_dist_bins)
 
-    # Drop extremely short segments.
-    # ------------------------------
+    # Histogram of detected LSD segments: width, precision, and NFA
+    # Note, if opencv-contrib version with extras included in the build 
+    # is not installed, only the most basic segment detction is performed,
+    # with only width information populated, but not precision/nfa.
+    # For millimeter graph paper expect bimodal distribution:
+    # thinner minor and thicker major lines
+    # -------------------------------------------------------------------
+    lsd_dist_bins = 50
+    plot_lsd_distributions(raw, bins=lsd_dist_bins)                       
+
+    # Drop extremely short segments and excessively thick (top 5%)
+    # -------------------------------------------------------------
     flt = clamp_segment_length(raw, min_len=5, max_len=1000, width_percentile=95)
     flt_lines = flt["lines"]
     plot_lsd_distributions(flt, bins=lsd_dist_bins)
-
+    
     # Diagnostics (optional)
+    # Statistical analysis of segment width distribution - bimodal distribution.
+    # --------------------------------------------------------------------------
     width_analysis = analyze_lsd_widths(flt, max_components=3, plot=True)
     
     # Hard split by thickness (minor / major / outliers)
+    # Split segments based on bimodal distribution. Place high and low outliers
+    # in separate groups.
+    # -------------------------------------------------------------------------
     thickness_groups = cluster_line_thickness(flt, analysis=width_analysis, robust_sigma=3.0)
-    
     lsd_minor       = thickness_groups["minor"]
     lsd_major       = thickness_groups["major"]
     lsd_outliers_lo = thickness_groups["outliers_lo"]
     lsd_outliers_hi = thickness_groups["outliers_hi"]
-    split_widths_hist(thickness_groups)
 
-    # lsd_outliers_hi actually belong to major grid
+    # Debug display of LSD segment width distribution split.
+    # ------------------------------------------------------
+    split_widths_hist(thickness_groups)
+    
+    # Merge high-range outliers group into the "major" segment group
+    # (based on preliminary inspection)
+    # --------------------------------------------------------------
     lsd_major = merge_lsd_dicts(lsd_major, lsd_outliers_hi)
 
+    # Save debug rendering, showing segment groups overlayed on top of the source image.
+    # ----------------------------------------------------------------------------------
     dbg = mark_segments_w(img, lsd_minor)
     save_image(dbg, "debug_flt_minor.jpg")
     dbg = mark_segments_w(img, lsd_major)
