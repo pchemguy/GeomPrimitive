@@ -267,7 +267,7 @@ def main(image_path: Optional[str] = None) -> None:
     )
     
     # 3. Generate & Plot Consensus
-    processor.plot_consensus()
+    processor.plot_consensus(source_image=img)
 
     plot_gap_histograms(
         famxy2["xfam"]["centers"][:,0],
