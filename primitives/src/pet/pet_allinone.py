@@ -57,6 +57,12 @@ from pet_lsd_width_analysis import (
     split_widths_hist,
 )
 
+from pet_period import (
+    calculate_multi_slice_spacing, validate_period, monte_carlo_grid_spacing,
+)
+
+from pet_grid_solver import analyze_grid_centers
+
 # ======================================================================
 # MODULE CONSTANTS
 # ======================================================================
@@ -225,12 +231,20 @@ def main(image_path: Optional[str] = None) -> None:
         x_coords = famxy2["xfam"]["centers"][:,0]
         x_dists = compute_sorted_gaps(famxy2["yfam"]["centers"], "x")
 
-    xy_scatter_from_centers(famxy2["yfam"]["centers"], size_scale=4)
+    xy_scatter_from_centers(famxy2["yfam"]["centers"], size_scale=6)
+
+    centers = famxy2["yfam"]["centers"]
+    spacing = calculate_multi_slice_spacing(centers, True)
+    validate_period(centers, spacing)
+    monte_carlo_grid_spacing(centers, num_runs=100, max_slices=10)
+
+    result = analyze_grid_centers(centers, optimize_axis='x')
+    print(result)
     
     plot_gap_histograms(
-        famxy["xfam"]["centers"][:,0],
-        famxy["xfam"]["centers"][:,1],
-        bins=400
+        famxy2["xfam"]["centers"][:,0],
+        famxy2["xfam"]["centers"][:,1],
+        bins=100
     )
 
 
