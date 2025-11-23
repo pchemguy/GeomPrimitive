@@ -135,6 +135,10 @@ if __name__ == "__main__":
     angles, locs, scores = grid_opt.analyze_twist_profile(41.0, 45.0, step=0.2)
     x_locs, angles, scores = grid_opt.analyze_spatial_twist(angle_center=43.0, search_width=10.0, num_slices=8)
     
+    results = grid_opt.plot_quartile_optimization_report(bbox_aux_angle=False, plot=True)
+    print(results)
+    
+    
     angle_q1, entropy_q1, gini_q1 = grid_opt.optimize_quartile(0, initial_angle=angle, search_width=20, debug=True)
     angle_q4, entropy_q4, gini_q4 = grid_opt.optimize_quartile(3, initial_angle=angle, search_width=20, debug=True)
     print(f"Q1 Opt Angle: {angle_q1:.1f} | Entropy: {entropy_q1:.1f} | Gini: {gini_q1:.1f}")
