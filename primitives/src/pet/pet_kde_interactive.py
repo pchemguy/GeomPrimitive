@@ -8,7 +8,7 @@ https://gemini.google.com/app/97e64fc85d4b0264
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Slider, RadioButtons, Button
 from matplotlib.gridspec import GridSpec
 from scipy.stats import norm
 
@@ -18,6 +18,7 @@ def plot_kde_interactive(data, bw=1):
     Creates an interactive plot with Scatter (Left) and KDE (Right).
     Allows rotation of the dataset to see marginal density changes.    
     Splits data into 4 quartiles and calculates stats for each.
+    Includes a Radio Selector to zoom into specific quartiles.
 
     Parameters:
     -----------
@@ -76,18 +77,16 @@ def plot_kde_interactive(data, bw=1):
         return grid, y_den
 
     # 4. Setup Plot Layout
-    fig = plt.figure(figsize=(15, 9)) # Increased height for header
+    fig = plt.figure(figsize=(15, 9))
     
-    # Create 2 Rows: Top (Stats) and Bottom (Plots)
-    # height_ratios=[0.15, 0.85] reserves top 15% for text
+    # Height ratios: 15% Stats, 85% Plots
     gs = GridSpec(2, 2, height_ratios=[0.15, 0.85], width_ratios=[1, 1.5], figure=fig)
-    plt.subplots_adjust(bottom=0.20, top=0.95, wspace=0.2, hspace=0.2)
+    plt.subplots_adjust(bottom=0.25, top=0.95, wspace=0.2, hspace=0.2)
 
     # --- Header Axis (Stats) ---
-    ax_stats = fig.add_subplot(gs[0, :]) # Span all columns
-    ax_stats.axis('off') # Hide axis lines
+    ax_stats = fig.add_subplot(gs[0, :]) 
+    ax_stats.axis('off') 
     
-    # Initialize Text Object (Centered)
     stats_text = ax_stats.text(0.5, 0.5, "", ha='center', va='center', 
                                fontname='monospace', fontsize=10,
                                bbox=dict(boxstyle='round', facecolor='#f0f0f0', alpha=0.5))
@@ -121,12 +120,67 @@ def plot_kde_interactive(data, bw=1):
     ax_den.set_ylabel("Density")
     ax_den.grid(True, alpha=0.3)
 
-    # 5. Sliders
-    ax_slider_bw = plt.axes([0.6, 0.05, 0.3, 0.03])
-    ax_slider_rot = plt.axes([0.15, 0.05, 0.3, 0.03])
+    # 5. Controls (Sliders + Spinner Buttons + Radio)
+    
+    # --- Coarse Rotation Row (y=0.08) ---
+    # Reduced width to 0.22 to make room for value text
+    ax_slider_rot = plt.axes([0.15, 0.08, 0.22, 0.03])
+    # Buttons moved to x=0.42
+    ax_rot_inc = plt.axes([0.42, 0.095, 0.02, 0.015]) # Top
+    ax_rot_dec = plt.axes([0.42, 0.080, 0.02, 0.015]) # Bottom
+    
+    # --- Fine Rotation Row (y=0.04) ---
+    # Reduced width to 0.22
+    ax_slider_rot_fine = plt.axes([0.15, 0.04, 0.22, 0.03])
+    # Buttons moved to x=0.42
+    ax_fine_inc = plt.axes([0.42, 0.055, 0.02, 0.015]) # Top
+    ax_fine_dec = plt.axes([0.42, 0.040, 0.02, 0.015]) # Bottom
 
-    slider_bw = Slider(ax_slider_bw, 'Sigma', 1.0, limit_padding * 0.5, valinit=max(bw, 1.0))
+    # Bandwidth Slider (Right side)
+    ax_slider_bw = plt.axes([0.65, 0.08, 0.25, 0.03])
+    
+    # Radio Buttons (Centered, moved to 0.50)
+    ax_radio = plt.axes([0.50, 0.02, 0.08, 0.20]) 
+
+    # --- Create Widgets ---
     slider_rot = Slider(ax_slider_rot, 'Rotation', -100, 100, valinit=0)
+    slider_rot_fine = Slider(ax_slider_rot_fine, 'Fine Rot', -2.0, 2.0, valinit=0) # +/- 2 deg
+    
+    # Vertical Spinner Buttons (Text Based)
+    btn_rot_inc = Button(ax_rot_inc, '>', hovercolor='0.9')
+    btn_rot_inc.label.set_fontsize(6)
+    
+    btn_rot_dec = Button(ax_rot_dec, '<', hovercolor='0.9')
+    btn_rot_dec.label.set_fontsize(6)
+    
+    btn_fine_inc = Button(ax_fine_inc, '>', hovercolor='0.9')
+    btn_fine_inc.label.set_fontsize(6)
+    
+    btn_fine_dec = Button(ax_fine_dec, '<', hovercolor='0.9')
+    btn_fine_dec.label.set_fontsize(6)
+    
+    # Max sigma = 1% of point count (rounded up)
+    sigma_max = max(2, int(np.ceil(n_points * 0.01)))
+    slider_bw = Slider(ax_slider_bw, 'Sigma', 1.0, sigma_max, valinit=min(max(bw, 1.0), sigma_max))
+    
+    # Radio Buttons with H1 and H2
+    radio = RadioButtons(ax_radio, ('FULL', 'H1', 'H2', 'Q1', 'Q2', 'Q3', 'Q4'), active=0)
+
+    # --- Callback Logic ---
+    def inc_rot(event):
+        slider_rot.set_val(slider_rot.val + 1.0)
+    def dec_rot(event):
+        slider_rot.set_val(slider_rot.val - 1.0)
+        
+    def inc_fine(event):
+        slider_rot_fine.set_val(slider_rot_fine.val + 0.05)
+    def dec_fine(event):
+        slider_rot_fine.set_val(slider_rot_fine.val - 0.05)
+
+    btn_rot_inc.on_clicked(inc_rot)
+    btn_rot_dec.on_clicked(dec_rot)
+    btn_fine_inc.on_clicked(inc_fine)
+    btn_fine_dec.on_clicked(dec_fine)
 
     # 6. Logic to Calculate Group Stats
     def get_group_stats(x_group, grid_full, den_full):
@@ -151,7 +205,9 @@ def plot_kde_interactive(data, bw=1):
     # 7. Update Function
     def update(val):
         sigma = slider_bw.val
-        angle = slider_rot.val
+        # Combine Coarse and Fine rotation
+        angle = slider_rot.val + slider_rot_fine.val
+        view_mode = radio.value_selected
         
         # A. Rotate
         rotated_data = rotate_data(data, angle)
@@ -192,17 +248,49 @@ def plot_kde_interactive(data, bw=1):
         row_avg = f"Avg PkDen| {stats_avg_den[0]:8.4f} | {stats_avg_den[1]:8.4f} | {stats_avg_den[2]:8.4f} | {stats_avg_den[3]:8.4f}"
         row_max = f"Max PkDen| {stats_max_den[0]:8.4f} | {stats_max_den[1]:8.4f} | {stats_max_den[2]:8.4f} | {stats_max_den[3]:8.4f}"
         
-        # Update text in the top panel
         stats_text.set_text(f"STATS SUMMARY (Scaled x{scale_factor})\n{header}\n{'-'*56}\n{row_std}\n{row_avg}\n{row_max}")
 
-        ax_den.set_xlim(grid_new[0], grid_new[-1])
-        ax_den.set_ylim(0, np.max(den_new) * 1.1)
-        
+        # F. Handle View Scaling
+        if view_mode == 'FULL':
+            ax_den.set_xlim(grid_new[0], grid_new[-1])
+            ax_den.set_ylim(0, np.max(den_new) * 1.1)
+        else:
+            if view_mode == 'H1':
+                s_i, e_i = 0, 2 
+            elif view_mode == 'H2':
+                s_i, e_i = 2, 4 
+            elif view_mode.startswith('Q'):
+                q_num = int(view_mode[1])
+                s_i, e_i = q_num - 1, q_num 
+            
+            start_idx = q_inds[s_i]
+            end_idx = q_inds[e_i] - 1
+            
+            if start_idx <= end_idx:
+                x_start = x_new[start_idx]
+                x_end = x_new[end_idx]
+                width = x_end - x_start
+                pad = width * 0.05
+                view_min = x_start - pad
+                view_max = x_end + pad
+                
+                mask = (grid_new >= view_min) & (grid_new <= view_max)
+                if np.any(mask):
+                    local_max_y = np.max(den_new[mask])
+                else:
+                    local_max_y = np.max(den_new)
+
+                ax_den.set_xlim(view_min, view_max)
+                ax_den.set_ylim(0, local_max_y * 1.1)
+
         fig.canvas.draw_idle()
 
+    # Link sliders to update function
     update(0)
     slider_bw.on_changed(update)
     slider_rot.on_changed(update)
+    slider_rot_fine.on_changed(update)
+    radio.on_clicked(update)
 
     plt.show()
 
