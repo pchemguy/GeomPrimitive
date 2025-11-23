@@ -55,6 +55,23 @@ class GridOptimizer:
             
         print(f"[GridOptimizer] Init. N={len(points)}, BW={self.bw:.2f}")
 
+    def calculate_gini(self, density_array):
+        """
+        Calculates Gini Coefficient of a density profile.
+        High Gini (>0.6) = Sharp peaks (Grid).
+        Low Gini (<0.4) = Uniform/Noise.
+        """
+        # Ensure positive values and flatten
+        y = np.abs(density_array.flatten()) + 1e-12
+        
+        # Sort values
+        y = np.sort(y)
+        n = len(y)
+        
+        # Standard Gini formula
+        index = np.arange(1, n + 1)
+        return ((2 * index - n - 1) * y).sum() / (n * y.sum())
+
     def _get_projected_density(self, points_subset, angle):
         """Returns the normalized density profile for a specific rotation."""
         # Rotate
@@ -106,7 +123,7 @@ class GridOptimizer:
             debug: If True, plots the entropy landscape.
             
         Returns: 
-            optimal_angle, metric_value
+            (optimal_angle, entropy_score, gini_score)
         """
         # 1. Split Data
         x_curr = self.points[:, 0]
@@ -117,7 +134,7 @@ class GridOptimizer:
         q_len = n // 4
         if q_len < 2:
             print(f"[Error] Quartile {q_index} has too few points ({q_len}).")
-            return initial_angle, 0.0
+            return initial_angle, 0.0, 0.0
             
         start = q_index * q_len
         end = (q_index + 1) * q_len
@@ -143,6 +160,9 @@ class GridOptimizer:
             self.plot_entropy_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
 
         # 3. Fine Optimization
+        optimal_angle = best_coarse_angle
+        final_entropy = best_coarse_score
+        
         # Search +/- 1.0 deg around the coarse winner
         try:
             res = minimize_scalar(
@@ -153,15 +173,21 @@ class GridOptimizer:
             )
             
             if res.success:
-                print(f"[Q{q_index+1}] Success. Angle: {res.x:.4f} (Entropy: {res.fun:.4f})")
-                return res.x, res.fun
+                optimal_angle = res.x
+                final_entropy = res.fun
             else:
                 print(f"[Q{q_index+1}] Opt Failed. Using Coarse: {best_coarse_angle:.4f}")
-                return best_coarse_angle, best_coarse_score
                 
         except Exception as e:
             print(f"[Q{q_index+1}] Exception in minimize_scalar: {e}")
-            return best_coarse_angle, best_coarse_score
+
+        # 4. Post-Optimization Quality Check (Gini)
+        final_density = self._get_projected_density(subset, optimal_angle)
+        final_gini = self.calculate_gini(final_density)
+        
+        print(f"[Q{q_index+1}] Result: {optimal_angle:.4f} deg (Ent: {final_entropy:.2f}, Gini: {final_gini:.2f})")
+        
+        return optimal_angle, final_entropy, final_gini
 
     def plot_entropy_landscape(self, subset, grid, scores, winner, q_idx):
         """Visualizes the optimization basin."""
@@ -174,7 +200,6 @@ class GridOptimizer:
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.show()
-
 
 """
 ```
