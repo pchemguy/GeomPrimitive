@@ -615,6 +615,7 @@ class GridOptimizer:
     def plot_entropy_gini_landscape(self, subset, grid, entropy_scores, winner, q_idx):
         """
         Visualizes optimization basin with BOTH Entropy (Minimization) and Gini (Maximization).
+        Uses secondary Y-axis for Gini.
         """
         gini_scores = []
         for angle in grid:
@@ -667,6 +668,7 @@ class GridOptimizer:
         """
         Scans 0-360 degrees and plots Entropy and Gini profiles.
         If q_index is None, generates a 2x2 plot for all quartiles.
+        Includes dashed lines for BBox orientation and its orthogonals.
         """
         # 1. Sort Data to define Quartiles
         x_curr = self.points[:, 0]
@@ -696,11 +698,21 @@ class GridOptimizer:
             ax2.plot(angles, gini, color=color_gini, linestyle='--', linewidth=1.5)
             ax2.tick_params(axis='y', labelcolor=color_gini)
             
-            # Mark Optima
+            # Mark Optima (Data-driven)
             min_ent = np.argmin(ent)
             max_gini = np.argmax(gini)
             ax.axvline(angles[min_ent], color=color_ent, linestyle=':', alpha=0.6)
             ax2.axvline(angles[max_gini], color=color_gini, linestyle=':', alpha=0.6)
+            
+            # Mark BBox Orientation (Geometric)
+            if hasattr(self, 'bbox_rotation_angle') and self.bbox_rotation_angle is not None:
+                # Base angle normalized to 0-360
+                base_angle = self.bbox_rotation_angle % 360
+                ortho_angles = [(base_angle + i * 90) % 360 for i in range(4)]
+                
+                for i, ang in enumerate(ortho_angles):
+                    label = 'BBox' if i == 0 else None # Label only once
+                    ax.axvline(ang, color='red', linestyle='-.', linewidth=2, alpha=0.75, label=label)
             
             ax.set_title(f"{title}\nBest: {angles[min_ent]:.1f}deg(E) / {angles[max_gini]:.1f}deg(G)", fontsize=10)
             ax.grid(True, alpha=0.3)
