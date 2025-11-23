@@ -10,6 +10,7 @@ from scipy.stats import norm, entropy
 from scipy.optimize import minimize_scalar
 from scipy.signal import savgol_filter
 from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import DBSCAN
 
 
 # Usage Example
@@ -41,16 +42,43 @@ class GridOptimizer:
         self.center = np.mean(points, axis=0)
         self.x_range = (np.min(points[:, 0]), np.max(points[:, 0]))
         
-        # 2. Auto-calculate bandwidth if not provided
-        # 2. Auto-calculate bandwidth
+        # 2. Auto-calculate pitch and default bandwidth
+        self.pitch, self.bw = self._estimate_robust_pitch_bw(points)
+        
         if bw is None:
-            self.bw = self._estimate_robust_bw(points)
-            print(f"[GridOptimizer] Init. N={len(points)}, BW={self.bw:.2f}")
+            print(f"[GridOptimizer] Init. N={len(points)}, Pitch={self.pitch:.2f}, BW={self.bw:.2f}")
         else:
             self.bw = bw
-            print(f"[GridOptimizer] Init. N={len(points)}, Manual BW={self.bw:.2f}")
-                        
-    def _estimate_robust_bw(self, points):
+            print(f"[GridOptimizer] Init. N={len(points)}, Pitch={self.pitch:.2f}, Manual BW={self.bw:.2f}")
+
+        # 2. Compute Bounding Box & Orientation
+        # We use the estimated pitch to set a robust eps for DBSCAN (1.5x pitch)
+        bbox_eps = self.pitch * 1.5
+        bbox, _, _, labels = self.get_grid_bbox(points, eps=bbox_eps, margin_ratio=0.25)
+        
+        if bbox is None:
+            print("[GridOptimizer] Warning: BBox detection failed. Using raw points.")
+            self.points = points
+            self.bbox = None
+            self.bbox_rotation_angle = 0.0
+        else:
+            self.bbox = bbox
+            
+            # 3. Reject Outliers (Noise points outside the determined BBox)
+            self.points = self.reject_outliers(points, bbox, labels)
+            
+            # 4. Determine Rotation Angle from BBox (Angle of bottom edge)
+            p0, p1 = bbox[0], bbox[1]
+            dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+            self.bbox_rotation_angle = np.degrees(np.arctan2(dy, dx))
+            
+            print(f"[GridOptimizer] BBox Found. Rotation: {self.bbox_rotation_angle:.2f} deg")
+
+        # 5. Update Geometry based on clean points
+        self.center = np.mean(self.points, axis=0)
+        self.x_range = (np.min(self.points[:, 0]), np.max(self.points[:, 0]))
+                                
+    def _estimate_robust_pitch_bw(self, points):
         """
         Estimates grid pitch using 2nd and 3rd nearest neighbors
         and sets bandwidth to 10% of that pitch.
@@ -88,7 +116,163 @@ class GridOptimizer:
         bw = ref_pitch * 0.10
         
         print(f"[GridOptimizer] Auto-BW: {bw:.2f} px (Pitch ~{ref_pitch:.2f} px)")
-        return bw
+        return ref_pitch, bw
+
+    def get_grid_bbox(self, points, eps=None, margin_ratio=0.25):
+        """
+        Automatically detects grid orientation and bounding box, 
+        filtering outliers without manual parameter tuning.
+        """
+        N = len(points)
+        if N < 4: return None, None, None, None
+        
+        # --- AUTO-TUNE PARAMETERS ---
+        # 1. Min Samples: 0.5% of data, but at least 3 points to form a cluster
+        min_samples = max(3, int(0.005 * N))
+
+        if eps is None:
+            eps = self.pitch * 1.5
+        
+        # --- STEP 1: CLEAN (DBSCAN) ---
+        clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+        labels = clustering.labels_
+        
+        # Filter noise
+        # We only keep the largest cluster
+        unique_labels, counts = np.unique(labels[labels >= 0], return_counts=True)
+        if len(unique_labels) == 0: 
+            print("All points considered noise! Try increasing eps manually.")
+            return None, None, None, None
+                
+        largest_cluster_label = unique_labels[np.argmax(counts)]
+        clean_mask = (labels == largest_cluster_label)
+        clean_points = points[clean_mask]
+
+        # Report Stats
+        noise_points = points[~clean_mask]    
+        n_noise = N - len(clean_points)
+        print(f"Outliers Removed: {n_noise} ({(n_noise/N)*100:.1f}%)")
+        
+        # --- STEP 2: ALIGN (Neighbor Vectors) ---
+        # Use nearest neighbor vectors to find grid angle
+        nbrs_clean = NearestNeighbors(n_neighbors=2).fit(clean_points)
+        _, inds = nbrs_clean.kneighbors(clean_points)
+        
+        neighbors = clean_points[inds[:, 1]]
+        vectors = neighbors - clean_points
+        # Modulo 90 to align horizontal/vertical grid lines
+        angles = np.degrees(np.arctan2(vectors[:, 1], vectors[:, 0])) % 90
+        
+        # Histogram to find peak angle
+        hist, bin_edges = np.histogram(angles, bins=90, range=(0, 90))
+        best_angle = bin_edges[np.argmax(hist)]
+        
+        # --- STEP 3: ENCLOSE (Rotate & Clip) ---
+        theta = np.radians(best_angle)
+        c, s = np.cos(-theta), np.sin(-theta)
+        R = np.array(((c, -s), (s, c)))
+        
+        # Rotate to axis-aligned
+        rotated = clean_points @ R.T
+        
+        # A. Initial Tight Bounds (using robust percentiles)
+        # We use 0.5/99.5 to ignore slight jitter at the very edges
+        x_min, x_max = np.percentile(rotated[:, 0], [0.5, 99.5])
+        y_min, y_max = np.percentile(rotated[:, 1], [0.5, 99.5])
+        
+        # B. Apply Dynamic Padding
+        # Expand the box by margin_ratio * pitch
+        padding = self.pitch * margin_ratio     
+        
+        x_min -= padding
+        x_max += padding
+        y_min -= padding
+        y_max += padding     
+        
+        box_rot = np.array([
+            [x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]
+        ])
+        
+        # Rotate back
+        c, s = np.cos(theta), np.sin(theta)
+        R_inv = np.array(((c, -s), (s, c)))
+        box_final = box_rot @ R_inv.T
+        
+        return box_final, clean_points, noise_points, labels
+
+    def reject_outliers(self, points, bbox, labels):
+        """
+        Filters points by keeping all cluster points and only checking geometry for noise points.
+        
+        Logic:
+        1. Points with label != -1 (Cluster) -> KEPT automatically.
+        2. Points with label == -1 (Noise)   -> CHECKED against bbox.
+           - If inside bbox -> KEPT (Rescued).
+           - If outside bbox -> DROPPED.
+
+        Args:
+            points: (N, 2) numpy array of x,y coordinates
+            bbox: (4, 2) numpy array of the OBB corners
+            labels: (N,) array from DBSCAN. REQUIRED.
+            
+        Returns:
+            clean_points: (M, 2) numpy array of valid points.
+        """
+        if len(points) == 0:
+            return np.array([])
+        
+        if labels is None:
+            # Fallback if labels are missing: Check everything
+            final_mask = np.zeros(len(points), dtype=bool)
+            noise_indices = np.arange(len(points))
+        else:
+            # 1. Initialize mask with cluster points (Keep by default)
+            final_mask = (labels != -1)
+            # 2. Identify Noise Points to Check
+            noise_indices = np.where(labels == -1)[0]
+        
+        if len(noise_indices) == 0:
+            print("Outlier Rejection: 0 points dropped (0 labeled as noise).")
+            return points
+
+        # --- GEOMETRIC CHECK (ONLY ON NOISE POINTS) ---
+        noise_points_to_check = points[noise_indices]
+
+        # Corner 0 is usually Bottom-Left
+        p0 = bbox[0]
+        p1 = bbox[1]
+        p3 = bbox[3]
+        
+        u = p1 - p0
+        v = p3 - p0
+        
+        u_len_sq = np.dot(u, u)
+        v_len_sq = np.dot(v, v)
+        
+        # Vector from p0 to noise points only
+        w = noise_points_to_check - p0
+        
+        # Projection: Dot product
+        proj_u = np.dot(w, u)
+        proj_v = np.dot(w, v)
+        
+        # Check bounds
+        in_u = (proj_u >= 0) & (proj_u <= u_len_sq)
+        in_v = (proj_v >= 0) & (proj_v <= v_len_sq)
+        
+        is_inside_mask = in_u & in_v
+        
+        # Stats
+        n_rescued = np.sum(is_inside_mask)
+        n_dropped = len(noise_indices) - n_rescued
+        print(f"Outlier Rejection: {n_dropped} points dropped (from {len(noise_indices)} noise candidates). {n_rescued} rescued.")
+        
+        # 3. Update the final mask
+        final_mask[noise_indices] = is_inside_mask
+        
+        final_points = points[final_mask]
+        
+        return final_points
 
     def calculate_gini(self, density_array):
         """
