@@ -2,6 +2,8 @@
 ```
 pet_grid_optimizer.py
 ---------------------
+
+IMPORTANT: KDE Std Dev optimization presently is broken (it yields results, which appear to be wrong).
 """
 
 import numpy as np
