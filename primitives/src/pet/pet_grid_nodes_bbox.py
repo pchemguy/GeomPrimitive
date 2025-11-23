@@ -6,6 +6,7 @@ pet_grid_nodes_bbox.py
 
 __all__ = [
     "get_grid_pitch", "get_grid_bbox", "plot_grid_bbox", "diagnose_and_fix_eps",
+    "get_histogram_pitch_ex",
 ]
 
 
@@ -18,7 +19,7 @@ from scipy.signal import find_peaks, savgol_filter
 
 # Usage
 # pitch, info = analyze_gated_topology(points)
-def analyze_gated_topology(points):
+def get_histogram_pitch_ex(points):
     """
     1. SCOUT: Calculates Ref = Average(90th% of 2nd Nbr, 90th% of 3rd Nbr).
     2. GATE: Defines search window [0.75 * Ref, 1.75 * Ref].
@@ -150,216 +151,6 @@ def analyze_gated_topology(points):
 
 
 # Usage
-# pitch, details = analyze_grid_topology(points)
-# print(f"Detected Pitch: {pitch:.2f} with confidence: {details['label']}")
-def analyze_grid_topology(points):
-    """
-    Robustly identifies grid pitch by scoring peaks based on:
-    1. Prominence (Shape)
-    2. Harmonic Support (Geometry: x, 1.41x, 2x)
-    """
-    # 1. Collect Data (Deep search up to K=8 to find harmonics)
-    nbrs = NearestNeighbors(n_neighbors=8).fit(points)
-    distances, _ = nbrs.kneighbors(points)
-    all_dists = distances.flatten()
-    
-    # 2. Adaptive Histogram
-    # We use a percentile to find a reasonable max range, avoiding outliers
-    max_dist = np.percentile(all_dists, 90) * 2.5
-    bins = np.arange(0, max_dist, 0.5) # 0.5px resolution
-    counts, bin_edges = np.histogram(all_dists, bins=bins)
-    centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    
-    # 3. Smooth & Find All Candidates
-    # Savgol filter preserves peak height better than Gaussian
-    smoothed = savgol_filter(counts, window_length=15, polyorder=3)
-    
-    # Find peaks with very loose criteria (we filter later based on score)
-    peaks, properties = find_peaks(smoothed, prominence=np.max(smoothed)*0.05, width=1)
-    
-    if len(peaks) == 0:
-        return None, {}
-        
-    peak_locs = centers[peaks]
-    peak_heights = smoothed[peaks]
-    
-    # 4. SCORING ENGINE
-    candidates = []
-    
-    for i, p_loc in enumerate(peak_locs):
-        if p_loc < 5: continue # Hard physics limit: Grid can't be 0-5px
-        
-        # Base Score: Log of height (Prominence)
-        # We use log because signal strength can vary wildly
-        score = np.log(peak_heights[i] + 1) * 10 
-        
-        # --- TOPOLOGY CHECK: HARMONICS ---
-        # A real grid pitch P MUST have a diagonal neighbor at 1.41 * P
-        
-        target_diagonal = p_loc * 1.414
-        target_second = p_loc * 2.0
-        
-        # Search for these harmonic peaks in our existing peak list
-        # Tolerance: +/- 10%
-        has_diagonal = np.any(np.abs(peak_locs - target_diagonal) < target_diagonal * 0.1)
-        has_second = np.any(np.abs(peak_locs - target_second) < target_second * 0.1)
-        
-        confidence_label = "Weak"
-        
-        if has_diagonal:
-            score += 50 # HUGE Bonus: Geometry confirmed
-            confidence_label = "Confirmed (Diag)"
-        
-        if has_second:
-            score += 20 # Bonus: Lattice confirmed
-            if has_diagonal: confidence_label = "Strong Lock"
-            
-        candidates.append({
-            'pitch': p_loc,
-            'score': score,
-            'height': peak_heights[i],
-            'label': confidence_label,
-            'has_diag': has_diagonal
-        })
-    
-    if not candidates:
-        print("No valid grid structure found.")
-        return None, {}
-
-    # Sort by score descending
-    candidates.sort(key=lambda x: x['score'], reverse=True)
-    winner = candidates[0]
-    
-    # --- VISUALIZATION ---
-    plt.figure(figsize=(12, 6))
-    plt.plot(centers, smoothed, 'k-', alpha=0.5, label='Signal')
-    plt.fill_between(centers, counts, color='gray', alpha=0.1)
-    
-    # Plot all candidates
-    for c in candidates:
-        color = 'green' if c['has_diag'] else 'orange'
-        alpha = 1.0 if c == winner else 0.3
-        plt.plot(c['pitch'], c['height'], 'o', color=color, alpha=alpha)
-        if c == winner or c['has_diag']:
-            plt.text(c['pitch'], c['height'], f"{c['label']}\nScore: {c['score']:.1f}", 
-                     fontsize=9, rotation=45)
-
-    # Highlight Winner
-    plt.axvline(winner['pitch'], color='green', linestyle='--', linewidth=2, label=f"Winner: {winner['pitch']:.2f}")
-    
-    # Show the harmonic locations for the winner
-    if winner['pitch']:
-        w_p = winner['pitch']
-        plt.axvline(w_p * 1.414, color='blue', linestyle=':', alpha=0.5, label='Exp. Diagonal')
-        plt.axvline(w_p * 2.0, color='purple', linestyle=':', alpha=0.5, label='Exp. 2nd Nbr')
-
-    plt.title(f"Topological Analysis: Winner = {winner['pitch']:.2f} px ({winner['label']})")
-    plt.xlabel("Distance")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.show()
-    
-    return winner['pitch'], winner
-
-
-# Usage
-# best_pitch = get_auto_tuned_pitch(extracted_points)
-def get_auto_tuned_pitch(points):
-    """
-    Robust Grid Pitch Detector.
-    Uses a 'Scout' (Percentile) to set dynamic limits,
-    then uses a 'Sniper' (Peak Analysis) to find the exact pitch.
-    """
-    # --- PHASE 1: THE SCOUT (Coarse Estimation) ---
-    # Look at K=3 (3rd neighbor) to jump over potential doublets/clumps
-    nbrs = NearestNeighbors(n_neighbors=4).fit(points) # 4 includes self
-    distances, _ = nbrs.kneighbors(points)
-    
-    # We grab the distance to the 3rd neighbor (index 3)
-    # We use a high percentile (90th) to ensure we are looking at the 'grid structure'
-    # not the 'clump structure'.
-    scout_dist = distances[:, 3]
-    rough_estimate = np.percentile(scout_dist, 90)
-    
-    # Define Dynamic Safety Floor
-    # We assume the true pitch is roughly equal to this estimate (or slightly lower).
-    # Setting the floor at 33% ensures we cut out noise (0-10%) but never cut out
-    # the fundamental pitch even if our estimate locked onto a diagonal. (Trying 50%).
-    safe_cutoff = rough_estimate * 0.5
-    
-    print(f"[Scout] Rough Estimate (the 3rd neighbor, 90th percentile): {rough_estimate:.2f} px")
-    print(f"[Scout] Dynamic Noise Floor set to: {safe_cutoff:.2f} px")
-    
-    # --- PHASE 2: THE SNIPER (Precision Peak Finding) ---
-    # 1. Histogram of ALL distances (flattened)
-    all_dists = distances.flatten()
-    
-    # Limit histogram range to 2.5x the scout estimate (we don't need to look at infinity)
-    max_range = rough_estimate * 2.5
-    bins = np.arange(0, max_range, 0.5) # 0.5px resolution
-    counts, bin_edges = np.histogram(all_dists, bins=bins)
-    centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-    
-    # 2. Smooth the data (Savitzky-Golay) for shape analysis
-    smoothed = savgol_filter(counts, window_length=15, polyorder=3)
-    
-    # 3. Find Peaks
-    # prominence=5% of max height (very sensitive, because we will filter later)
-    max_h = np.max(smoothed)
-    peaks, properties = find_peaks(smoothed, prominence=max_h * 0.05)
-    
-    peak_locs = centers[peaks]
-    peak_prominences = properties['prominences']
-    
-    # 4. Filter Peaks using the Scout's Cutoff
-    valid_indices = np.where(peak_locs > safe_cutoff)[0]
-    
-    if len(valid_indices) == 0:
-        print("Scout failed to find safe peaks. Defaulting to Scout estimate.")
-        return rough_estimate
-
-    valid_locs = peak_locs[valid_indices]
-    valid_proms = peak_prominences[valid_indices]
-    
-    # 5. Select the "Left-Most Strong Peak"
-    # We want the smallest distance (fundamental pitch), 
-    # but it must have significant prominence compared to its neighbors.
-    
-    # Find the max prominence among valid peaks
-    max_prom = np.max(valid_proms)
-    
-    # We consider a peak "strong" if it has at least 30% of the max prominence
-    # This rejects small "echoes" that might survive the cutoff
-    strong_indices = np.where(valid_proms > max_prom * 0.3)[0]
-    strong_locs = valid_locs[strong_indices]
-    
-    # Pick the smallest distance among the strong peaks
-    final_pitch = np.min(strong_locs)
-    
-    # --- PLOT DIAGNOSTIC ---
-    plt.figure(figsize=(10, 6))
-    plt.plot(centers, smoothed, 'k-', alpha=0.8, label='Smoothed Data')
-    plt.fill_between(centers, counts, color='gray', alpha=0.2)
-    
-    # Draw the Cutoff Zone
-    plt.axvspan(0, safe_cutoff, color='red', alpha=0.1, label='Dynamic Noise Zone')
-    plt.axvline(x=safe_cutoff, color='red', linestyle='--', label=f'Cutoff ({safe_cutoff:.1f}px)')
-    
-    # Mark the Winner
-    winner_height = smoothed[np.searchsorted(centers, final_pitch)]
-    plt.plot(final_pitch, winner_height, "o", color='lime', markersize=10, 
-             label=f'DETECTED PITCH: {final_pitch:.2f} px')
-    
-    plt.title("Scout & Sniper Pitch Detection")
-    plt.xlabel("Distance")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.show()
-    
-    return final_pitch
-
-
-# Usage
 # p, std = get_histogram_pitch(extracted_points)
 def get_histogram_pitch(points, bin_size=1.0):
     """
@@ -478,7 +269,7 @@ def get_grid_pitch(points):
     return precise_pitch, std_dev, len(valid_samples)
 
 
-def get_grid_bbox(points, eps=None):
+def get_grid_bbox(points, eps=None, margin_ratio=0.25):
     """
     Automatically detects grid orientation and bounding box, 
     filtering outliers without manual parameter tuning.
@@ -545,9 +336,20 @@ def get_grid_bbox(points, eps=None):
     # Rotate to axis-aligned
     rotated = clean_points @ R.T
     
-    # Use percentiles to clip edges (robust min/max)
+
+    # A. Initial Tight Bounds (using robust percentiles)
+    # We use 0.5/99.5 to ignore slight jitter at the very edges
     x_min, x_max = np.percentile(rotated[:, 0], [0.5, 99.5])
     y_min, y_max = np.percentile(rotated[:, 1], [0.5, 99.5])
+    
+    # B. Apply Dynamic Padding
+    # Expand the box by margin_ratio * pitch
+    padding = grid_pitch * margin_ratio    
+    
+    x_min -= padding
+    x_max += padding
+    y_min -= padding
+    y_max += padding    
     
     box_rot = np.array([
         [x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]

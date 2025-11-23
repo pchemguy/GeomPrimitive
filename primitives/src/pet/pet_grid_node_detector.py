@@ -11,9 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from pet_grid_nodes_bbox import (
-    get_grid_bbox, plot_grid_bbox, diagnose_and_fix_eps, 
-    get_histogram_pitch, get_auto_tuned_pitch, analyze_grid_topology,
-    analyze_gated_topology,
+    get_grid_bbox, plot_grid_bbox, diagnose_and_fix_eps, get_histogram_pitch_ex
 )
 
 from pet_histxy import plot_interactive_histogram
@@ -120,7 +118,7 @@ if __name__ == "__main__":
     nodes = find_grid_nodes(source_image, output_dir="output")
 
     # eps = diagnose_and_fix_eps(nodes)
-    analyze_gated_topology(nodes)
+    get_histogram_pitch_ex(nodes)
     bbox, _, _, labels = get_grid_bbox(nodes)
     plot_grid_bbox(nodes, bbox, labels)
     
