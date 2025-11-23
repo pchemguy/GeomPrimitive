@@ -10,6 +10,12 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
+from pet_grid_nodes_bbox import (
+    get_grid_bbox, plot_grid_bbox, diagnose_and_fix_eps, 
+    get_histogram_pitch, get_auto_tuned_pitch, analyze_grid_topology,
+    analyze_gated_topology,
+)
+
 from pet_histxy import plot_interactive_histogram
 from pet_kde_interactive import plot_kde_interactive
 
@@ -90,11 +96,6 @@ def find_grid_nodes(source_img, output_dir="output"):
     print(f"Detected {len(clean_centroids)} grid nodes.")
     return clean_centroids
 
-# Usage
-# nodes = find_grid_nodes(img)
-
-
-# ... (Previous code for find_grid_nodes function) ...
 
 if __name__ == "__main__":
     # 1. Define Input Path
@@ -117,6 +118,11 @@ if __name__ == "__main__":
     # 3. Run Node Detection
     # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
     nodes = find_grid_nodes(source_image, output_dir="output")
+
+    # eps = diagnose_and_fix_eps(nodes)
+    analyze_gated_topology(nodes)
+    bbox, _, _, labels = get_grid_bbox(nodes)
+    plot_grid_bbox(nodes, bbox, labels)
     
     #plot_interactive_histogram(nodes)
     plot_kde_interactive(nodes)
