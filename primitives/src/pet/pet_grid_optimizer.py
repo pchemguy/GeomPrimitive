@@ -170,7 +170,7 @@ class GridOptimizer:
         ref_pitch = (p90_2nd + p90_3rd) / 2.0
         
         # Golden Rule: 10% of Pitch
-        bw = ref_pitch * 0.10
+        bw = ref_pitch * 0.05
         
         print(f"[GridOptimizer] Auto-BW: {bw:.2f} px (Pitch ~{ref_pitch:.2f} px)")
         return ref_pitch, bw
@@ -790,24 +790,82 @@ class GridOptimizer:
             plt.tight_layout()
             plt.show()
 
-    def plot_quartile_optimization_report(self,
-            initial_angle=None, search_width=20.0, bbox_aux_angle=False, plot=True):
+    def _calculate_landscape_std(self, subset, step):
+        angles = np.arange(0, 360, step)
+        ent_scores = []
+        std_scores = []
+        for ang in angles:
+            dens = self._get_projected_density(subset, ang)
+            ent_scores.append(entropy(dens))
+            std_scores.append(np.std(dens))
+        return angles, np.array(ent_scores), np.array(std_scores)
+
+    def plot_360_landscape_std(self, q_index=None, step=1.0):
+        """Scans 0-360 degrees and plots Entropy and Std Dev profiles."""
+        def plot_on_ax(ax, angles, ent, std, title):
+            color_ent = 'tab:blue'
+            ax.set_xlabel('Angle (deg)')
+            ax.set_ylabel('Entropy', color=color_ent, fontweight='bold')
+            ax.plot(angles, ent, color=color_ent, linewidth=1.5)
+            ax.tick_params(axis='y', labelcolor=color_ent)
+            
+            ax2 = ax.twinx()
+            color_std = 'tab:orange'
+            ax2.set_ylabel('Std Dev', color=color_std, fontweight='bold')
+            ax2.plot(angles, std, color=color_std, linestyle='--', linewidth=1.5)
+            ax2.tick_params(axis='y', labelcolor=color_std)
+            
+            min_ent = np.argmin(ent)
+            max_std = np.argmax(std)
+            ax.axvline(angles[min_ent], color=color_ent, linestyle=':', alpha=0.6)
+            ax2.axvline(angles[max_std], color=color_std, linestyle=':', alpha=0.6)
+            
+            if hasattr(self, 'bbox_rotation_angle') and self.bbox_rotation_angle is not None:
+                base_angle = self.bbox_rotation_angle % 360
+                ortho_angles = [(base_angle + i * 90) % 360 for i in range(4)]
+                for i, ang in enumerate(ortho_angles):
+                    label = 'BBox' if i == 0 else None
+                    ax.axvline(ang, color='green', linestyle='-.', linewidth=2, alpha=0.75, label=label)
+            
+            ax.set_title(f"{title}\nBest: {angles[min_ent]:.1f}deg(E) / {angles[max_std]:.1f}deg(S)", fontsize=10)
+            ax.grid(True, alpha=0.3)
+
+        if q_index is not None:
+            print(f"[GridOptimizer] Scanning Q{q_index+1} (0-360, Std)...")
+            subset = self._get_quartile_subset(q_index)
+            angles, ent, std = self._calculate_landscape_std(subset, step)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_on_ax(ax, angles, ent, std, f"Landscape Q{q_index+1} (Std)")
+            plt.tight_layout()
+            plt.show()
+        else:
+            print("[GridOptimizer] Scanning All Quartiles (0-360, Std)...")
+            fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+            axes = axes.flatten()
+            for i in range(4):
+                subset = self._get_quartile_subset(i)
+                angles, ent, std = self._calculate_landscape_std(subset, step)
+                plot_on_ax(axes[i], angles, ent, std, f"Quartile Q{i+1}")
+            plt.suptitle("Full 360deg Grid Alignment Landscape (Entropy vs Std Dev)", y=1.02)
+            plt.tight_layout()
+            plt.show()
+
+    def plot_quartile_optimization_report(self, initial_angle=None, search_width=20.0, bbox_aux_angle=False, plot=True):
         """
         Runs optimization for each quartile.
-        Plots: Column 1: Full KDE (Black) overlaid with Quartile KDE (Filled Green).
+        Plots: Column 1: Full KDE (Black). NO GREEN FILL.
                Column 2: Optimization Landscape.
-        Optionally generates a summary report plot.
-        Returns: Dictionary of results {"Q1": {...}, ...}
         """
         if initial_angle is None:
             initial_angle = self.bbox_rotation_angle
             if bbox_aux_angle:
-                initial_angle =  initial_angle % 180 - 90 # Normalized (-90, 90) 90 deg shift 
+                # Correct Orthogonal Logic: Add 90, normalize
+                initial_angle = (initial_angle + 90 + 90) % 180 - 90
 
         results = {}
         
         if plot:
-            print(f"[GridOptimizer] Generating Report (Center: {initial_angle}deg, Width: {search_width}deg)")
+            print(f"[GridOptimizer] Generating Report (Center: {initial_angle:.2f}deg, Width: {search_width}deg)")
             fig, axes = plt.subplots(4, 2, figsize=(16, 20))
             plt.subplots_adjust(hspace=0.4, wspace=0.3)
         
@@ -815,17 +873,17 @@ class GridOptimizer:
         search_max = initial_angle + search_width/2
         
         for i in range(4):
-            # 1. Get Subset INDEPENDENTLY
+            # 1. Get Subset (For optimization calculations ONLY)
             subset = self._get_quartile_subset(i)
             
-            # 2. Optimize by passing Index (method handles subset internally, but we have it for plotting)
+            # 2. Optimize
             best_angle, final_ent, final_gini = self.optimize_quartile(i, initial_angle, search_width)
             
             key = f"Q{i+1}"
             results[key] = {"angle": float(best_angle), "entropy": float(final_ent), "gini": float(final_gini)}
             
             if plot:
-                # --- Plot Column 1: Global vs Subset Density ---
+                # --- Plot Column 1: Global KDE at Best Angle ---
                 ax_kde = axes[i, 0]
                 
                 theta = np.radians(best_angle)
@@ -836,42 +894,27 @@ class GridOptimizer:
                                   (self.points[:, 1] - self.center[1]) * s
                 x_rot_full = x_centered_full + self.center[0]
                 
-                # Project Subset (Screen Space)
-                x_centered_sub = (subset[:, 0] - self.center[0]) * c - \
-                                 (subset[:, 1] - self.center[1]) * s
-                x_rot_sub = x_centered_sub + self.center[0]
-                
-                # Shared Grid
+                # Shared Grid based on FULL range
                 x_min, x_max = np.min(x_rot_full), np.max(x_rot_full)
                 span = x_max - x_min
                 if span < 1e-6: span = 1.0
                 grid_x = np.linspace(x_min - span*0.1, x_max + span*0.1, 500)
                 
-                # Raw Mass calc
+                # Calculate Full Density (Normalized Mass)
                 diffs_full = grid_x[:, None] - x_rot_full[None, :]
                 pdfs_full = np.exp(-0.5 * (diffs_full / self.bw)**2)
                 raw_dens_full = np.sum(pdfs_full, axis=1)
                 
-                diffs_sub = grid_x[:, None] - x_rot_sub[None, :]
-                pdfs_sub = np.exp(-0.5 * (diffs_sub / self.bw)**2)
-                raw_dens_sub = np.sum(pdfs_sub, axis=1)
-                
                 total_mass = np.sum(raw_dens_full)
-                if total_mass > 0:
-                    plot_dens_full = raw_dens_full / total_mass
-                    plot_dens_sub = raw_dens_sub / total_mass
-                else:
-                    plot_dens_full = raw_dens_full
-                    plot_dens_sub = raw_dens_sub
+                plot_dens_full = raw_dens_full / total_mass if total_mass > 0 else raw_dens_full
                 
+                # PLOT FULL GRID ONLY (NO SUBSET FILL)
                 ax_kde.plot(grid_x, plot_dens_full, 'k-', linewidth=1.5, label='Full Grid')
-                ax_kde.fill_between(grid_x, plot_dens_sub, color='green', alpha=0.4, label=f'Q{i+1} Contribution')
                 
-                ax_kde.set_title(f"Q{i+1} Optimal: {best_angle:.2f}deg\n(Subset vs Global)", fontsize=10, fontweight='bold')
+                ax_kde.set_title(f"Q{i+1} Optimal: {best_angle:.2f}deg\n(Global KDE Profile)", fontsize=10, fontweight='bold')
                 if i == 3: ax_kde.set_xlabel("Projected Spatial Coordinate (pixels)")
                 ax_kde.set_ylabel("Density")
                 ax_kde.grid(True, alpha=0.3)
-                ax_kde.legend(loc='upper right', fontsize='small')
                 
                 # --- Plot Column 2: Landscape ---
                 ax_land = axes[i, 1]
@@ -906,7 +949,7 @@ class GridOptimizer:
                 ax_land.grid(True, alpha=0.3)
             
         if plot:
-            plt.suptitle(f"Quartile Optimization Report\nSearch: {initial_angle}deg +/- {search_width/2}deg", fontsize=14, y=0.92)
+            plt.suptitle(f"Quartile Optimization Report\nSearch: {initial_angle:.2f}deg +/- {search_width/2:.1f}deg", fontsize=14, y=0.92)
             plt.show()
             
         return results

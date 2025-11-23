@@ -132,6 +132,7 @@ if __name__ == "__main__":
 
     grid_opt = GridOptimizer(cleaned_nodes, bw=None)
     grid_opt.plot_360_landscape()
+    grid_opt.plot_360_landscape_std()
     angles, locs, scores = grid_opt.analyze_twist_profile(41.0, 45.0, step=0.2)
     x_locs, angles, scores = grid_opt.analyze_spatial_twist(angle_center=43.0, search_width=10.0, num_slices=8)
     
