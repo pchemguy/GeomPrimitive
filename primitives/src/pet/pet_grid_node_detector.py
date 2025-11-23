@@ -131,10 +131,12 @@ if __name__ == "__main__":
     cleaned_nodes = reject_outliers(nodes_rotated, bbox, labels)
 
     grid_opt = GridOptimizer(cleaned_nodes, bw=None)
+    # grid_opt.kde_table(angle_center=43, sweep_width=10.0, angle_steps=50, filename="grid_kde_sweep.csv")
     grid_opt.plot_360_landscape()
     grid_opt.plot_360_landscape_std()
     angles, locs, scores = grid_opt.analyze_twist_profile(41.0, 45.0, step=0.2)
     x_locs, angles, scores = grid_opt.analyze_spatial_twist(angle_center=43.0, search_width=10.0, num_slices=8)
+    grid_opt.analyze_spatial_profile_std(angle_center=43.0, sweep_width=10.0, num_slices=4, angle_steps=20)
     
     results = grid_opt.plot_quartile_optimization_report(bbox_aux_angle=False, plot=True)
     print(results)
@@ -145,6 +147,10 @@ if __name__ == "__main__":
     print(f"Q1 Opt Angle: {angle_q1:.1f} | Entropy: {entropy_q1:.1f} | Gini: {gini_q1:.1f}")
     print(f"Q4 Opt Angle: {angle_q4:.1f} | Entropy: {entropy_q4:.1f} | Gini: {gini_q4:.1f}")
 
+    angle_q1, stddev_q1, gini_q1 = grid_opt.optimize_quartile_std(0, initial_angle=angle, search_width=20, debug=True)
+    angle_q4, stddev_q4, gini_q4 = grid_opt.optimize_quartile_std(3, initial_angle=angle, search_width=20, debug=True)
+    print(f"Q1 Opt Angle: {angle_q1:.1f} | StdDev * 1K: {stddev_q1 * 1000:.2f} | Gini: {gini_q1:.1f}")
+    print(f"Q4 Opt Angle: {angle_q4:.1f} | StdDev * 1K: {stddev_q4 * 1000:.2f} | Gini: {gini_q4:.1f}")
 
     #plot_interactive_histogram(nodes)
     # Important: set KDE bandwidth to 5%-10% of estimated

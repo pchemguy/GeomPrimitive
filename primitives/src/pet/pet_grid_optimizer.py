@@ -364,41 +364,51 @@ class GridOptimizer:
         index = np.arange(1, n + 1)
         return ((2 * index - n - 1) * y).sum() / (n * y.sum())
 
-    def _get_projected_density(self, points_subset, angle):
-        """Returns the normalized density profile for a specific rotation."""
-        # Rotate
+    def _get_projected_density(self, points_subset, angle, grid=None, normalize='pdf'):
+        """
+        Returns density profile.
+        Args:
+            normalize: 
+                True = Sums to 1 (Probability Mass for Entropy).
+                'pdf' = Scaled by 1/(N*sigma*sqrt(2pi)) (Probability Density for StdDev).
+                False = Raw Sum.
+        """
         theta = np.radians(angle)
         c, s = np.cos(theta), np.sin(theta)
-        
-        # Project onto X-axis (Vertical Line detection)
-        # x' = x*cos - y*sin
         x_centered = (points_subset[:, 0] - self.center[0]) * c - \
                      (points_subset[:, 1] - self.center[1]) * s
         x_rot = x_centered + self.center[0]
         
-        # Handle degenerate case (all points at same X)
-        if len(x_rot) == 0: return np.array([1.0])
+        n_points = len(x_rot)
+        if n_points == 0: return np.array([1.0])
         
-        x_min, x_max = np.min(x_rot), np.max(x_rot)
-        span = x_max - x_min
+        if grid is not None:
+            diffs = grid[:, None] - x_rot[None, :]
+            # Raw Gaussian sum
+            pdfs = np.exp(-0.5 * (diffs / self.bw)**2)
+            density = np.sum(pdfs, axis=1)
+        else:
+            x_min, x_max = np.min(x_rot), np.max(x_rot)
+            span = x_max - x_min
+            if span < 1e-6: span = 1.0
+            # Match interactive tool padding (0.2)
+            grid = np.linspace(x_min - span*0.2, x_max + span*0.2, 500)
+            diffs = grid[:, None] - x_rot[None, :]
+            pdfs = np.exp(-0.5 * (diffs / self.bw)**2)
+            density = np.sum(pdfs, axis=1)
         
-        # If span is tiny (single line), pad it to avoid division by zero
-        if span < 1e-6: span = 1.0
+        # Apply Normalization
+        if normalize is True:
+            # Probability Mass (Sum = 1)
+            total_mass = np.sum(density)
+            if total_mass > 0: density /= total_mass
+        elif normalize == 'pdf':
+            # Probability Density (Integral ~= 1)
+            # Formula: sum(exp) / (N * sigma * sqrt(2pi))
+            factor = 1.0 / (n_points * self.bw * np.sqrt(2 * np.pi))
+            density *= factor
             
-        # KDE Grid
-        grid = np.linspace(x_min - span*0.1, x_max + span*0.1, 500)
-        
-        # Vectorized KDE
-        diffs = grid[:, None] - x_rot[None, :]
-        pdfs = np.exp(-0.5 * (diffs / self.bw)**2)
-        density = np.sum(pdfs, axis=1)
-        
-        # Normalize
-        total_mass = np.sum(density)
-        if total_mass == 0:
-            return np.ones_like(density) / len(density)
-            
-        return density / total_mass
+        return density
 
     def _objective_entropy(self, angle, points_subset):
         """Objective Function: Shannon Entropy (Minimize this)"""
@@ -452,11 +462,63 @@ class GridOptimizer:
         print(f"[Q{q_index+1}] Result: {optimal_angle:.4f} deg (Ent: {final_entropy:.2f}, Gini: {final_gini:.2f})")
         return optimal_angle, final_entropy, final_gini
 
+    def optimize_quartile_std(self, q_index, initial_angle=0.0, search_width=10.0, debug=False):
+        """
+        Optimizes rotation for a specific quartile by MAXIMIZING Density Standard Deviation.
+        Uses 'pdf' normalization to match interactive tool.
+        """
+        subset = self._get_quartile_subset(q_index)
+        if len(subset) < 2: return initial_angle, 0.0, 0.0
+            
+        search_min = initial_angle - search_width / 2.0
+        search_max = initial_angle + search_width / 2.0
+        coarse_grid = np.arange(search_min, search_max, 0.5)
+        if len(coarse_grid) == 0: coarse_grid = np.array([initial_angle])
+            
+        # Use PDF density for Std Dev optimization
+        scores = [self._objective_std_neg(a, subset) for a in coarse_grid]
+        best_coarse_idx = np.argmin(scores)
+        best_coarse_angle = coarse_grid[best_coarse_idx]
+        best_coarse_score = scores[best_coarse_idx]
+        
+        if debug:
+            self.plot_entropy_std_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
+
+        optimal_angle = best_coarse_angle
+        final_neg_std = best_coarse_score
+        
+        try:
+            res = minimize_scalar(
+                self._objective_std_neg, 
+                args=(subset,),
+                bounds=(best_coarse_angle - 1.0, best_coarse_angle + 1.0),
+                method='bounded'
+            )
+            if res.success:
+                optimal_angle = res.x
+                final_neg_std = res.fun
+        except Exception:
+            pass
+
+        # For reporting Gini, we can use normalized or pdf, Gini is scale invariant
+        final_density = self._get_projected_density(subset, optimal_angle, normalize='pdf')
+        final_gini = self.calculate_gini(final_density)
+        final_std = -final_neg_std
+        
+        print(f"[Q{q_index+1}] Result: {optimal_angle:.4f} deg (Std: {final_std:.4f}, Gini: {final_gini:.2f})")
+        return optimal_angle, final_std, final_gini
+    
     def _objective_gini_neg(self, angle, points_subset):
         """Objective: Maximize Gini (Minimize Negative Gini)"""
         dens = self._get_projected_density(points_subset, angle)
         return -self.calculate_gini(dens)
 
+    def _objective_std_neg(self, angle, points_subset):
+        """Objective: Maximize Std Dev of PDF (Minimize Negative)"""
+        # Matches interactive tool: std of the PDF values
+        dens = self._get_projected_density(points_subset, angle, normalize='pdf')
+        return -np.std(dens)
+            
     def analyze_twist_profile(self, angle_start, angle_end, step=0.5, window_fraction=0.25):
         """
         Performs a 'Focal Plane Sweep' to analyze grid twist.
@@ -643,6 +705,159 @@ class GridOptimizer:
         
         return x_locations, optimal_angles, quality_scores
 
+    def analyze_spatial_profile_std(self, angle_center=0.0, sweep_width=10.0, num_slices=10, angle_steps=20):
+        """
+        Performs a spatial focus sweep using Standard Deviation of Density as the sharpness metric.
+        Normalizes each slice's response to 0-1 to compare relative sharpness across spatially varying densities.
+        Plots the trajectory of the 'Focus Plane' across the grid.
+        """
+        print(f"[GridOptimizer] Analyzing Spatial Profile (Std Dev)...")
+
+        # 1. Sort Data Spatially (along BBox axis)
+        theta_bbox = np.radians(self.bbox_rotation_angle)
+        c_b, s_b = np.cos(theta_bbox), np.sin(theta_bbox)
+        x_proj = self.points[:, 0] * c_b + self.points[:, 1] * s_b
+        
+        sort_idx = np.argsort(x_proj)
+        sorted_points = self.points[sort_idx]
+        sorted_x_proj = x_proj[sort_idx] 
+
+        n = len(sorted_points)
+        slice_len = n // num_slices
+
+        # Setup Angles
+        angles = np.linspace(angle_center - sweep_width/2, angle_center + sweep_width/2, angle_steps)
+        
+        # Storage: [num_slices, num_angles]
+        std_matrix = np.zeros((num_slices, angle_steps))
+        slice_centers = []
+
+        # 2. Compute Std Dev Matrix
+        for i in range(num_slices):
+            start = i * slice_len
+            end = (i + 1) * slice_len if i < num_slices - 1 else n
+            subset = sorted_points[start:end]
+            
+            # Calculate Slice Center (in projected coordinates)
+            if len(subset) > 0:
+                center_x = np.mean(sorted_x_proj[start:end])
+            else:
+                center_x = 0
+            slice_centers.append(center_x)
+
+            if len(subset) < 2:
+                continue
+
+            for j, ang in enumerate(angles):
+                dens = self._get_projected_density(subset, ang)
+                # Standard Deviation is a good proxy for contrast/sharpness
+                std_val = np.std(dens)
+                std_matrix[i, j] = std_val
+
+        slice_centers = np.array(slice_centers)
+
+        # 3. Normalize per Slice (Row-wise) to 0..1
+        # This is crucial: it allows us to compare the "best angle" for a sparse slice
+        # vs a dense slice on equal footing.
+        row_mins = np.min(std_matrix, axis=1)[:, None]
+        row_maxs = np.max(std_matrix, axis=1)[:, None]
+        ranges = row_maxs - row_mins
+        # Avoid division by zero for empty slices
+        ranges[ranges == 0] = 1.0 
+        
+        norm_matrix = (std_matrix - row_mins) / ranges
+
+        # 4. Find Focus Profile (Ridge Detection)
+        # For each angle (column), finding the slice (row) with the highest normalized score
+        # is one way, BUT for Twist Analysis, we usually want:
+        # "For each Angle, where is the focus?" -> argmax over rows (Y-axis of plot)
+        # This gives us X_location(Angle).
+        best_slice_indices = np.argmax(norm_matrix, axis=0)
+        focus_x_locs = slice_centers[best_slice_indices]
+
+        # 5. Plotting
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Heatmap Background
+        # We use pcolormesh to correctly align the grid cells to axes
+        X_mesh, Y_mesh = np.meshgrid(angles, slice_centers)
+        # Note: pcolormesh expects X/Y to define corners or centers. 
+        # For simple alignment with data shape (N, M), we can pass the centers and use shading='auto' or 'nearest'
+        c = ax.pcolormesh(X_mesh, Y_mesh, norm_matrix, shading='nearest', cmap='viridis', alpha=0.5)
+        cbar = plt.colorbar(c, ax=ax)
+        cbar.set_label('Normalized Sharpness (0-1)')
+        
+        # Focus Trajectory Line
+        ax.plot(angles, focus_x_locs, 'o-', color='red', linewidth=2, label='Max Sharpness Plane')
+        
+        # Trend Line
+        if len(angles) > 1:
+            z = np.polyfit(angles, focus_x_locs, 1)
+            p = np.poly1d(z)
+            ax.plot(angles, p(angles), 'b:', linewidth=2, label=f'Twist Rate: {z[0]:.1f} px/deg')
+
+        ax.set_xlabel('Rotation Angle (deg)')
+        ax.set_ylabel('Grid Position (Projected X)')
+        ax.set_title(f"Spatial Focus Profile (Std Dev)\nSweep: {angle_center}deg +/- {sweep_width/2}deg")
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='upper right', framealpha=0.9)
+        
+        plt.tight_layout()
+        plt.show()
+
+        return angles, focus_x_locs, norm_matrix
+
+    def kde_table(self, angle_center=0.0, sweep_width=10.0, angle_steps=20, filename="grid_kde_sweep.csv"):
+        """
+        Generates a CSV with KDE profiles in Columns.
+        Row 1: Angles
+        Column 1: Position (X coordinates)
+        Columns 2..N: Density values for each angle
+        """
+        print(f"[GridOptimizer] Generating KDE Table ({angle_steps} steps) -> {filename}")
+        
+        angles = np.linspace(angle_center - sweep_width/2, angle_center + sweep_width/2, angle_steps)
+        
+        # Determine Fixed Spatial Grid based on center angle
+        theta = np.radians(angle_center)
+        c, s = np.cos(theta), np.sin(theta)
+        x_centered = (self.points[:, 0] - self.center[0]) * c - \
+                     (self.points[:, 1] - self.center[1]) * s
+        x_rot = x_centered + self.center[0]
+        
+        x_min, x_max = np.min(x_rot), np.max(x_rot)
+        span = x_max - x_min
+        if span < 1e-6: span = 1.0
+        
+        # Add 20% padding for rotation variance
+        grid_min = x_min - span * 0.2
+        grid_max = x_max + span * 0.2
+        grid_x = np.linspace(grid_min, grid_max, 500)
+        
+        # Container for all density profiles
+        # Shape: (num_grid_points, num_angles)
+        all_profiles = np.zeros((len(grid_x), len(angles)))
+
+        for i, ang in enumerate(angles):
+            # Calculate Density on FIXED grid using FULL dataset
+            dens = self._get_projected_density(self.points, ang, grid=grid_x)
+            all_profiles[:, i] = dens
+        
+        try:
+            with open(filename, "w") as f:
+                # Header Row: "Position" followed by Angle values
+                header = ["Position"] + [f"{a:.4f}" for a in angles]
+                f.write(",".join(header) + "\n")
+                
+                # Data Rows: grid_x value followed by density for each angle
+                for i in range(len(grid_x)):
+                    row_vals = [f"{grid_x[i]:.2f}"] + [f"{val:.6f}" for val in all_profiles[i, :]]
+                    f.write(",".join(row_vals) + "\n")
+                    
+            print(f"[GridOptimizer] Done.")
+        except IOError as e:
+            print(f"[Error] Could not write file: {e}")
+
     def plot_entropy_landscape(self, subset, grid, scores, winner, q_idx):
         """Visualizes the optimization basin (Entropy only)."""
         plt.figure(figsize=(8, 4))
@@ -653,6 +868,78 @@ class GridOptimizer:
         plt.ylabel("Shannon Entropy")
         plt.legend()
         plt.grid(True, alpha=0.3)
+        plt.show()
+
+    def plot_entropy_std_landscape(self, subset, grid, optimization_scores, winner, q_idx):
+        """
+        Plots KDE at optimal angle AND Optimization Landscape.
+        
+        Args:
+            optimization_scores: The scores computed during coarse sweep (Negative Std Dev)
+        """
+        # 1. Re-calculate Metrics for Plotting
+        # We recalculate to ensure we display Positive Std Dev and Normalized Entropy
+        std_scores = []
+        ent_scores = []
+        for angle in grid:
+            dens_pdf = self._get_projected_density(subset, angle, normalize='pdf')
+            dens_prob = self._get_projected_density(subset, angle, normalize=True)
+            std_scores.append(np.std(dens_pdf))
+            ent_scores.append(entropy(dens_prob))
+            
+        # 2. Calculate KDE Profile for Winner
+        best_dens = self._get_projected_density(subset, winner, normalize='pdf')
+        
+        # --- Create Plot with 2 Subplots ---
+        fig, (ax_kde, ax_land) = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Plot 1: KDE Profile
+        theta = np.radians(winner)
+        c, s = np.cos(theta), np.sin(theta)
+        x_rot = (subset[:, 0] - self.center[0]) * c - \
+                (subset[:, 1] - self.center[1]) * s + self.center[0]
+        x_min, x_max = np.min(x_rot), np.max(x_rot)
+        span = x_max - x_min
+        if span < 1e-6: span = 1.0
+        grid_x = np.linspace(x_min - span*0.2, x_max + span*0.2, 500) # Match internal grid padding
+        
+        # Recalculate on plotting grid for visualization consistency
+        diffs = grid_x[:, None] - x_rot[None, :]
+        pdfs = np.exp(-0.5 * (diffs / self.bw)**2)
+        n_points = len(subset)
+        factor = 1.0 / (n_points * self.bw * np.sqrt(2 * np.pi))
+        dens_plot = np.sum(pdfs, axis=1) * factor
+        
+        ax_kde.plot(grid_x, dens_plot, 'k-', linewidth=1.5)
+        ax_kde.fill_between(grid_x, dens_plot, color='orange', alpha=0.3)
+        ax_kde.set_title(f"Q{q_idx+1} KDE Profile @ {winner:.2f}deg\n(Std Dev: {np.std(best_dens):.4f})")
+        ax_kde.set_xlabel("Projected Coordinate")
+        ax_kde.set_ylabel("Density (PDF)")
+        ax_kde.grid(True, alpha=0.3)
+        
+        # Plot 2: Landscape
+        color_std = 'tab:orange'
+        ax_land.set_xlabel('Rotation Angle (deg)')
+        ax_land.set_ylabel('Std Dev (Maximize)', color=color_std, fontweight='bold')
+        line1 = ax_land.plot(grid, std_scores, color=color_std, marker='o', markersize=4, label='Std Dev')
+        ax_land.tick_params(axis='y', labelcolor=color_std)
+        
+        ax_land2 = ax_land.twinx()
+        color_ent = 'tab:blue'
+        ax_land2.set_ylabel('Entropy (Minimize)', color=color_ent, fontweight='bold')
+        line2 = ax_land2.plot(grid, ent_scores, color=color_ent, marker='x', markersize=4, linestyle=':', label='Entropy')
+        ax_land2.tick_params(axis='y', labelcolor=color_ent)
+        
+        line3 = ax_land.axvline(winner, color='r', linestyle='--', alpha=0.8, label=f'Opt: {winner:.2f}deg')
+        
+        lines = line1 + line2 + [line3]
+        labels = [l.get_label() for l in lines]
+        ax_land.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=3)
+        
+        ax_land.set_title(f"Optimization Landscape (Q{q_idx+1})", y=1.15)
+        ax_land.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
         plt.show()
 
     def plot_entropy_gini_landscape(self, subset, grid, entropy_scores, winner, q_idx):
