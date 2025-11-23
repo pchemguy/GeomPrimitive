@@ -8,6 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, entropy
 from scipy.optimize import minimize_scalar
+from scipy.signal import savgol_filter
+from sklearn.neighbors import NearestNeighbors
 
 
 # Usage Example
@@ -37,23 +39,56 @@ class GridOptimizer:
         
         # 1. Auto-calculate geometry
         self.center = np.mean(points, axis=0)
+        self.x_range = (np.min(points[:, 0]), np.max(points[:, 0]))
         
         # 2. Auto-calculate bandwidth if not provided
+        # 2. Auto-calculate bandwidth
         if bw is None:
-            from sklearn.neighbors import NearestNeighbors
-            # Safe check for small datasets
-            k = min(len(points), 2)
-            if k < 2:
-                self.bw = 1.0
-            else:
-                nbrs = NearestNeighbors(n_neighbors=k).fit(points)
-                dists, _ = nbrs.kneighbors(points)
-                pitch = np.percentile(dists[:, 1], 50) # Median spacing
-                self.bw = pitch * 0.15 # 15% of pitch is the "Golden Rule"
+            self.bw = self._estimate_robust_bw(points)
+            print(f"[GridOptimizer] Init. N={len(points)}, BW={self.bw:.2f}")
         else:
             self.bw = bw
+            print(f"[GridOptimizer] Init. N={len(points)}, Manual BW={self.bw:.2f}")
+                        
+    def _estimate_robust_bw(self, points):
+        """
+        Estimates grid pitch using 2nd and 3rd nearest neighbors
+        and sets bandwidth to 10% of that pitch.
+        """
+        # We need indices 0,1,2,3 (so k=4)
+        k = min(len(points), 4)
+        if k < 4:
+            print("[GridOptimizer] Warning: Not enough points for robust BW. Defaulting to 1.0")
+            return 1.0
             
-        print(f"[GridOptimizer] Init. N={len(points)}, BW={self.bw:.2f}")
+        nbrs = NearestNeighbors(n_neighbors=k).fit(points)
+        dists, _ = nbrs.kneighbors(points)
+        
+        # dists columns: [0]=Self, [1]=1st NN, [2]=2nd NN, [3]=3rd NN
+        dist_2nd = dists[:, 2]
+        dist_3rd = dists[:, 3]
+        
+        p90_2nd = np.percentile(dist_2nd, 90)
+        p90_3rd = np.percentile(dist_3rd, 90)
+        
+        # Check for anisotropy/rectangularity
+        # Avoid division by zero
+        denom = max(p90_2nd, p90_3rd) + 1e-9
+        diff_ratio = abs(p90_2nd - p90_3rd) / denom
+        
+        if diff_ratio > 0.25:
+            print(f"[GridOptimizer] Warning: Large Pitch Anisotropy detected ({diff_ratio:.1%}).")
+            print(f"                2nd Neighbor: {p90_2nd:.2f} px | 3rd Neighbor: {p90_3rd:.2f} px")
+            print(f"                Is the grid highly rectangular or 1D?")
+
+        # The robust reference pitch
+        ref_pitch = (p90_2nd + p90_3rd) / 2.0
+        
+        # Golden Rule: 10% of Pitch
+        bw = ref_pitch * 0.10
+        
+        print(f"[GridOptimizer] Auto-BW: {bw:.2f} px (Pitch ~{ref_pitch:.2f} px)")
+        return bw
 
     def calculate_gini(self, density_array):
         """
@@ -137,7 +172,8 @@ class GridOptimizer:
             return initial_angle, 0.0, 0.0
             
         start = q_index * q_len
-        end = (q_index + 1) * q_len
+        # Ensure the last quartile grabs any remainder points
+        end = (q_index + 1) * q_len if q_index < 3 else n
         subset = sorted_points[start:end]
         
         # Define Bounds
@@ -157,7 +193,6 @@ class GridOptimizer:
         
         # Debug Plotting
         if debug:
-            # Calls the new method that calculates and plots both Entropy and Gini
             self.plot_entropy_gini_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
 
         # 3. Fine Optimization
@@ -190,6 +225,197 @@ class GridOptimizer:
         
         return optimal_angle, final_entropy, final_gini
 
+    def _objective_gini_neg(self, angle, points_subset):
+        """Objective: Maximize Gini (Minimize Negative Gini)"""
+        dens = self._get_projected_density(points_subset, angle)
+        return -self.calculate_gini(dens)
+
+    def analyze_twist_profile(self, angle_start, angle_end, step=0.5, window_fraction=0.25):
+        """
+        Performs a 'Focal Plane Sweep' to analyze grid twist.
+        For each angle, finds the X-location where the grid is sharpest (Max Gini).
+        
+        Args:
+            angle_start, angle_end: Range of angles to sweep (e.g., 42 to 44).
+            step: Angle step size.
+            window_fraction: Size of the sliding window (0.0 to 1.0).
+                             0.25 means the window covers 25% of the points.
+        """
+        print(f"[GridOptimizer] Analyzing Twist: {angle_start}deg -> {angle_end}deg (Window: {window_fraction:.0%})")
+        
+        # Sort data spatially once (approximation, assuming small rotation)
+        # Ideally, we sort inside the loop, but sorting by raw X is usually stable enough for small angles
+        x_raw = self.points[:, 0]
+        sort_idx = np.argsort(x_raw)
+        sorted_points = self.points[sort_idx]
+        sorted_x_vals = x_raw[sort_idx]
+        
+        n = len(sorted_points)
+        window_size = int(n * window_fraction)
+        if window_size < 4:
+            print("Window too small.")
+            return
+
+        angles = np.arange(angle_start, angle_end + step, step)
+        
+        # Results containers
+        best_x_locs = []
+        max_gini_vals = []
+        
+        for ang in angles:
+            # Sliding Window Scan for THIS angle
+            local_ginis = []
+            window_centers = []
+            
+            # Slide with overlap (step size = 5% of N)
+            slide_step = max(1, int(n * 0.05))
+            
+            for i in range(0, n - window_size, slide_step):
+                subset = sorted_points[i : i + window_size]
+                center_x = np.mean(sorted_x_vals[i : i + window_size])
+                
+                # Compute Sharpness (Gini) for this window
+                dens = self._get_projected_density(subset, ang)
+                gini = self.calculate_gini(dens)
+                
+                local_ginis.append(gini)
+                window_centers.append(center_x)
+            
+            # Find where the sharpness was maximized for this angle
+            if not local_ginis:
+                best_x_locs.append(np.nan)
+                max_gini_vals.append(np.nan)
+                continue
+                
+            best_idx = np.argmax(local_ginis)
+            best_x_locs.append(window_centers[best_idx])
+            max_gini_vals.append(local_ginis[best_idx])
+
+        # --- Plotting ---
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        # Trace 1: Location of Best Alignment (Left Axis)
+        color_loc = 'tab:red'
+        ax1.set_xlabel('Rotation Angle (deg)')
+        ax1.set_ylabel('X-Location of Max Sharpness', color=color_loc, fontweight='bold')
+        ax1.plot(angles, best_x_locs, 'o-', color=color_loc, linewidth=2, label='Focus Point (X)')
+        ax1.tick_params(axis='y', labelcolor=color_loc)
+        ax1.grid(True, alpha=0.3)
+        
+        # Indicate image bounds on Y-axis
+        ax1.axhline(self.x_range[0], color='gray', linestyle=':', alpha=0.5, label='Left Edge')
+        ax1.axhline(self.x_range[1], color='gray', linestyle=':', alpha=0.5, label='Right Edge')
+
+        # Trace 2: Max Gini Value (Right Axis)
+        ax2 = ax1.twinx()
+        color_qual = 'tab:green'
+        ax2.set_ylabel('Max Gini Score (Quality)', color=color_qual, fontweight='bold')
+        ax2.plot(angles, max_gini_vals, 'x--', color=color_qual, alpha=0.7, label='Sharpness Score')
+        ax2.tick_params(axis='y', labelcolor=color_qual)
+        
+        plt.title(f"Grid Twist Profile\nSweep: {angle_start}deg to {angle_end}deg")
+        plt.tight_layout()
+        plt.show()
+        
+        return angles, best_x_locs, max_gini_vals
+    
+    def analyze_spatial_twist(self, angle_center=0.0, search_width=10.0, num_slices=8):
+        """
+        Slices the grid into N vertical strips and finds the optimal angle for EACH strip.
+        Returns the Twist Profile: Angle(x).
+        
+        Args:
+            angle_center: Approximate correct angle (e.g., 43.0).
+            search_width: Range to search (+/- 5.0).
+            num_slices: How many vertical strips to divide the grid into.
+        """
+        print(f"[GridOptimizer] Analyzing Spatial Twist ({num_slices} slices)...")
+        
+        # 1. Sort Data Spatially
+        x_raw = self.points[:, 0]
+        sort_idx = np.argsort(x_raw)
+        sorted_points = self.points[sort_idx]
+        sorted_x = x_raw[sort_idx]
+        
+        n = len(sorted_points)
+        slice_len = n // num_slices
+        
+        x_locations = []
+        optimal_angles = []
+        quality_scores = [] # Peak Gini
+        
+        search_min = angle_center - search_width/2
+        search_max = angle_center + search_width/2
+        
+        # 2. Iterate through Slices
+        for i in range(num_slices):
+            # Define Slice Indices
+            start = i * slice_len
+            # Ensure last slice grabs remainder
+            end = (i + 1) * slice_len if i < num_slices - 1 else n
+            
+            subset = sorted_points[start:end]
+            
+            # Skip empty/tiny slices
+            if len(subset) < 4:
+                continue
+                
+            # Calculate Slice Center X
+            center_x = np.mean(sorted_x[start:end])
+            
+            # 3. Optimize Angle for THIS Slice
+            # Use bounded minimization on Negative Gini (Maximize Sharpness)
+            res = minimize_scalar(
+                self._objective_gini_neg,
+                args=(subset,),
+                bounds=(search_min, search_max),
+                method='bounded'
+            )
+            
+            best_angle = res.x
+            best_gini = -res.fun
+            
+            x_locations.append(center_x)
+            optimal_angles.append(best_angle)
+            quality_scores.append(best_gini)
+            
+            print(f"  Slice {i+1}: X={center_x:.1f} -> Angle={best_angle:.2f}deg (Gini: {best_gini:.2f})")
+
+        # --- Plotting ---
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        # Trace 1: Twist Profile (Angle vs X)
+        color_ang = 'tab:blue'
+        ax1.set_xlabel('X-Location (pixels)')
+        ax1.set_ylabel('Optimal Rotation Angle (deg)', color=color_ang, fontweight='bold')
+        ax1.plot(x_locations, optimal_angles, 'o-', color=color_ang, linewidth=2, label='Twist Profile')
+        ax1.tick_params(axis='y', labelcolor=color_ang)
+        ax1.grid(True, alpha=0.3)
+        
+        # Fit a trendline
+        if len(x_locations) > 1:
+            z = np.polyfit(x_locations, optimal_angles, 1)
+            p = np.poly1d(z)
+            ax1.plot(x_locations, p(x_locations), 'b:', alpha=0.5, label=f'Trend: {z[0]*1000:.2f} mdeg/px')
+
+        # Trace 2: Quality (Gini vs X)
+        ax2 = ax1.twinx()
+        color_qual = 'tab:green'
+        ax2.set_ylabel('Grid Quality (Max Gini)', color=color_qual, fontweight='bold')
+        ax2.plot(x_locations, quality_scores, 'x--', color=color_qual, alpha=0.7, label='Local Quality')
+        ax2.tick_params(axis='y', labelcolor=color_qual)
+        
+        # Legend
+        lines1, labels1 = ax1.get_legend_handles_labels()
+        lines2, labels2 = ax2.get_legend_handles_labels()
+        ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper center')
+        
+        plt.title(f"Spatially Resolved Grid Alignment\n(Twist Analysis)")
+        plt.tight_layout()
+        plt.show()
+        
+        return x_locations, optimal_angles, quality_scores
+
     def plot_entropy_landscape(self, subset, grid, scores, winner, q_idx):
         """Visualizes the optimization basin (Entropy only)."""
         plt.figure(figsize=(8, 4))
@@ -205,9 +431,7 @@ class GridOptimizer:
     def plot_entropy_gini_landscape(self, subset, grid, entropy_scores, winner, q_idx):
         """
         Visualizes optimization basin with BOTH Entropy (Minimization) and Gini (Maximization).
-        Uses secondary Y-axis for Gini.
         """
-        # Calculate Gini scores for the grid (generated on the fly for visualization)
         gini_scores = []
         for angle in grid:
             dens = self._get_projected_density(subset, angle)
@@ -241,6 +465,92 @@ class GridOptimizer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
+
+    def _calculate_landscape(self, subset, step):
+        """Helper to compute 360 landscape metrics for a specific subset."""
+        angles = np.arange(0, 360, step)
+        ent_scores = []
+        gini_scores = []
+        
+        for ang in angles:
+            dens = self._get_projected_density(subset, ang)
+            ent_scores.append(entropy(dens))
+            gini_scores.append(self.calculate_gini(dens))
+            
+        return angles, np.array(ent_scores), np.array(gini_scores)
+
+    def plot_360_landscape(self, q_index=None, step=1.0):
+        """
+        Scans 0-360 degrees and plots Entropy and Gini profiles.
+        If q_index is None, generates a 2x2 plot for all quartiles.
+        """
+        # 1. Sort Data to define Quartiles
+        x_curr = self.points[:, 0]
+        sort_idx = np.argsort(x_curr)
+        sorted_points = self.points[sort_idx]
+        n = len(sorted_points)
+        q_len = n // 4
+
+        def get_subset(idx):
+            start = idx * q_len
+            end = (idx + 1) * q_len if idx < 3 else n
+            return sorted_points[start:end]
+
+        # Helper plotting logic
+        def plot_on_ax(ax, angles, ent, gini, title):
+            # Entropy
+            color_ent = 'tab:blue'
+            ax.set_xlabel('Angle (deg)')
+            ax.set_ylabel('Entropy', color=color_ent, fontweight='bold')
+            ax.plot(angles, ent, color=color_ent, linewidth=1.5)
+            ax.tick_params(axis='y', labelcolor=color_ent)
+            
+            # Gini
+            ax2 = ax.twinx()
+            color_gini = 'tab:green'
+            ax2.set_ylabel('Gini', color=color_gini, fontweight='bold')
+            ax2.plot(angles, gini, color=color_gini, linestyle='--', linewidth=1.5)
+            ax2.tick_params(axis='y', labelcolor=color_gini)
+            
+            # Mark Optima
+            min_ent = np.argmin(ent)
+            max_gini = np.argmax(gini)
+            ax.axvline(angles[min_ent], color=color_ent, linestyle=':', alpha=0.6)
+            ax2.axvline(angles[max_gini], color=color_gini, linestyle=':', alpha=0.6)
+            
+            ax.set_title(f"{title}\nBest: {angles[min_ent]:.1f}deg(E) / {angles[max_gini]:.1f}deg(G)", fontsize=10)
+            ax.grid(True, alpha=0.3)
+
+        # --- CASE A: Single Quartile ---
+        if q_index is not None:
+            if q_index < 0 or q_index > 3:
+                print("Invalid Quartile Index. Use 0-3.")
+                return
+                
+            print(f"[GridOptimizer] Scanning Q{q_index+1} (0-360)...")
+            subset = get_subset(q_index)
+            angles, ent, gini = self._calculate_landscape(subset, step)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            plot_on_ax(ax, angles, ent, gini, f"Landscape Q{q_index+1}")
+            plt.tight_layout()
+            plt.show()
+            
+        # --- CASE B: 2x2 Grid (All Quartiles) ---
+        else:
+            print("[GridOptimizer] Scanning All Quartiles (0-360)...")
+            fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+            axes = axes.flatten()
+            
+            for i in range(4):
+                subset = get_subset(i)
+                angles, ent, gini = self._calculate_landscape(subset, step)
+                plot_on_ax(axes[i], angles, ent, gini, f"Quartile Q{i+1}")
+            
+            plt.suptitle("Full 360deg Grid Alignment Landscape (All Quartiles)", y=1.02)
+            plt.tight_layout()
+            plt.show()
+
 """
 ```
 """
