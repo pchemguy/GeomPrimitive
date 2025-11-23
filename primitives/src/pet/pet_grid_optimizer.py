@@ -42,8 +42,9 @@ class GridOptimizer:
         self.center = np.mean(points, axis=0)
         self.x_range = (np.min(points[:, 0]), np.max(points[:, 0]))
         
-        # 2. Auto-calculate pitch and default bandwidth
+        # 2. Auto-calculate pitch and default bandwidth (0.1*P)
         self.pitch, self.bw = self._estimate_robust_pitch_bw(points)
+        # self.bw = self.pitch / 20.0
         
         if bw is None:
             print(f"[GridOptimizer] Init. N={len(points)}, Pitch={self.pitch:.2f}, BW={self.bw:.2f}")
@@ -61,6 +62,7 @@ class GridOptimizer:
             self.points = points
             self.bbox = None
             self.bbox_rotation_angle = 0.0
+            self.center = np.mean(points, axis=0)
         else:
             self.bbox = bbox
             
@@ -71,11 +73,66 @@ class GridOptimizer:
             p0, p1 = bbox[0], bbox[1]
             dx, dy = p1[0] - p0[0], p1[1] - p0[1]
             self.bbox_rotation_angle = np.degrees(np.arctan2(dy, dx))
+
+            # 5. Set Pivot to BBox Geometric Center (Crucial for stable projection)
+            self.center = np.mean(self.bbox, axis=0)
             
             print(f"[GridOptimizer] BBox Found. Rotation: {self.bbox_rotation_angle:.2f} deg")
 
         # 5. Update Geometry based on clean points
-        self.center = np.mean(self.points, axis=0)
+        self.x_range = (np.min(self.points[:, 0]), np.max(self.points[:, 0]))
+    def __init__(self, points, bw=None):
+        """
+        points: (N, 2) array of x,y coordinates
+        bw: Bandwidth for KDE. If None, auto-calculated based on pitch.
+        """
+        if len(points) == 0:
+            raise ValueError("Optimizer received empty point set.")
+            
+        self.points = points
+        
+        # 1. Auto-calculate geometry
+        self.center = np.mean(points, axis=0)
+        self.x_range = (np.min(points[:, 0]), np.max(points[:, 0]))
+        
+        # 2. Auto-calculate pitch and default bandwidth (0.1*P)
+        self.pitch, self.bw = self._estimate_robust_pitch_bw(points)
+        # self.bw = self.pitch / 20.0
+        
+        if bw is None:
+            print(f"[GridOptimizer] Init. N={len(points)}, Pitch={self.pitch:.2f}, BW={self.bw:.2f}")
+        else:
+            self.bw = bw
+            print(f"[GridOptimizer] Init. N={len(points)}, Pitch={self.pitch:.2f}, Manual BW={self.bw:.2f}")
+
+        # 2. Compute Bounding Box & Orientation
+        # We use the estimated pitch to set a robust eps for DBSCAN (1.5x pitch)
+        bbox_eps = self.pitch * 1.5
+        bbox, _, _, labels = self.get_grid_bbox(points, eps=bbox_eps, margin_ratio=0.25)
+        
+        if bbox is None:
+            print("[GridOptimizer] Warning: BBox detection failed. Using raw points.")
+            self.points = points
+            self.bbox = None
+            self.bbox_rotation_angle = 0.0
+            self.center = np.mean(points, axis=0)
+        else:
+            self.bbox = bbox
+            
+            # 3. Reject Outliers (Noise points outside the determined BBox)
+            self.points = self.reject_outliers(points, bbox, labels)
+            
+            # 4. Determine Rotation Angle from BBox (Angle of bottom edge)
+            p0, p1 = bbox[0], bbox[1]
+            dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+            self.bbox_rotation_angle = np.degrees(np.arctan2(dy, dx))
+
+            # 5. Set Pivot to BBox Geometric Center (Crucial for stable projection)
+            self.center = np.mean(self.bbox, axis=0)
+            
+            print(f"[GridOptimizer] BBox Found. Rotation: {self.bbox_rotation_angle:.2f} deg")
+
+        # 5. Update Geometry based on clean points
         self.x_range = (np.min(self.points[:, 0]), np.max(self.points[:, 0]))
                                 
     def _estimate_robust_pitch_bw(self, points):
@@ -117,6 +174,22 @@ class GridOptimizer:
         
         print(f"[GridOptimizer] Auto-BW: {bw:.2f} px (Pitch ~{ref_pitch:.2f} px)")
         return ref_pitch, bw
+
+    def _get_quartile_subset(self, q_index):
+        # Sort along the BBox Main Axis to ensure consistent quartiles regardless of rotation
+        theta = np.radians(self.bbox_rotation_angle)
+        c, s = np.cos(theta), np.sin(theta)
+        # Project to BBox Space (X-axis)
+        x_proj = self.points[:, 0] * c + self.points[:, 1] * s
+        
+        sort_idx = np.argsort(x_proj)
+        sorted_points = self.points[sort_idx]
+        
+        n = len(sorted_points)
+        q_len = n // 4
+        start = q_index * q_len
+        end = (q_index + 1) * q_len if q_index < 3 else n
+        return sorted_points[start:end]
 
     def get_grid_bbox(self, points, eps=None, margin_ratio=0.25):
         """
@@ -299,8 +372,9 @@ class GridOptimizer:
         
         # Project onto X-axis (Vertical Line detection)
         # x' = x*cos - y*sin
-        x_rot = (points_subset[:, 0] - self.center[0]) * c - \
-                (points_subset[:, 1] - self.center[1]) * s
+        x_centered = (points_subset[:, 0] - self.center[0]) * c - \
+                     (points_subset[:, 1] - self.center[1]) * s
+        x_rot = x_centered + self.center[0]
         
         # Handle degenerate case (all points at same X)
         if len(x_rot) == 0: return np.array([1.0])
@@ -334,79 +408,48 @@ class GridOptimizer:
     def optimize_quartile(self, q_index, initial_angle=0.0, search_width=10.0, debug=False):
         """
         Optimizes rotation for a specific quartile.
-        
-        Args:
-            q_index: 0=Q1, 1=Q2, etc.
-            initial_angle: Center of search (deg).
-            search_width: Total scan range (deg).
-            debug: If True, plots the entropy landscape.
-            
-        Returns: 
-            (optimal_angle, entropy_score, gini_score)
+        Uses _get_quartile_subset to correctly isolate the region relative to the BBox axis.
         """
-        # 1. Split Data
-        x_curr = self.points[:, 0]
-        sort_idx = np.argsort(x_curr)
-        sorted_points = self.points[sort_idx]
+        subset = self._get_quartile_subset(q_index)
         
-        n = len(sorted_points)
-        q_len = n // 4
-        if q_len < 2:
-            print(f"[Error] Quartile {q_index} has too few points ({q_len}).")
+        if len(subset) < 2:
+            print(f"[Error] Quartile {q_index} has too few points.")
             return initial_angle, 0.0, 0.0
             
-        start = q_index * q_len
-        # Ensure the last quartile grabs any remainder points
-        end = (q_index + 1) * q_len if q_index < 3 else n
-        subset = sorted_points[start:end]
-        
-        # Define Bounds
-        search_min = initial_angle - (search_width / 2.0)
-        search_max = initial_angle + (search_width / 2.0)
-        
-        # 2. Coarse Sweep (Crucial to avoid local minima)
-        # Step size 0.5 deg is usually safe for grids
+        search_min = initial_angle - search_width / 2.0
+        search_max = initial_angle + search_width / 2.0
         coarse_grid = np.arange(search_min, search_max, 0.5)
         if len(coarse_grid) == 0: coarse_grid = np.array([initial_angle])
             
         scores = [self._objective_entropy(a, subset) for a in coarse_grid]
-        
         best_coarse_idx = np.argmin(scores)
         best_coarse_angle = coarse_grid[best_coarse_idx]
         best_coarse_score = scores[best_coarse_idx]
         
-        # Debug Plotting
         if debug:
             self.plot_entropy_gini_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
 
-        # 3. Fine Optimization
         optimal_angle = best_coarse_angle
         final_entropy = best_coarse_score
         
-        # Search +/- 1.0 deg around the coarse winner
         try:
             res = minimize_scalar(
-                self._objective_entropy, 
-                args=(subset,),
+                self._objective_entropy, args=(subset,),
                 bounds=(best_coarse_angle - 1.0, best_coarse_angle + 1.0),
                 method='bounded'
             )
-            
             if res.success:
                 optimal_angle = res.x
                 final_entropy = res.fun
             else:
                 print(f"[Q{q_index+1}] Opt Failed. Using Coarse: {best_coarse_angle:.4f}")
-                
         except Exception as e:
-            print(f"[Q{q_index+1}] Exception in minimize_scalar: {e}")
+            print(f"[Q{q_index+1}] Exception: {e}")
 
-        # 4. Post-Optimization Quality Check (Gini)
         final_density = self._get_projected_density(subset, optimal_angle)
         final_gini = self.calculate_gini(final_density)
         
         print(f"[Q{q_index+1}] Result: {optimal_angle:.4f} deg (Ent: {final_entropy:.2f}, Gini: {final_gini:.2f})")
-        
         return optimal_angle, final_entropy, final_gini
 
     def _objective_gini_neg(self, angle, points_subset):
@@ -746,6 +789,127 @@ class GridOptimizer:
             plt.suptitle("Full 360deg Grid Alignment Landscape (All Quartiles)", y=1.02)
             plt.tight_layout()
             plt.show()
+
+    def plot_quartile_optimization_report(self,
+            initial_angle=None, search_width=20.0, bbox_aux_angle=False, plot=True):
+        """
+        Runs optimization for each quartile.
+        Plots: Column 1: Full KDE (Black) overlaid with Quartile KDE (Filled Green).
+               Column 2: Optimization Landscape.
+        Optionally generates a summary report plot.
+        Returns: Dictionary of results {"Q1": {...}, ...}
+        """
+        if initial_angle is None:
+            initial_angle = self.bbox_rotation_angle
+            if bbox_aux_angle:
+                initial_angle =  initial_angle % 180 - 90 # Normalized (-90, 90) 90 deg shift 
+
+        results = {}
+        
+        if plot:
+            print(f"[GridOptimizer] Generating Report (Center: {initial_angle}deg, Width: {search_width}deg)")
+            fig, axes = plt.subplots(4, 2, figsize=(16, 20))
+            plt.subplots_adjust(hspace=0.4, wspace=0.3)
+        
+        search_min = initial_angle - search_width/2
+        search_max = initial_angle + search_width/2
+        
+        for i in range(4):
+            # 1. Get Subset INDEPENDENTLY
+            subset = self._get_quartile_subset(i)
+            
+            # 2. Optimize by passing Index (method handles subset internally, but we have it for plotting)
+            best_angle, final_ent, final_gini = self.optimize_quartile(i, initial_angle, search_width)
+            
+            key = f"Q{i+1}"
+            results[key] = {"angle": float(best_angle), "entropy": float(final_ent), "gini": float(final_gini)}
+            
+            if plot:
+                # --- Plot Column 1: Global vs Subset Density ---
+                ax_kde = axes[i, 0]
+                
+                theta = np.radians(best_angle)
+                c, s = np.cos(theta), np.sin(theta)
+                
+                # Project Full Set (Screen Space)
+                x_centered_full = (self.points[:, 0] - self.center[0]) * c - \
+                                  (self.points[:, 1] - self.center[1]) * s
+                x_rot_full = x_centered_full + self.center[0]
+                
+                # Project Subset (Screen Space)
+                x_centered_sub = (subset[:, 0] - self.center[0]) * c - \
+                                 (subset[:, 1] - self.center[1]) * s
+                x_rot_sub = x_centered_sub + self.center[0]
+                
+                # Shared Grid
+                x_min, x_max = np.min(x_rot_full), np.max(x_rot_full)
+                span = x_max - x_min
+                if span < 1e-6: span = 1.0
+                grid_x = np.linspace(x_min - span*0.1, x_max + span*0.1, 500)
+                
+                # Raw Mass calc
+                diffs_full = grid_x[:, None] - x_rot_full[None, :]
+                pdfs_full = np.exp(-0.5 * (diffs_full / self.bw)**2)
+                raw_dens_full = np.sum(pdfs_full, axis=1)
+                
+                diffs_sub = grid_x[:, None] - x_rot_sub[None, :]
+                pdfs_sub = np.exp(-0.5 * (diffs_sub / self.bw)**2)
+                raw_dens_sub = np.sum(pdfs_sub, axis=1)
+                
+                total_mass = np.sum(raw_dens_full)
+                if total_mass > 0:
+                    plot_dens_full = raw_dens_full / total_mass
+                    plot_dens_sub = raw_dens_sub / total_mass
+                else:
+                    plot_dens_full = raw_dens_full
+                    plot_dens_sub = raw_dens_sub
+                
+                ax_kde.plot(grid_x, plot_dens_full, 'k-', linewidth=1.5, label='Full Grid')
+                ax_kde.fill_between(grid_x, plot_dens_sub, color='green', alpha=0.4, label=f'Q{i+1} Contribution')
+                
+                ax_kde.set_title(f"Q{i+1} Optimal: {best_angle:.2f}deg\n(Subset vs Global)", fontsize=10, fontweight='bold')
+                if i == 3: ax_kde.set_xlabel("Projected Spatial Coordinate (pixels)")
+                ax_kde.set_ylabel("Density")
+                ax_kde.grid(True, alpha=0.3)
+                ax_kde.legend(loc='upper right', fontsize='small')
+                
+                # --- Plot Column 2: Landscape ---
+                ax_land = axes[i, 1]
+                coarse_grid = np.arange(search_min, search_max, 0.5)
+                
+                ent_scores = []
+                gini_scores = []
+                for ang in coarse_grid:
+                    dens = self._get_projected_density(subset, ang)
+                    ent_scores.append(entropy(dens))
+                    gini_scores.append(self.calculate_gini(dens))
+                
+                color_ent = 'tab:blue'
+                if i == 3: ax_land.set_xlabel('Angle (deg)')
+                ax_land.set_ylabel('Entropy', color=color_ent, fontweight='bold')
+                ax_land.plot(coarse_grid, ent_scores, 'o-', color=color_ent, markersize=3, label='Entropy')
+                ax_land.tick_params(axis='y', labelcolor=color_ent)
+                
+                ax_land2 = ax_land.twinx()
+                color_gini = 'tab:green'
+                ax_land2.set_ylabel('Gini', color=color_gini, fontweight='bold')
+                ax_land2.plot(coarse_grid, gini_scores, 'x--', color=color_gini, markersize=4, label='Gini')
+                ax_land2.tick_params(axis='y', labelcolor=color_gini)
+                
+                ax_land.axvline(best_angle, color='red', linestyle='--', alpha=0.8, label=f'Opt: {best_angle:.2f}deg')
+                
+                lines1, labels1 = ax_land.get_legend_handles_labels()
+                lines2, labels2 = ax_land2.get_legend_handles_labels()
+                ax_land.legend(lines1 + lines2, labels1 + labels2, loc='upper center', ncol=3, fontsize='small')
+                
+                ax_land.set_title(f"Optimization (Q{i+1})", fontsize=10)
+                ax_land.grid(True, alpha=0.3)
+            
+        if plot:
+            plt.suptitle(f"Quartile Optimization Report\nSearch: {initial_angle}deg +/- {search_width/2}deg", fontsize=14, y=0.92)
+            plt.show()
+            
+        return results
 
 """
 ```
