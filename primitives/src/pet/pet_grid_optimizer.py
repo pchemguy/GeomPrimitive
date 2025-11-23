@@ -157,7 +157,8 @@ class GridOptimizer:
         
         # Debug Plotting
         if debug:
-            self.plot_entropy_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
+            # Calls the new method that calculates and plots both Entropy and Gini
+            self.plot_entropy_gini_landscape(subset, coarse_grid, scores, best_coarse_angle, q_index)
 
         # 3. Fine Optimization
         optimal_angle = best_coarse_angle
@@ -190,7 +191,7 @@ class GridOptimizer:
         return optimal_angle, final_entropy, final_gini
 
     def plot_entropy_landscape(self, subset, grid, scores, winner, q_idx):
-        """Visualizes the optimization basin."""
+        """Visualizes the optimization basin (Entropy only)."""
         plt.figure(figsize=(8, 4))
         plt.plot(grid, scores, 'b.-', label='Entropy Score')
         plt.axvline(winner, color='r', linestyle='--', label=f'Min: {winner:.2f}')
@@ -201,6 +202,45 @@ class GridOptimizer:
         plt.grid(True, alpha=0.3)
         plt.show()
 
+    def plot_entropy_gini_landscape(self, subset, grid, entropy_scores, winner, q_idx):
+        """
+        Visualizes optimization basin with BOTH Entropy (Minimization) and Gini (Maximization).
+        Uses secondary Y-axis for Gini.
+        """
+        # Calculate Gini scores for the grid (generated on the fly for visualization)
+        gini_scores = []
+        for angle in grid:
+            dens = self._get_projected_density(subset, angle)
+            gini_scores.append(self.calculate_gini(dens))
+            
+        fig, ax1 = plt.subplots(figsize=(10, 6))
+        
+        # 1. Entropy Trace (Left Axis)
+        color_ent = 'tab:blue'
+        ax1.set_xlabel('Rotation Angle (deg)')
+        ax1.set_ylabel('Shannon Entropy (Minimize)', color=color_ent, fontweight='bold')
+        line1 = ax1.plot(grid, entropy_scores, color=color_ent, marker='o', markersize=4, linestyle='-', label='Entropy')
+        ax1.tick_params(axis='y', labelcolor=color_ent)
+        
+        # Mark the winner (Min Entropy)
+        line3 = ax1.axvline(winner, color='r', linestyle='--', alpha=0.8, label=f'Coarse Opt: {winner:.2f}deg')
+        
+        # 2. Gini Trace (Right Axis)
+        ax2 = ax1.twinx() 
+        color_gini = 'tab:green'
+        ax2.set_ylabel('Gini Coefficient (Maximize)', color=color_gini, fontweight='bold')
+        line2 = ax2.plot(grid, gini_scores, color=color_gini, marker='x', markersize=4, linestyle=':', label='Gini')
+        ax2.tick_params(axis='y', labelcolor=color_gini)
+        
+        # Combined Legend
+        lines = line1 + line2 + [line3]
+        labels = [l.get_label() for l in lines]
+        ax1.legend(lines, labels, loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=3)
+        
+        plt.title(f"Optimization Landscape (Q{q_idx+1})", y=1.15)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
 """
 ```
 """

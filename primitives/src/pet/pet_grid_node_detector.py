@@ -131,8 +131,8 @@ if __name__ == "__main__":
     cleaned_nodes = reject_outliers(nodes_rotated, bbox, labels)
 
     grid_opt = GridOptimizer(cleaned_nodes, bw=4)
-    angle_q1, entropy_q1, gini_q1 = grid_opt.optimize_quartile(0, initial_angle=angle, search_width=10, debug=True)
-    angle_q4, entropy_q4, gini_q4 = grid_opt.optimize_quartile(3, initial_angle=angle, search_width=10, debug=True)
+    angle_q1, entropy_q1, gini_q1 = grid_opt.optimize_quartile(0, initial_angle=angle, search_width=20, debug=True)
+    angle_q4, entropy_q4, gini_q4 = grid_opt.optimize_quartile(3, initial_angle=angle, search_width=20, debug=True)
     print(f"Q1 Opt Angle: {angle_q1:.1f} | Entropy: {entropy_q1:.1f} | Gini: {gini_q1:.1f}")
     print(f"Q4 Opt Angle: {angle_q4:.1f} | Entropy: {entropy_q4:.1f} | Gini: {gini_q4:.1f}")
 
