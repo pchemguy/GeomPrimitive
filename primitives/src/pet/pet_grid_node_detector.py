@@ -11,7 +11,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from pet_grid_nodes_bbox import (
-    get_grid_bbox, plot_grid_bbox, diagnose_and_fix_eps, get_histogram_pitch_ex
+    get_grid_bbox, plot_grid_bbox, diagnose_and_fix_eps, get_histogram_pitch_ex,
+    reject_outliers, get_bbox_angle, rotate_points_ccw,
 )
 
 from pet_histxy import plot_interactive_histogram
@@ -117,13 +118,18 @@ if __name__ == "__main__":
     # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
     nodes = find_grid_nodes(source_image, output_dir="output")
 
+    nodes = rotate_points_ccw(nodes, 45)
+
     # eps = diagnose_and_fix_eps(nodes)
     get_histogram_pitch_ex(nodes)
     bbox, _, _, labels = get_grid_bbox(nodes)
+    angle = get_bbox_angle(bbox)
+    print(f"bbox angle: {angle}")
     plot_grid_bbox(nodes, bbox, labels)
+    cleaned_nodes = reject_outliers(nodes, bbox, labels)
     
     #plot_interactive_histogram(nodes)
-    plot_kde_interactive(nodes)
+    plot_kde_interactive(rotate_points_ccw(cleaned_nodes, angle))
 
     print(f"Done. Found {len(nodes)} intersections.")
     print("Check 'output/' for visualization.")

@@ -6,7 +6,7 @@ pet_grid_nodes_bbox.py
 
 __all__ = [
     "get_grid_pitch", "get_grid_bbox", "plot_grid_bbox", "diagnose_and_fix_eps",
-    "get_histogram_pitch_ex",
+    "get_histogram_pitch_ex", "reject_outliers", "get_bbox_angle", "rotate_points_ccw",
 ]
 
 
@@ -361,6 +361,158 @@ def get_grid_bbox(points, eps=None, margin_ratio=0.25):
     box_final = box_rot @ R_inv.T
     
     return box_final, clean_points, noise_points, labels
+
+
+def reject_outliers(points, bbox, labels):
+    """
+    Filters points by keeping all cluster points and only checking geometry for noise points.
+    
+    Logic:
+    1. Points with label != -1 (Cluster) -> KEPT automatically.
+    2. Points with label == -1 (Noise)   -> CHECKED against bbox.
+       - If inside bbox -> KEPT (Rescued).
+       - If outside bbox -> DROPPED.
+
+    Args:
+        points: (N, 2) numpy array of x,y coordinates
+        bbox: (4, 2) numpy array of the OBB corners
+        labels: (N,) array from DBSCAN. REQUIRED.
+        
+    Returns:
+        clean_points: (M, 2) numpy array of valid points.
+    """
+    if len(points) == 0:
+        return np.array([])
+    
+    if labels is None:
+        # Fallback if labels are missing: Check everything
+        # (Though per your request, labels should be provided)
+        final_mask = np.zeros(len(points), dtype=bool)
+        noise_indices = np.arange(len(points))
+    else:
+        # 1. Initialize mask with cluster points (Keep by default)
+        final_mask = (labels != -1)
+        # 2. Identify Noise Points to Check
+        noise_indices = np.where(labels == -1)[0]
+    
+    if len(noise_indices) == 0:
+        print("Outlier Rejection: 0 points dropped (0 labeled as noise).")
+        # No noise to check, return all points
+        return points
+
+    # --- GEOMETRIC CHECK (ONLY ON NOISE POINTS) ---
+    noise_points_to_check = points[noise_indices]
+
+    # Corner 0 is usually Bottom-Left
+    p0 = bbox[0]
+    p1 = bbox[1]
+    p3 = bbox[3]
+    
+    u = p1 - p0
+    v = p3 - p0
+    
+    u_len_sq = np.dot(u, u)
+    v_len_sq = np.dot(v, v)
+    
+    # Vector from p0 to noise points only
+    w = noise_points_to_check - p0
+    
+    # Projection: Dot product
+    proj_u = np.dot(w, u)
+    proj_v = np.dot(w, v)
+    
+    # Check bounds
+    in_u = (proj_u >= 0) & (proj_u <= u_len_sq)
+    in_v = (proj_v >= 0) & (proj_v <= v_len_sq)
+    
+    is_inside_mask = in_u & in_v
+    
+    # Stats
+    n_rescued = np.sum(is_inside_mask)
+    n_dropped = len(noise_indices) - n_rescued
+    print(f"Outlier Rejection: {n_dropped} points dropped (from {len(noise_indices)} noise candidates). {n_rescued} rescued.")
+    
+    # 3. Update the final mask
+    # Rescued points are noise indices that tested True
+    final_mask[noise_indices] = is_inside_mask
+    
+    final_points = points[final_mask]
+    
+    return final_points
+
+
+def get_bbox_angle(bbox):
+    """
+    Calculates the smallest magnitude signed angle (in degrees) required to 
+    align the bounding box with the coordinate axes via CCW rotation.
+
+    Args:
+        bbox: (4, 2) numpy array of bounding box corners.
+
+    Returns:
+        angle: Float. The rotation angle in degrees, range [-45, 45].
+               Positive means rotate CCW, Negative means rotate CW.
+    """
+    # 1. Get the vector of the first edge
+    # (It doesn't matter which edge we pick because of the mod 90 logic)
+    p0 = bbox[0]
+    p1 = bbox[1]
+    
+    dx = p1[0] - p0[0]
+    dy = p1[1] - p0[1]
+    
+    # 2. Calculate the current angle of this edge relative to the X-axis
+    current_angle = np.degrees(np.arctan2(dy, dx))
+    
+    # 3. Calculate the rotation needed to bring it to 0 (or 90, 180, etc.)
+    # We want (current_angle + rotation) to be a multiple of 90.
+    # Therefore: rotation = -current_angle (mod 90)
+    rotation_needed = -current_angle % 90
+    
+    # 4. Normalize to [-45, 45] range for "smallest magnitude"
+    # If the rotation is > 45 (e.g., 89), it's cheaper to rotate -1 (89-90)
+    if rotation_needed > 45:
+        rotation_needed -= 90
+        
+    return rotation_needed
+
+
+def rotate_points_ccw(points, alpha=0):
+    """
+    Rotates 2D points counter-clockwise by a given angle around the 
+    center of their axis-aligned bounding box.
+
+    Args:
+        points: (N, 2) numpy array of x,y coordinates.
+        alpha: Rotation angle in degrees (CCW).
+
+    Returns:
+        rotated_points: (N, 2) numpy array of rotated coordinates.
+    """
+    if alpha == 0:
+        return points.copy()
+    
+    # Calculate center of the AABB
+    min_xy = np.min(points, axis=0)
+    max_xy = np.max(points, axis=0)
+    center_coords = (min_xy + max_xy) / 2.0
+
+    # Convert to radians
+    theta = np.radians(alpha)
+    c, s = np.cos(theta), np.sin(theta)
+    
+    # Rotation matrix R for column vectors [[x], [y]] is [[c, -s], [s, c]]
+    # For row vectors [[x, y]], we use points @ R.T
+    R = np.array(((c, -s), (s, c)))
+    
+    # 1. Translate to origin (relative to center)
+    points_centered = points - center_coords
+    
+    # 2. Apply rotation
+    points_rotated = points_centered @ R.T
+    
+    # 3. Translate back
+    return points_rotated + center_coords
 
 
 # --- USE THIS IN YOUR PIPELINE ---
