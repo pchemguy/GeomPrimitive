@@ -15,17 +15,47 @@ from scipy.stats import norm
 
 def plot_kde_interactive(data, bw=1):
     """
-    Creates an interactive plot with Scatter (Left) and KDE (Right).
-    Allows rotation of the dataset to see marginal density changes.    
-    Splits data into 4 quartiles and calculates stats for each.
-    Includes a Radio Selector to zoom into specific quartiles.
+    Creates an interactive visualization tool for analyzing 2D point cloud density distributions 
+    under rotation.
 
-    Parameters:
-    -----------
+    The tool displays two linked plots:
+    1.  **Scatter Plot (Left):** Shows the 2D point cloud. It rotates based on user input 
+        to simulate projecting the data onto the X-axis from different angles.
+    2.  **KDE Plot (Right):** Shows the Kernel Density Estimation of the projected 
+        X-coordinates. This represents the marginal density along the current X-axis.
+
+    Key Features
+    ------------
+    -   **Quartile Analysis:** The projected data is automatically split into 4 equal-count 
+        quartiles (Q1, Q2, Q3, Q4) based on their X-position.
+    -   **Statistical Summary:** A dedicated header panel displays scaled metrics for each group:
+        -   *Std Den:* Standard deviation of the density values (measure of variation/contrast).
+        -   *Avg PkDen:* Average density of the top 10% of points in that group (measure of peak concentration).
+        -   *Max PkDen:* Maximum density value observed in the group.
+    -   **Interactive Controls:**
+        -   **Rotation Sliders:** Coarse (-100deg to 100deg) and Fine (-1.0deg to 1.0deg) controls.
+        -   **Spinner Buttons:** Vertical arrows (>/<) for precise stepping (1.0deg coarse, 0.05deg fine).
+            The Fine control implements "odometer" logic: crossing +/- 1.0 transfers 
+            integer degrees to the Coarse control.
+        -   **Bandwidth Slider:** Adjusts the sigma (smoothing) of the Gaussian KDE.
+        -   **View Selector:** Radio buttons to zoom the KDE view into specific sections 
+            (FULL, Halves H1/H2, or Quartiles Q1-Q4).
+
+    Parameters
+    ----------
     data : numpy.ndarray
-        Nx2 Array of data points (x, y).
-    bw : float
-        Initial bandwidth (sigma).
+        An (N, 2) array of Cartesian coordinates representing the point cloud.
+        Must contain at least 4 points.
+    bw : float, optional
+        The initial bandwidth (sigma) for the Gaussian Kernel Density Estimation.
+        Default is 1.
+        The interactive slider range is automatically scaled based on the dataset size, 
+        capped at 1% of the point count.
+
+    Returns
+    -------
+    None
+        The function displays a Matplotlib figure and blocks execution until closed.
     """
     if data.ndim != 2 or data.shape[1] < 2:
         raise ValueError("Data must be Nx2 for scatter plot rotation.")
@@ -144,7 +174,7 @@ def plot_kde_interactive(data, bw=1):
 
     # --- Create Widgets ---
     slider_rot = Slider(ax_slider_rot, 'Rotation', -100, 100, valinit=0)
-    slider_rot_fine = Slider(ax_slider_rot_fine, 'Fine Rot', -2.0, 2.0, valinit=0) # +/- 2 deg
+    slider_rot_fine = Slider(ax_slider_rot_fine, 'Fine Rot', -1.0, 1.0, valinit=0) # Range -1 to 1
     
     # Vertical Spinner Buttons (Text Based)
     btn_rot_inc = Button(ax_rot_inc, '>', hovercolor='0.9')
@@ -173,9 +203,33 @@ def plot_kde_interactive(data, bw=1):
         slider_rot.set_val(slider_rot.val - 1.0)
         
     def inc_fine(event):
-        slider_rot_fine.set_val(slider_rot_fine.val + 0.05)
+        # Step is 0.05
+        new_val = slider_rot_fine.val + 0.05
+        
+        # Logic: Transfer to coarse ONLY if strictly > 1.0
+        # We use a small epsilon for float comparison safety
+        if new_val > 1.0 + 1e-9:
+            # Transfer 1.0 deg to coarse
+            slider_rot.set_val(slider_rot.val + 1.0)
+            # Wrap fine value (preserve the remainder)
+            slider_rot_fine.set_val(new_val - 1.0)
+        else:
+            # Just increment fine (it will be clamped by slider if > 1.0 but <= 1.0+step)
+            # Matplotlib slider set_val clamps to valmax/valmin automatically
+            slider_rot_fine.set_val(new_val)
+
     def dec_fine(event):
-        slider_rot_fine.set_val(slider_rot_fine.val - 0.05)
+        # Step is 0.05
+        new_val = slider_rot_fine.val - 0.05
+        
+        # Logic: Transfer to coarse ONLY if strictly < -1.0
+        if new_val < -1.0 - 1e-9:
+            # Transfer -1.0 deg to coarse
+            slider_rot.set_val(slider_rot.val - 1.0)
+            # Wrap fine value
+            slider_rot_fine.set_val(new_val + 1.0)
+        else:
+            slider_rot_fine.set_val(new_val)
 
     btn_rot_inc.on_clicked(inc_rot)
     btn_rot_dec.on_clicked(dec_rot)
@@ -204,6 +258,9 @@ def plot_kde_interactive(data, bw=1):
 
     # 7. Update Function
     def update(val):
+        # Note: Automatic overflow handling removed from here.
+        # Overflow is now strictly handled by Spinner Buttons.
+        
         sigma = slider_bw.val
         # Combine Coarse and Fine rotation
         angle = slider_rot.val + slider_rot_fine.val

@@ -129,7 +129,9 @@ if __name__ == "__main__":
     cleaned_nodes = reject_outliers(nodes, bbox, labels)
     
     #plot_interactive_histogram(nodes)
-    plot_kde_interactive(rotate_points_ccw(cleaned_nodes, angle))
+    # Important: set KDE bandwidth to 5%-10% of estimated
+    #            pitch (2nd, 3rd neighbor distance, 90th percentile)
+    plot_kde_interactive(rotate_points_ccw(cleaned_nodes, angle), bw=2)
 
     print(f"Done. Found {len(nodes)} intersections.")
     print("Check 'output/' for visualization.")
