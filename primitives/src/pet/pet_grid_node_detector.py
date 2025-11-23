@@ -17,6 +17,7 @@ from pet_grid_nodes_bbox import (
 
 from pet_histxy import plot_interactive_histogram
 from pet_kde_interactive import plot_kde_interactive
+from pet_grid_optimizer import GridOptimizer
 
 
 def find_grid_nodes(source_img, output_dir="output"):
@@ -118,22 +119,29 @@ if __name__ == "__main__":
     # This will generate 'debug_nodes_detected.jpg' and 'debug_nodes_mask.jpg' in output/
     nodes = find_grid_nodes(source_image, output_dir="output")
 
-    nodes = rotate_points_ccw(nodes, 45)
-
     # eps = diagnose_and_fix_eps(nodes)
-    get_histogram_pitch_ex(nodes)
-    bbox, _, _, labels = get_grid_bbox(nodes)
+
+    nodes_rotated = rotate_points_ccw(nodes, 45)
+    get_histogram_pitch_ex(nodes_rotated)
+    bbox, _, _, labels = get_grid_bbox(nodes_rotated)
     angle = get_bbox_angle(bbox)
     print(f"bbox angle: {angle}")
-    plot_grid_bbox(nodes, bbox, labels)
-    cleaned_nodes = reject_outliers(nodes, bbox, labels)
-    
+    plot_grid_bbox(nodes_rotated, bbox, labels)
+
+    cleaned_nodes = reject_outliers(nodes_rotated, bbox, labels)
+
+    grid_opt = GridOptimizer(cleaned_nodes, bw=4)
+    angle_q1, score_q1 = grid_opt.optimize_quartile(0, initial_angle=angle, search_width=10, debug=True)
+    angle_q4, score_q4 = grid_opt.optimize_quartile(3, initial_angle=angle, search_width=10, debug=True)
+    print(f"Q1 Opt Angle: {angle_q1:.1f} | Q4 Opt Angle: {angle_q4:.1f}")
+
+
     #plot_interactive_histogram(nodes)
     # Important: set KDE bandwidth to 5%-10% of estimated
     #            pitch (2nd, 3rd neighbor distance, 90th percentile)
-    plot_kde_interactive(rotate_points_ccw(cleaned_nodes, angle), bw=2)
+    plot_kde_interactive(cleaned_nodes, bw=2)
 
-    print(f"Done. Found {len(nodes)} intersections.")
+    print(f"Done. Found {len(nodes_rotated)} intersections.")
     print("Check 'output/' for visualization.")
 
 """
