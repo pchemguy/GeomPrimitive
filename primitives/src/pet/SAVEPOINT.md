@@ -67,5 +67,9 @@ Current workflow
 1. Runs `LSD`, returning a set of segment candidates ((x, y) array) and an array of associated segment width. 
 2. Splitting raw segment array into major/minor sub-grids and XY.
     1. **Major and Minor Grids**
-       Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
+       Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids, as minor sub-grids are thinner resulting in a substantially more sparse and irregularly appearing pattern. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
+       
+       **Width Distribution Analysis**
+       Separating major/minor sub-grid segments is most naturally accomplished via statistical analysis of segment data. While minor segments due to potentially less reliable detection might be statistically shorter, a more direct approach is analysis of width (line thickness) metadata returned by LSD. Because major grids are conventionally thicker, sufficiently discernable grids with limited distortions should yield bimodal line thickness distribution (assuming grid segments dominate the returned) with two dominant peaks (major being about 1.5x to 3x thicker than minor)
+    1. 
 3. Initial attempts ignored the width data.
