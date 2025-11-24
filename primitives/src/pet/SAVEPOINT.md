@@ -50,3 +50,12 @@ I have not carefully evaluated this feature, but it is a good candidate for inte
 ##### Fiji ImageJ - Normalize Local Contrast
 
 Preprocessing presently used: Fiji ImageJ ([https://fiji.sc](https://fiji.sc/)) -> Plugins -> Integral Image Filters -> Normalize Local Contrast 40x40x5.00 / center / stretch.
+
+## Grid Detection
+
+Presently, the project explores two independent and complementing approaches to grid detection:
+- Grid segment detection
+- Grid node detection
+
+### Segment Detection
+
