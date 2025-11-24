@@ -68,7 +68,7 @@ Presently, segment detection is based on OpenCV `cv2.createLineSegmentDetector` 
 OpenCV `cv2.createLineSegmentDetector` (`LSD`) returns a set of segment candidates ((x, y) array) and an array of associated segment width.  
 
 ![](./screenshots/Raw-LSD-distribution.png)
-**Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as gridlines detection may very well yield long segments and generally broad length distribution depending on image quality and grid distortion.
+**Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as gridlines detection may very well yield long segments and generally broad length distribution depending on image quality and grid size and distortions.
 
 
 
