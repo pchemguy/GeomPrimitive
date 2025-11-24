@@ -271,8 +271,79 @@ def get_grid_pitch(points):
 
 def get_grid_bbox(points, eps=None, margin_ratio=0.25):
     """
-    Automatically detects grid orientation and bounding box, 
-    filtering outliers without manual parameter tuning.
+    Estimate the oriented bounding box (OBB) of a grid-like point set.
+
+    This routine is designed for analysis of approximately square/rectangular
+    lattices (e.g., millimeter-grid intersections extracted from lab photos).
+    It performs **automatic outlier removal**, **grid-angle estimation**, and
+    **robust bounding-box construction** with minimal parameter tuning.
+
+    The algorithm proceeds in four main stages:
+
+    1. **Auto-Tune Neighborhood Scale (if `eps` is None)**
+       - Computes the distance to the 2nd nearest neighbor for each point.
+       - Uses the 90th percentile of these distances as an estimate of
+         the grid pitch (typical spacing between nodes).
+       - Sets `eps = 1.5 x pitch` to permit diagonal adjacency and moderate noise.
+
+    2. **Outlier Removal (DBSCAN)**
+       - A DBSCAN clustering is performed with:
+         - `min_samples` = max(3, 0.5% of points)
+         - Auto-tuned or user-supplied `eps`
+       - Only the **largest non-noise cluster** is kept.
+       - Remaining points are split into:
+         - `clean_points` - inliers forming the grid
+         - `noise_points` - discarded outliers
+
+    3. **Grid Orientation Estimation**
+       - Each point's nearest neighbor is used to form local direction vectors.
+       - Vector angles are reduced modulo 90deg, exploiting grid orthogonality.
+       - A histogram mode over [0deg, 90deg) selects the dominant grid alignment
+         (`best_angle`).
+
+    4. **Bounding Box Construction**
+       - Points are rotated to align the grid with the axes.
+       - Robust percentiles (0.5 / 99.5) give tight bounds resilient to edge jitter.
+       - Bounds are expanded by `margin_ratio x grid_pitch`.
+       - The axis-aligned rectangle is rotated back to original orientation,
+         producing an oriented 4-point bounding box.
+
+    Parameters
+    ----------
+    points : np.ndarray of shape (N, 2)
+        Input 2-D point coordinates representing detected grid nodes.
+        Must contain at least 4 points.
+    eps : float, optional
+        DBSCAN radius. If None, automatically estimated from neighbor distances.
+    margin_ratio : float, default 0.25
+        Amount of padding applied to each side of the box, relative to the
+        estimated grid pitch.
+
+    Returns
+    -------
+    box_final : np.ndarray of shape (4, 2)
+        The oriented bounding box as four vertices in original coordinate space.
+        Order: [bottom-left, bottom-right, top-right, top-left].
+    clean_points : np.ndarray of shape (M, 2)
+        Inlier points belonging to the dominant grid cluster.
+    noise_points : np.ndarray of shape (K, 2)
+        Points rejected as outliers by DBSCAN.
+    labels : np.ndarray of shape (N,)
+        DBSCAN labels for all input points. Noise is labeled as -1.
+
+    Notes
+    -----
+    - This function is robust to moderate perspective rotation, jitter, and
+      outliers typical for grid-extraction workflows.
+    - If all points are labeled as noise, the function returns
+      `(None, None, None)` and prints a diagnostic message.
+    - The result is a **tight, orientation-correct bounding box** suitable for
+      cropping, rectification, or further geometric analysis.
+
+    Examples
+    --------
+    >>> box, clean, noise, labels = get_grid_bbox(points)
+    >>> cv2.polylines(img, [box.reshape(-1, 1, 2).astype(int)], True, (0, 255, 0), 2)
     """
     N = len(points)
     if N < 4: return None # Not enough data
@@ -282,7 +353,7 @@ def get_grid_bbox(points, eps=None, margin_ratio=0.25):
     min_samples = max(3, int(0.005 * N))
 
     if eps is None:
-        # ROBUST FIX: Use 90th percentile instead of median
+        # ROBUST 
         nbrs = NearestNeighbors(n_neighbors=3).fit(points)
         distances, _ = nbrs.kneighbors(points)
         # Distance to the 2nd closest neighbor (index 2, since 0 is self)

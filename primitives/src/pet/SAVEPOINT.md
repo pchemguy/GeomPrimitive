@@ -193,15 +193,13 @@ FAMILY 2
 ====================================================================
 ```
 
+### 3.3 Segment Centers
 
+Once major segments are isolated and X/Y families split:
 
-
-
-
-
-##### Segment Centers
-
-Once segments are split into major/minor and X/Y, the major X/Y families are replaced with segment centers, which are more reliable than segments themselves.
+- Replace each segment with its center point (more stable than endpoints)
+- Rotate dataset using estimated orientation for normalization
+- Use as primary input for gridline statistical analysis
 
 ![](./screenshots/raw-lsd-segments-centers.png)
 **Figure. Raw LSD Segment Centers**
@@ -209,12 +207,29 @@ Once segments are split into major/minor and X/Y, the major X/Y families are rep
 ![](./screenshots/major-vertical-centers.png )
 **Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation** (Note, this set has also been rotated using angle obtained from angle distribution analysis)
 
-### Node Detection
 
-The node detector routine implemented in `pet_grid_node_detector.py` relies on Sobel operator for detecting grid line families following by intersection analysis. The routine yielded reasonable results on the tested image (for now just one), but it presently hardcodes one manually set parameter `k_len`, which is usually set around 40-70% (according to ChatGPT) of the expected pitch value. This limitation needs to be fixed, of course, replacing the hardcoded number with automatic algorithms. See preliminary [notes](./GRID_NODES_DETECTION.md) on potential strategies for automatic selection.
+## 4. Node Detection
+
+Node detection (`pet_grid_node_detector.py`) uses:
+1. Sobel operator to extract gridline families
+2. Intersection analysis to find candidate intersection nodes
+
+Current limitation: a manually tuned parameter `k_len` (~40–70% of expected spacing).
+
+Hardcoded value must be replaced with fully automatic selection, likely via:
+- multi-scale Sobel response statistics,
+- adaptive thresholding,
+- hierarchical pitch scanning.
+
+See [notes](./GRID_NODES_DETECTION.md).
 
 ![](./screenshots/grid-node-detection.png)
 **Figure. Grid Node Detection** (Note, the shown image also include identified grid-aligned bounding box.)
+
+
+## 5. Grid-Aligned Bounding Box
+
+The experimental implementation (`pet_grid_auto_crop.py`) detects approximate grid-aligned bounding boxes using gradient-density heuristics and is not yet integrated into the main pipeline.
 
 ### Grid Bounding Box
 
