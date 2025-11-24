@@ -160,6 +160,8 @@ def main(image_path: Optional[str] = None) -> None:
     # ---------------------------
     raw = detect_grid_segments(img)
     raw_lines = raw["lines"]
+    raw_centers = raw["centers"]
+    xy_scatter_from_centers(raw_centers, title="Raw LSD Segments Centers", size_scale=6)
 
     # Histogram of detected LSD segments: width, precision, and NFA
     # Note, if opencv-contrib version with extras included in the build 

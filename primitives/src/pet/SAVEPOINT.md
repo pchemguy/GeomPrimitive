@@ -68,17 +68,84 @@ Presently, segment detection is based on OpenCV `cv2.createLineSegmentDetector` 
 OpenCV `cv2.createLineSegmentDetector` (`LSD`) returns a set of segment candidates ((x, y) array) and an array of associated segment width.  
 
 ![](./screenshots/Raw-LSD-distribution.png)
-**Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as gridlines detection may very well yield long segments and generally broad length distribution depending on image quality and grid size and distortions.
+**Figure. Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as gridlines detection may very well yield long segments and generally broad length distribution depending on image quality and grid size and distortions.
+
+#### Splitting LSD Segments into Major/Minor and X/Y
+
+##### Major and Minor Grids 
+
+Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids, as minor sub-grids are thinner resulting in a substantially more sparse and irregularly appearing pattern. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
+
+##### Width Distribution Analysis
+
+Separating major/minor sub-grid segments is most naturally accomplished via statistical analysis of segment data. While minor segments due to potentially less reliable detection might be statistically shorter, a more direct approach is analysis of width (line thickness) metadata returned by LSD. Because major grids are conventionally thicker, sufficiently discernable grids with limited distortions should yield bimodal line thickness distribution (assuming grid segments dominate the returned data with moderate amount of noise) with two dominant peaks (major being about 1.5x to 3x thicker than minor). Core functionality related to width distribution analysis is placed in `pet_lsd_width_analysis.py`
+
+![](./screenshots/Width-Distribution-Analysis.png)
+**Figure. Sample LSD Metadata Width (Line Thickness) Distribution Analysis**
+
+![](./screenshots/Width-Splitting.png)
+**Figure. Sample LSD Metadata Width (Line Thickness) Distribution Separation**
+
+##### Gridlines Orientation Analysis
+
+For segment data set dominated by grid segments, segment orientation should also exhibit bimodal well-separated distribution with the two peaks roughly separated by 90 degrees (or whatever the apparent grid angle is). The core functionality related to segment orientation distribution analysis is in `pet_geom`.
+
+![](./screenshots/Angle-KDE.png)
+**Figure. Sample LSD Segment Orientation Distribution**
+
+Sample angle orientation analysis report:
+
+```
+====================================================================
+  ANGLE ANALYSIS REPORT
+====================================================================
+Angle range            : [-45.0deg, 135.0deg]
+Total segments         : 1563
+Total weight           : 1.000                                                                                                                                                         
+Detected peaks (deg)
+-------------------
+  Peak 1               : -1.250
+  Peak 2               : 86.500
+  Split angle          : 42.625
+  Rotation (deskew)    : 3.500 deg
+
+FAMILY 1
+--------
+  Count                : 589
+  Total weight         : 0.377
+  Mean angle (deg)     :   -0.292
+  Circular variance    :    0.038
+  Resultant length R   :    0.962
+  Kappa (von Mises)    :   13.469
+  KDE bandwidth (deg)  :    5.113
+  Skewness             :   -0.692
+  Kurtosis             :  -21.739
+  Effective N          :    589.0
+
+FAMILY 2
+--------
+  Count                : 974
+  Total weight         : 0.623
+  Mean angle (deg)     :   85.883
+  Circular variance    :    0.019
+  Resultant length R   :    0.981
+  Kappa (von Mises)    :   27.019
+  KDE bandwidth (deg)  :    2.998
+  Skewness             :    7.016
+  Kurtosis             : -5396.895
+  Effective N          :    974.0
+
+====================================================================
+```
+
+##### Segment Centers
+
+Once segments are split into major/minor and X/Y, the major X/Y families are replaced with segment centers, which are more reliable than segments themselves.
+
+![](./screenshots/raw-lsd-segments-centers.png)
+**Figure. Raw LSD Segment Centers**
+
+![](./screenshots/major-vertical-centers.png )
+**Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation** (Note, this set has also been rotated using angle obtained from angle distribution analysis)
 
 
-
-
-1. Splitting raw segment array into major/minor sub-grids and XY.
-    - **Major and Minor Grids**  
-        Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids, as minor sub-grids are thinner resulting in a substantially more sparse and irregularly appearing pattern. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
-    - **Width Distribution Analysis**  
-        Separating major/minor sub-grid segments is most naturally accomplished via statistical analysis of segment data. While minor segments due to potentially less reliable detection might be statistically shorter, a more direct approach is analysis of width (line thickness) metadata returned by LSD. Because major grids are conventionally thicker, sufficiently discernable grids with limited distortions should yield bimodal line thickness distribution (assuming grid segments dominate the returned data with moderate amount of noise) with two dominant peaks (major being about 1.5x to 3x thicker than minor). Core functionality related to width distribution analysis is placed in `pet_lsd_width_analysis.py`
-    - **Gridlines Orientation Analysis**  
-        For segment data set dominated by grid segments, segment orientation should also exhibit bimodal well-separated distribution with the two peaks roughly separated by 90 degrees (or whatever the apparent grid angle is). The core functionality related to segment orientation distribution analysis is in `pet_geom`.
-    Once segments are split into major/minor and X/Y, the major X/Y families are replaced with segment centers, which are more reliable than segments themselves.
-2. Initial attempts ignored the width data.
