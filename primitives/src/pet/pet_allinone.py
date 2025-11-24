@@ -310,7 +310,7 @@ def main(image_path: Optional[str] = None) -> None:
     ycenters = famxy2["xfam"]["centers"]
     xy_scatter_from_centers(famxy["xfam"]["centers"], size_scale=6)
     xy_scatter_from_centers(famxy["yfam"]["centers"], size_scale=6)
-    return
+    
     spacing = calculate_multi_slice_spacing(xcenters, True)
     validate_period(xcenters, spacing)
     monte_carlo_grid_spacing(xcenters, num_runs=100, max_slices=10)
@@ -349,11 +349,12 @@ def main(image_path: Optional[str] = None) -> None:
     )
     
     # 3. Generate & Plot Consensus
-    xprocessor.plot_consensus(source_image=source_image)
+    xprocessor.plot_consensus(source_image=source_image, output_dir="output/xaxis")
 
+    # ------------------------------------------------------------------------------------------------------------------
 
     ysolver = GridHierarchicalSolver(ycenters)
-    yresults = ysolver.run_multiscale_analysis(optimize_axis='x', max_global_split=20)
+    yresults = ysolver.run_multiscale_analysis(optimize_axis='y', max_global_split=20)
     save_grid_analysis_frames(yresults, ycenters, output_dir="output/yaxis")
     plot_grid_analysis(yresults, ycenters)
     yprocessor = GridPostProcessor(yresults, ycenters)    
@@ -362,9 +363,7 @@ def main(image_path: Optional[str] = None) -> None:
         layer_failure_tolerance=0.4,  # Reject broken 6x11 layers
         outlier_tolerance=0.25        # Reject periods > 25% off median
     )
-    yprocessor.plot_consensus(source_image=source_image)
-    
-    
+    yprocessor.plot_consensus(source_image=source_image, output_dir="output/yaxis")
     
     # -------------------------------------------------------------------------------------------------------------------
 

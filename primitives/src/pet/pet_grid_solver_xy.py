@@ -194,19 +194,20 @@ class GridPostProcessorXY:
 
 # --- EXAMPLE USAGE ---
 if __name__ == "__main__":
+    pass
     # Assuming you have 'centers_red' (Horizontal lines) and 'centers_blue' (Vertical lines)
     # AND 'source_img' loaded
     
     # 1. Solve
-    xy_solver = GridHierarchicalXYSolver(centers_blue, centers_red)
-    xy_results = xy_solver.run_multiscale_analysis(max_global_split=6)
+    # xy_solver = GridHierarchicalXYSolver(centers_blue, centers_red)
+    # xy_results = xy_solver.run_multiscale_analysis(max_global_split=6)
     
     # 2. Post-Process
-    xy_processor = GridPostProcessorXY(xy_results, centers_blue, centers_red)
-    xy_processor.run_robust_analysis()
+    # xy_processor = GridPostProcessorXY(xy_results, centers_blue, centers_red)
+    # xy_processor.run_robust_analysis()
     
     # 3. Viz
-    xy_processor.plot_xy_dashboard(output_dir="output", source_image=source_img)
+    # xy_processor.plot_xy_dashboard(output_dir="output", source_image=source_img)
 
 
 """
