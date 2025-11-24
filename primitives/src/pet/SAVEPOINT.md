@@ -17,8 +17,9 @@
     - Grid segment detection
     - Grid node detection
 3. Raw grid data preprocessing / cleanup / filtering
-4. Grid data analysis
-5. Downstream tasks
+4. Statistical node data analysis (is the node set's appearance statistically comparable with square grid, [see](./STAT_ANALYSIS.md))
+5. Grid data analysis
+6. Downstream tasks
 
 ## Preprocessing
 
@@ -158,6 +159,9 @@ Once segments are split into major/minor and X/Y, the major X/Y families are rep
 
 The node detector routine implemented in `pet_grid_node_detector.py` relies on Sobel operator for detecting grid line families following by intersection analysis. The routine yielded reasonable results on the tested image (for now just one), but it presently hardcodes one manually set parameter `k_len`, which is usually set around 40-70% (according to ChatGPT) of the expected pitch value. This limitation needs to be fixed, of course, replacing the hardcoded number with automatic algorithms. See preliminary [notes](./GRID_NODES_DETECTION.md) on potential strategies for automatic selection.
 
+![](./screenshots/grid-node-detection.png)
+**Figure. Grid Node Detection** (Note, the shown image also include identified grid-aligned bounding box.)
+
 ### Grid Bounding Box
 
 A separate module implements experimental process for grid bounding box detection `pet_grid_auto_crop.py`. Presently, functionality is not integrated into main processing pipelines.
@@ -176,3 +180,25 @@ pet_grid_solver_xy.py
 ```
 
 I am not going into further details here, as I consider an alternative approach much more promising.
+
+### High-Level Statistical Analysis - Not Implemented
+
+Presently not implemented at all, asking whether the obtained node set is [statistically consistent](./STAT_ANALYSIS.md) with square grids (possibly distorted), makes sense for an ML-free analysis workflow.
+
+### Statistical Grid Pitch Estimation
+
+> [!NOTE]
+ >
+ >Note, this approach was suggested by AI, and further research is necessary to verify it, as this part is beyond my expertise / general knowledge.
+
+There is apparently a robust approach to estimating grid pitch via statistical analysis of distance distributions to nearest neighbors. A few variants have been implemented in `pet_grid_optimizer.py and `pet_grid_nodes_bbox.py`. See code for further details.
+
+### Bounding Box Detection
+
+With estimated pitch, there is also apparently a robust algorithm for detecting grid-aligned bounding box (see `pet_grid_nodes_bbox.py`).
+
+### KDE-Based Marginal Density Representation
+
+A sufficiently dense grid cloud node should have discernable grid patterns as illustrated in images above. The question is how to efficiently transform a set of node coordinates into a representation that could be used for automatic identification of these patterns without ML. A promising approach involves the following arrangement.
+
+The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is build, 
