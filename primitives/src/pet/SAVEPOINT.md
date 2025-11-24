@@ -1,4 +1,4 @@
-# Pipeline Sketch and Present Status
+# Pipeline Sketch and Present PET Status
 
 > [!NOTE]
 > 
@@ -226,3 +226,13 @@ In principle, for a full 360 deg turn there are four main resonances correspondi
 
 Note, the distance between the sharp lines at "resonance" is the grid pitch, so we can use a variety of standard signal processing techniques to deduce the pitch. For example, with strong sharp lines, direct peak detection or 1D FFT should both be robust. Importantly both techniques can be applied to the "in-focus" portion of the spectrum only. We could also split the spectrum in several regions and apply process each at optimal angle. There is a clear physical justification for this approach, enabling us reject nosier regions of the grid before applying signal processing with solid physical justification for this approach. The important part, however, is selecting a robust numerical property sensitive to such a resonance, which could be used for automatic angle tuning.
 ### Automatic Tuning
+
+There are a number of potentially suitable quantities that could be used for for present purpose, such as standard deviation / variance of KDE (contrast), which is maximized by sharp tall lines at resonance. Similarly, Shannon entropy is minimized, and Gini coefficient is maximized. Other possible candidates include signal-to-noise ratio or peak-valley difference. Importantly, all these quantities can be applied to a section of the spectrum (subset of data). For example, we can split the full region into four quartiles and treat them independently, enabling achieving optimal "local" focus, or even profiling distortion by performing angle sweep between values that focus right part and left part and tracking the focus point.
+
+![](./screenshots/entropy-gini-sweep.png)
+**Figure. Entropy ang Gini Sweep Plots.** The four panels show how Shannon entropy and the Gini coefficient change for each of the four quartiles as the node cloud performs a full turn.
+
+![](./screenshots/entropy-stddev-sweep.png)
+
+ **Figure. Entropy ang Gini Sweep Plots.** Same as above, except the Gini coefficient is replaced with standard deviation of KDE signal.
+  

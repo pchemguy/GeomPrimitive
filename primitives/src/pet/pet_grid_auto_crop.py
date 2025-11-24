@@ -132,8 +132,8 @@ def detect_grid_area_density(source_image, output_dir="output"):
     >>> x1, y1, x2, y2 = detect_grid_area_density(img)
     >>> crop = img[y1:y2, x1:x2]
     >>> cv2.imshow("Grid Area", crop)
-
-    """    if source_image is None: raise ValueError("Source image is None.")
+    """    
+    if source_image is None: raise ValueError("Source image is None.")
     if not os.path.exists(output_dir): os.makedirs(output_dir)
 
     h_img, w_img = source_image.shape[:2]
