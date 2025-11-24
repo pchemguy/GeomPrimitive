@@ -1,3 +1,5 @@
+REF: https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942
+
 # ⭐ **CLAHE in OpenCV**
 
 `clahe = cv2.createCLAHE(clipLimit=3, tileGridSize=(8,8))`
