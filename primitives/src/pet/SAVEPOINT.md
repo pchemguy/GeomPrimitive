@@ -201,4 +201,28 @@ With estimated pitch, there is also apparently a robust algorithm for detecting 
 
 A sufficiently dense grid cloud node should have discernable grid patterns as illustrated in images above. The question is how to efficiently transform a set of node coordinates into a representation that could be used for automatic identification of these patterns without ML. A promising approach involves the following arrangement.
 
-The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is built, which basically represents 1D (integrated over Y-coordinate) point density, and is essentially a 1D spectrum. Now, if the node cloud is rotated about its grid aligned bounding box center, the resulting KDE spectrum will evolve. 
+The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is built, which basically represents 1D (integrated over Y-coordinate) point density, and is essentially a 1D spectrum. Now, if the node cloud is rotated about its grid aligned bounding box center, the resulting KDE spectrum will evolve.
+
+Importantly, when node cloud is not aligned with axes, they project onto X axis relatively homogenously, forming noise-only-like spectrum.
+
+![](./screenshots/KDE-spectrum-aligned-H1-41.png)
+
+**Figure. Real Grid Node Cloud Representations - Misaligned.** Left panel shows a conventional XY scatter plot. A large portion of the grid node is missing due to sample occlusion and plastic-file-related glares. Right panel shows half of the KDE plot. The cloud node is slightly misaligned and the associated KDE spectrum is effectively noise floor.
+
+However, when grid lines become vertical, all nodes on those aligns project very closely (the same point for ideal grids), resulting in sharp peaks and dip valleys:
+
+![](./screenshots/KDE-spectrum-aligned-H1-44.png)
+**Figure. Real Grid Node Cloud Representations - Aligned.** Same visual as above, except the node cloud is turned by 2 deg and is aligned. KDE spectrum demonstrates typical resonant behavior.
+
+This effect in fact has a resonant-like nature, so even moderate grid distortions can often be readily observed
+
+![](./screenshots/KDE-spectrum-aligned-Q1.png)
+**Figure. Real Grid Node Cloud Representations - Aligned - Full.** Same visual as above, except showing the full KDE spectrum on the right. While the left part of the spectrum (and left part of the node cloud) is "in focus", the left part is not.
+
+![](./screenshots/KDE-spectrum-aligned-Q4.png)
+**Figure. Real Grid Node Cloud Representations - Aligned - Q4.** Same visual as above, except the cloud is rotated by 2 deg, and the picture is opposite, with right part being in focus and left being out of focus. Note, because line intensity is directly proportional to the number of contributing points and the right part of the cloud misses considerably more points, their intensities are correspondingly weaker. But the lines are still quite sharper.
+
+In principle, for a full 360 deg turn there are four main resonances corresponding to each grid side facing down, though the states 180 deg apart are essentially the same. For a grid with relatively few missing nodes and small distortions, there will be a number of intermediate weaker resonance corresponding alignment of nodes from different lines. The strongest of them should correspond to half a turn (45 deg for a square grid, when diagonal peak become aligned). However, diagonal alignment should be more affected by grid node grid defects. Moreover, if the present cloud is turned by 90 deg, almost all projects become severely affected by the large central defect.
+
+Note, the distance between the sharp lines at "resonance" is the grid pitch, so we can use a variety of standard signal processing techniques to deduce the pitch. For example, with strong sharp lines, direct peak detection or 1D FFT should both be robust. Importantly both techniques can be applied to the "in-focus" portion of the spectrum only. We could also split the spectrum in several regions and apply process each at optimal angle. There is a clear physical justification for this approach, enabling us reject nosier regions of the grid before applying signal processing with solid physical justification for this approach. The important part, however, is selecting a robust numerical property sensitive to such a resonance, which could be used for automatic angle tuning.
+### Automatic Tuning
