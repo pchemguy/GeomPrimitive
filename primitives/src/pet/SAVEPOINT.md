@@ -201,4 +201,4 @@ With estimated pitch, there is also apparently a robust algorithm for detecting 
 
 A sufficiently dense grid cloud node should have discernable grid patterns as illustrated in images above. The question is how to efficiently transform a set of node coordinates into a representation that could be used for automatic identification of these patterns without ML. A promising approach involves the following arrangement.
 
-The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is build, 
+The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is built, which basically represents 1D (integrated over Y-coordinate) point density, and is essentially a 1D spectrum. Now, if the node cloud is rotated about its grid aligned bounding box center, the resulting KDE spectrum will evolve. 
