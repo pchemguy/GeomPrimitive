@@ -1,13 +1,13 @@
 """
-pet_kde_peaks.py
-----------------
-Interactive KDE tool with Optimization and Peak Distance Analysis.
+pet_kde_analysis.py
+-------------------
+Interactive KDE tool with Optimization, Peak Detection, and Statistical Analysis.
 
 New Features:
-- Third Panel (Bottom Right): Visualizes the distance between detected peaks.
-  - X-Axis: Position of the peak.
-  - Y-Axis: Distance to the previous (left) neighbor.
-  - Includes text labels for exact distance values.
+1. Distance Statistics: Calculates Avg, RMS, StdDev of peak spacings.
+2. Outlier Rejection: Automatically discards distances > 2 Sigma from the mean.
+3. Reliability Metrics: displaying Peak Height consistency (CV).
+4. Visual Coding: Green stems for valid distances, Gray for outliers.
 """
 
 import numpy as np
@@ -67,7 +67,6 @@ def plot_kde_interactive(data, bw=1):
         if span == 0: span = 1.0 
         pad = span * 0.2
         grid = np.linspace(x_sorted[0] - pad, x_sorted[-1] + pad, 500)
-        
         sigma = max(1e-5, sigma)
         pdfs = norm.pdf(grid[:, None], loc=x_sorted[None, :], scale=sigma)
         y_den = np.sum(pdfs, axis=1) / n
@@ -88,11 +87,6 @@ def plot_kde_interactive(data, bw=1):
 
     # --- GUI Setup ---
     fig = plt.figure(figsize=(16, 10))
-    
-    # NEW LAYOUT: 3 Rows. 
-    # Row 0: Stats Header
-    # Row 1: Scatter (Left), Density (Right Top)
-    # Row 2: Scatter (Left continues), Peaks (Right Bottom)
     gs = GridSpec(3, 2, height_ratios=[0.1, 0.55, 0.35], width_ratios=[1, 1.5], figure=fig)
     plt.subplots_adjust(bottom=0.25, top=0.95, wspace=0.2, hspace=0.25)
 
@@ -104,18 +98,11 @@ def plot_kde_interactive(data, bw=1):
                                bbox=dict(boxstyle='round', facecolor='#f0f0f0', alpha=0.5))
 
     # 2. Main Plots
-    # Scatter spans Row 1 and Row 2 on the left column
     ax_scat = fig.add_subplot(gs[1:, 0])
-    
-    # Density is Row 1, Right Column
     ax_den = fig.add_subplot(gs[1, 1])
-    
-    # Peak Analysis is Row 2, Right Column (Shares X axis with density)
     ax_peaks = fig.add_subplot(gs[2, 1], sharex=ax_den)
 
-    # --- Plot Objects Initialization ---
-    
-    # Scatter
+    # Objects
     scat_plot = ax_scat.scatter([], [], alpha=0.6, edgecolors='w', s=40)
     ax_scat.set_title("Rotated Point Cloud")
     ax_scat.set_xlim(xlim_scat)
@@ -123,30 +110,37 @@ def plot_kde_interactive(data, bw=1):
     ax_scat.grid(True, linestyle='--', alpha=0.4)
     ax_scat.set_aspect('equal', adjustable='box')
 
-    # Density
     line_den, = ax_den.plot([], [], color='k', lw=2, label='Density')
     rug_lines, = ax_den.plot([], [], '|', color='gray', alpha=0.3)
     peak_markers, = ax_den.plot([], [], 'x', color='red', markeredgewidth=2, markersize=8)
     vlines = [ax_den.axvline(x=0, color=c, linestyle='--', alpha=0.8, lw=1.5) for c in Q_COLORS[:-1]]
-    
     ax_den.set_title("Marginal Density (X-Projection)")
     ax_den.set_ylabel("Density")
     ax_den.grid(True, alpha=0.3)
-    # Turn off X labels for density (since Peak plot is below it)
     plt.setp(ax_den.get_xticklabels(), visible=False)
 
-    # Peak Analysis Panel
-    # We use a stem-like visualization manually
-    peak_dist_scat = ax_peaks.scatter([], [], color='red', s=50, zorder=3)
-    peak_dist_lines = ax_peaks.vlines([], [], [], color='red', linestyle='-', alpha=0.6)
-    peak_labels = [] # List to store text objects
+    # Peak Analysis Panel Objects
+    # Two sets of stems: Valid (Green) and Outlier (Gray)
+    # We maintain references to update them efficiently
+    peak_valid_scat = ax_peaks.scatter([], [], color='green', s=50, zorder=3, label='Valid')
+    peak_valid_lines = ax_peaks.vlines([], [], [], color='green', linestyle='-', alpha=0.8)
+    
+    peak_outlier_scat = ax_peaks.scatter([], [], color='gray', marker='x', s=40, zorder=2, label='Outlier')
+    peak_outlier_lines = ax_peaks.vlines([], [], [], color='gray', linestyle='--', alpha=0.5)
 
-    ax_peaks.set_title("Neighbor Distance (Peak[n] - Peak[n-1])")
-    ax_peaks.set_ylabel("Distance")
+    ax_peaks.set_title("Peak Spacing Analysis (Threshold: 2s)")
+    ax_peaks.set_ylabel("Distance to Prev Neighbor")
     ax_peaks.set_xlabel("Projected X Position")
     ax_peaks.grid(True, alpha=0.3)
+    
+    # Floating Text Box for detailed stats
+    peak_stats_box = ax_peaks.text(0.98, 0.95, "", transform=ax_peaks.transAxes, 
+                                   ha='right', va='top', fontsize=9, fontname='monospace',
+                                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.9, edgecolor='gray'))
 
-    # --- Controls Layout (Fixed Coords) ---
+    peak_labels = [] 
+
+    # --- Controls Layout ---
     ax_slider_rot = plt.axes([0.10, 0.10, 0.25, 0.03])
     ax_slider_rot_fine = plt.axes([0.10, 0.06, 0.25, 0.03])
 
@@ -166,10 +160,8 @@ def plot_kde_interactive(data, bw=1):
     ax_opt_radio = plt.axes([0.80, 0.03, 0.06, 0.08])
     ax_opt_btn = plt.axes([0.87, 0.05, 0.08, 0.05])
 
-    # Widgets
     slider_rot = Slider(ax_slider_rot, 'Rot', -100, 100, valinit=0)
     slider_rot_fine = Slider(ax_slider_rot_fine, 'Fine', -1.0, 1.0, valinit=0)
-    
     btn_rot_inc = Button(ax_rot_inc, '>', hovercolor='0.9')
     btn_rot_dec = Button(ax_rot_dec, '<', hovercolor='0.9')
     btn_fine_inc = Button(ax_fine_inc, '>', hovercolor='0.9')
@@ -177,10 +169,8 @@ def plot_kde_interactive(data, bw=1):
     
     sigma_max = max(2, int(np.ceil(n_points * 0.01)))
     slider_bw = Slider(ax_slider_bw, 'Sigma', 1.0, sigma_max, valinit=bw)
-    
     check_opts = CheckButtons(ax_check_opts, ['Color', 'Peaks'], [True, True])
     btn_load = Button(ax_button_load, 'Load', hovercolor='0.9')
-
     radio_opt = RadioButtons(ax_opt_radio, ('Q1', 'Q2', 'Q3', 'Q4'), active=0)
     btn_opt = Button(ax_opt_btn, 'Opt +/-10deg', color='lightblue', hovercolor='skyblue')
 
@@ -199,76 +189,125 @@ def plot_kde_interactive(data, bw=1):
         angle = slider_rot.val + slider_rot_fine.val
         do_color, do_peaks = check_opts.get_status()
 
-        # Data processing
+        # Data
         rotated_data = get_rotated_points(data, angle)
         sort_idx = np.argsort(rotated_data[:, 0])
         data_sorted = rotated_data[sort_idx]
         x_sorted = data_sorted[:, 0]
-        
         grid_new, den_new = compute_kde_and_grid(x_sorted, sigma)
         
-        # Update Density
+        # Plots
         line_den.set_data(grid_new, den_new)
         rug_lines.set_data(x_sorted, np.zeros_like(x_sorted))
-        
-        # Update Scatter
         scat_plot.set_offsets(data_sorted)
         if do_color: scat_plot.set_facecolors(get_quartile_colors(n_points))
         else: scat_plot.set_facecolors('purple')
 
-        # --- Peak Detection & Distance Panel ---
-        # Clear previous text labels
+        # --- ADVANCED PEAK STATS ---
         for txt in peak_labels: txt.remove()
         peak_labels.clear()
 
-        pk_idx = []
+        # Reset plots
+        peak_valid_scat.set_offsets(np.zeros((0, 2)))
+        peak_valid_lines.set_segments([])
+        peak_outlier_scat.set_offsets(np.zeros((0, 2)))
+        peak_outlier_lines.set_segments([])
+        peak_stats_box.set_text("")
+        
         if do_peaks:
-            # Find peaks
-            pk_idx, _ = find_peaks(den_new, height=np.max(den_new)*0.05, distance=10)
+            # 1. Detection
+            pk_idx, properties = find_peaks(den_new, height=np.max(den_new)*0.05, distance=10)
             
-            # Plot markers on Density Graph
+            # Reliability of Heights (Coefficient of Variation)
+            pk_heights = properties['peak_heights']
+            if len(pk_heights) > 0:
+                h_mean = np.mean(pk_heights)
+                h_std = np.std(pk_heights)
+                h_cv = (h_std / h_mean) * 100 if h_mean > 0 else 0
+            else:
+                h_mean, h_cv = 0, 0
+
             peak_markers.set_data(grid_new[pk_idx], den_new[pk_idx])
             peak_markers.set_visible(True)
             
-            # Update Distance Panel
+            # 2. Distance Analysis
             if len(pk_idx) > 1:
-                px = grid_new[pk_idx] # Real X positions of peaks
-                diffs = np.diff(px)   # Distances
+                px = grid_new[pk_idx]
+                diffs = np.diff(px)
+                # Align diffs to the RIGHT peak (x_pos_for_plot)
+                x_pos = px[1:] 
                 
-                # We align dist[0] with px[1] (distance from px[0] to px[1])
-                x_pos_for_plot = px[1:]
+                # 3. Outlier Rejection (2 Sigma)
+                if len(diffs) >= 3:
+                    d_mean_raw = np.mean(diffs)
+                    d_std_raw = np.std(diffs)
+                    # Z-score filter
+                    z_scores = np.abs(diffs - d_mean_raw) / (d_std_raw + 1e-9)
+                    mask_valid = z_scores <= 2.0
+                else:
+                    # Too few points to compute stats reliably, accept all
+                    mask_valid = np.ones(len(diffs), dtype=bool)
+
+                valid_diffs = diffs[mask_valid]
+                valid_x = x_pos[mask_valid]
                 
-                # Update Stem Plot
-                peak_dist_scat.set_offsets(np.column_stack([x_pos_for_plot, diffs]))
+                outlier_diffs = diffs[~mask_valid]
+                outlier_x = x_pos[~mask_valid]
                 
-                # Matplotlib vlines update is tricky, easier to recreate segments
-                # But here we just set segments for speed if count matches
-                segs = [[(x, 0), (x, y)] for x, y in zip(x_pos_for_plot, diffs)]
-                peak_dist_lines.set_segments(segs)
+                # 4. Final Stats Calculation
+                if len(valid_diffs) > 0:
+                    f_mean = np.mean(valid_diffs)
+                    f_std = np.std(valid_diffs)
+                    # Root Mean Square
+                    f_rms = np.sqrt(np.mean(valid_diffs**2))
+                    f_cv = (f_std / f_mean) * 100
+                else:
+                    f_mean = f_std = f_rms = f_cv = 0
+
+                # 5. Plotting Updates
+                # Valid
+                peak_valid_scat.set_offsets(np.column_stack([valid_x, valid_diffs]))
+                segs_v = [[(x, 0), (x, y)] for x, y in zip(valid_x, valid_diffs)]
+                peak_valid_lines.set_segments(segs_v)
                 
-                # Add text labels
-                max_y = np.max(diffs) if len(diffs) > 0 else 1
-                for x, y in zip(x_pos_for_plot, diffs):
-                    t = ax_peaks.text(x, y + (max_y*0.05), f"{y:.1f}", 
-                                      ha='center', va='bottom', fontsize=8, color='red')
+                # Outliers
+                peak_outlier_scat.set_offsets(np.column_stack([outlier_x, outlier_diffs]))
+                segs_o = [[(x, 0), (x, y)] for x, y in zip(outlier_x, outlier_diffs)]
+                peak_outlier_lines.set_segments(segs_o)
+                
+                # Labels (Only for valid)
+                y_limit_ref = np.max(diffs) if len(diffs) > 0 else 1
+                for x, y in zip(valid_x, valid_diffs):
+                    t = ax_peaks.text(x, y + (y_limit_ref*0.02), f"{y:.1f}", 
+                                      ha='center', va='bottom', fontsize=8, color='green')
                     peak_labels.append(t)
+
+                ax_peaks.set_ylim(0, y_limit_ref * 1.3)
                 
-                ax_peaks.set_ylim(0, max_y * 1.2)
+                # 6. Text Box Update
+                stat_str = (
+                    f"PEAK RELIABILITY\n"
+                    f"Count    : {len(pk_idx)}\n"
+                    f"Height CV: {h_cv:.1f}% {'(Good)' if h_cv<20 else '(Noisy)'}\n\n"
+                    f"SPACING STATS (N={len(valid_diffs)})\n"
+                    f"Avg      : {f_mean:.3f}\n"
+                    f"RMS      : {f_rms:.3f}\n"
+                    f"Std Dev  : {f_std:.3f}\n"
+                    f"Outliers : {len(outlier_diffs)}"
+                )
+                peak_stats_box.set_text(stat_str)
+
             else:
-                # Less than 2 peaks, cannot compute distance
-                peak_dist_scat.set_offsets(np.zeros((0, 2)))
-                peak_dist_lines.set_segments([])
                 ax_peaks.set_ylim(0, 1)
+                peak_stats_box.set_text("Insufficient Peaks (<2)")
 
         else:
             peak_markers.set_visible(False)
-            peak_dist_scat.set_offsets(np.zeros((0, 2)))
-            peak_dist_lines.set_segments([])
+            peak_stats_box.set_text("Peak Detection OFF")
 
-        # --- Stats & Boundaries ---
+        # --- Header Stats ---
         q_inds = np.linspace(0, n_points, 5, dtype=int)
         stats_res = []
-
         for i in range(4):
             sub_x = x_sorted[q_inds[i]:q_inds[i+1]]
             if i < 3: 
@@ -287,7 +326,6 @@ def plot_kde_interactive(data, bw=1):
             else: s_std = s_max = s_avg = 0
             stats_res.append((s_std, s_avg, s_max))
 
-        # Text Update
         h_str = "Group    |    Q1 (Blue)   |   Q2 (Green)   |  Q3 (Orange)   |    Q4 (Red)    "
         r1 = "Std Den  | " + " | ".join([f"{s[0]*scale_factor:12.4f}" for s in stats_res])
         r2 = "Avg PkDen| " + " | ".join([f"{s[1]*scale_factor:12.4f}" for s in stats_res])
@@ -302,8 +340,7 @@ def plot_kde_interactive(data, bw=1):
     def run_optimization(event):
         current_angle = slider_rot.val + slider_rot_fine.val
         sigma = slider_bw.val
-        q_label = radio_opt.value_selected
-        q_idx = int(q_label[1]) - 1 
+        q_idx = int(radio_opt.value_selected[1]) - 1 
         
         btn_opt.label.set_text("Busy...")
         fig.canvas.draw()
@@ -313,10 +350,10 @@ def plot_kde_interactive(data, bw=1):
         b_max = min(100, current_angle + 10)
         
         res = minimize_scalar(objective, bounds=(b_min, b_max), method='bounded')
-        best_angle = res.x
         
-        coarse = int(np.round(best_angle))
-        fine = best_angle - coarse
+        best = res.x
+        coarse = int(np.round(best))
+        fine = best - coarse
         if fine > 1.0: coarse += 1; fine -= 1.0
         elif fine < -1.0: coarse -= 1; fine += 1.0
             
@@ -364,12 +401,17 @@ def plot_kde_interactive(data, bw=1):
     plt.show()
 
 def generate_demo_data():
-    # 3 equidistant clusters to show peak distance logic clearly
-    c1 = np.random.normal([20, 50], [2, 10], (100, 2))
-    c2 = np.random.normal([50, 50], [2, 10], (100, 2))
-    c3 = np.random.normal([80, 50], [2, 10], (100, 2))
-    return np.vstack([c1, c2, c3])
+    # Regular lattice structure to demonstrate statistics
+    x = np.linspace(0, 100, 8)
+    y = np.linspace(0, 100, 8)
+    xv, yv = np.meshgrid(x, y)
+    pts = np.column_stack([xv.ravel(), yv.ravel()])
+    # Add noise
+    pts += np.random.normal(0, 2.0, pts.shape)
+    # Add one "Outlier" point far away to test rejection
+    outlier = np.array([[150, 50]]) 
+    return np.vstack([pts, outlier])
 
 if __name__ == "__main__":
     data = generate_demo_data()
-    plot_kde_interactive(data, bw=2)
+    plot_kde_interactive(data, bw=3)
