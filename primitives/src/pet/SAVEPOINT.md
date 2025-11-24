@@ -1,10 +1,12 @@
 # Pipeline Sketch and Present Status
 
-## Workflow
-
 > [!NOTE]
 > 
+> The focus of this project is on exploring pipelines / workflows based on classic computer vision and image and signal processing algorithms not involving machine learning.  
+> 
 > [Preliminary pipeline notes](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)
+
+## Workflow
 
 1. Preprocessing
     - Image enhancement
@@ -39,8 +41,12 @@ Note, if Retinex proves robust, it might be worth implementing (AI-assisted) ass
 
 #### Local Contrast Normalization
 
+This processing is important. It also worth considering subsequent application of Photoshop AUTO- contrast/tone/curves/color/brightness/contrast analogs implemented in Python directly or, where available, library-based solutions. Core features of established algos / features / implementations not readily available in Python can probably be readily implemented via AI-assisted coding.
+
 ##### OpenCV - CLAHE (Contrast Limited Adaptive Histogram Equalization)
 
 I have not carefully evaluated this feature, but it is a good candidate for integration in image enhancement pipeline (see [LCN](./Local Contrast Normalization) and [ref](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)).
 
-Fiji ImageJ - Normalize Local Contrast
+##### Fiji ImageJ - Normalize Local Contrast
+
+Preprocessing presently used: Fiji ImageJ ([https://fiji.sc](https://fiji.sc/)) -> Plugins -> Integral Image Filters -> Normalize Local Contrast 40x40x5.00 / center / stretch.
