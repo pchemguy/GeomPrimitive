@@ -229,17 +229,17 @@ See [notes](./GRID_NODES_DETECTION.md).
 
 ## 5. Grid-Aligned Bounding Box
 
-The experimental implementation (`pet_grid_auto_crop.py`) detects approximate grid-aligned bounding boxes using gradient-density heuristics and is not yet integrated into the main pipeline.
+The experimental implementation (`pet_grid_auto_crop.py`) detects approximate grid-aligned bounding boxes and is not yet integrated into the main pipeline.
 
-### Grid Bounding Box
+## 6. Grid Data Analysis
 
-A separate module implements experimental process for grid bounding box detection `pet_grid_auto_crop.py`. Presently, functionality is not integrated into main processing pipelines.
+Two classes of approaches have been explored:
+1. Black-box solvers ([AI-generated prototypes](https://gemini.google.com/app/1cd765eae3be9bdb))
+2. High-level statistical analysis (more principled and robust)
 
-## Grid Data Analysis
+Additionally, asking whether the obtained node set is [statistically consistent](./STAT_ANALYSIS.md) with square grids (possibly distorted), makes sense for an ML-free analysis workflow (presently not implemented).
 
-### Brute-Force Black Box
-
-Initial promising approach to solving for grid spacing has been implemented essentially as sort of black boxes (that is as [implemented by AI](https://gemini.google.com/app/1cd765eae3be9bdb))
+### 6.1 “Black-Box” Solvers (Initial Prototypes)
 
 ```
 pet_period.py
@@ -248,32 +248,35 @@ pet_grid_postprocessor.py
 pet_grid_solver_xy.py
 ```
 
-I am not going into further details here, as I consider an alternative approach much more promising.
+These are functional but ad hoc, lacking transparency.
 
-### High-Level Statistical Analysis - Not Implemented
-
-Presently not implemented at all, asking whether the obtained node set is [statistically consistent](./STAT_ANALYSIS.md) with square grids (possibly distorted), makes sense for an ML-free analysis workflow.
-
-### Statistical Grid Pitch Estimation
-
-> [!NOTE]
- >
- >Note, this approach was suggested by AI, and further research is necessary to verify it, as this part is beyond my expertise / general knowledge.
+### 6.2 Statistical Grid Pitch Estimation
 
 There is apparently a robust approach to estimating grid pitch via statistical analysis of distance distributions to nearest neighbors. A few variants have been implemented in `pet_grid_optimizer.py and `pet_grid_nodes_bbox.py`. See code for further details.
 
-### Bounding Box Detection
+### 6.3 Bounding Box Detection
 
 With estimated pitch, there is also apparently a robust algorithm for detecting grid-aligned bounding box (see `pet_grid_nodes_bbox.py`).
 
-### KDE-Based Marginal Density Representation
+### 6.4 KDE-Based Marginal Density Representation
 
-A sufficiently dense grid cloud node should have discernable grid patterns as illustrated in images above. The question is how to efficiently transform a set of node coordinates into a representation that could be used for automatic identification of these patterns without ML. A promising approach involves the following arrangement.
+#### Key Idea
 
-The 2D node pattern is projected onto horizontal axis (basically, take all x-coordinates and sort them). Next, a Gaussian-based KDE is built, which basically represents 1D (integrated over Y-coordinate) point density, and is essentially a 1D spectrum. Now, if the node cloud is rotated about its grid aligned bounding box center, the resulting KDE spectrum will evolve.
+Project all grid nodes onto the x-axis.
 
-Importantly, when node cloud is not aligned with axes, they project onto X axis relatively homogenously, forming noise-only-like spectrum.
+Then compute a Gaussian KDE over this 1D distribution.
+- When the grid is misaligned, the projection smears points uniformly - near-flat density (noise floor).
+- When the grid is aligned, nodes from each vertical gridline cluster together - sharp peaks at the pitch frequency.
 
+This produces a resonant signature of alignment.
+
+#### Behavior at Different Angles
+
+As the node cloud is rotated:
+- KDE transitions from flat -> peaked
+- Peaks correspond to true grid pitch
+- Only the "in-focus" regions resonate strongly
+- Opposite quadrants respond 90° apart
 ![](./screenshots/KDE-spectrum-aligned-H1-41.png)
 
 **Figure. Real Grid Node Cloud Representations - Misaligned.** Left panel shows a conventional XY scatter plot. A large portion of the grid node is missing due to sample occlusion and plastic-file-related glares. Right panel shows half of the KDE plot. The cloud node is slightly misaligned and the associated KDE spectrum is effectively noise floor.
@@ -283,6 +286,16 @@ However, when grid lines become vertical, all nodes on those aligns project very
 ![](./screenshots/KDE-spectrum-aligned-H1-44.png)
 **Figure. Real Grid Node Cloud Representations - Aligned.** Same visual as above, except the node cloud is turned by 2 deg and is aligned. KDE spectrum demonstrates typical resonant behavior.
 
+#### Why this works
+
+For an ideal square grid:
+- Rotated ~ homogenized projection -> noise-like
+- Aligned ~ vertical lines project to single x-values -> sharp peaks
+- Peak spacing = true pitch
+- Peak intensity ∝ number of contributing nodes
+
+This appears to be robust with respect to moderate distortion and partial grids.
+
 This effect in fact has a resonant-like nature, so even moderate grid distortions can often be readily observed
 
 ![](./screenshots/KDE-spectrum-aligned-Q1.png)
@@ -291,12 +304,18 @@ This effect in fact has a resonant-like nature, so even moderate grid distortion
 ![](./screenshots/KDE-spectrum-aligned-Q4.png)
 **Figure. Real Grid Node Cloud Representations - Aligned - Q4.** Same visual as above, except the cloud is rotated by 2 deg, and the picture is opposite, with right part being in focus and left being out of focus. Note, because line intensity is directly proportional to the number of contributing points and the right part of the cloud misses considerably more points, their intensities are correspondingly weaker. But the lines are still quite sharper.
 
-In principle, for a full 360 deg turn there are four main resonances corresponding to each grid side facing down, though the states 180 deg apart are essentially the same. For a grid with relatively few missing nodes and small distortions, there will be a number of intermediate weaker resonance corresponding alignment of nodes from different lines. The strongest of them should correspond to half a turn (45 deg for a square grid, when diagonal peak become aligned). However, diagonal alignment should be more affected by grid node grid defects. Moreover, if the present cloud is turned by 90 deg, almost all projects become severely affected by the large central defect.
+## 7. Automatic Angle Tuning (Resonance Maximization)
 
-Note, the distance between the sharp lines at "resonance" is the grid pitch, so we can use a variety of standard signal processing techniques to deduce the pitch. For example, with strong sharp lines, direct peak detection or 1D FFT should both be robust. Importantly both techniques can be applied to the "in-focus" portion of the spectrum only. We could also split the spectrum in several regions and apply process each at optimal angle. There is a clear physical justification for this approach, enabling us reject nosier regions of the grid before applying signal processing with solid physical justification for this approach. The important part, however, is selecting a robust numerical property sensitive to such a resonance, which could be used for automatic angle tuning.
-### Automatic Tuning
+We need a robust scalar quantity that is:
+- maximized or minimized when peaks sharpen
+- stable under missing data
+- applicable to subsections (quartiles) of data
 
-There are a number of potentially suitable quantities that could be used for for present purpose, such as standard deviation / variance of KDE (contrast), which is maximized by sharp tall lines at resonance. Similarly, Shannon entropy is minimized, and Gini coefficient is maximized. Other possible candidates include signal-to-noise ratio or peak-valley difference. Importantly, all these quantities can be applied to a section of the spectrum (subset of data). For example, we can split the full region into four quartiles and treat them independently, enabling achieving optimal "local" focus, or even profiling distortion by performing angle sweep between values that focus right part and left part and tracking the focus point.
+Promising quantities:
+- Standard deviation of KDE (peakedness)
+- Shannon entropy (minimized at resonance)
+- Gini coefficient (maximized at resonance)
+- Peak–valley contrast metrics
 
 ![](./screenshots/entropy-gini-sweep.png)
 **Figure. Entropy ang Gini Sweep Plots.** The four panels show how Shannon entropy and the Gini coefficient change for each of the four quartiles as the node cloud performs a full turn.
@@ -304,4 +323,11 @@ There are a number of potentially suitable quantities that could be used for for
 ![](./screenshots/entropy-stddev-sweep.png)
 
  **Figure. Entropy ang Gini Sweep Plots.** Same as above, except the Gini coefficient is replaced with standard deviation of KDE signal.
-  
+
+Quartile-wise sweeps help:
+- Select the best local resonance angle
+- Characterize distortion (differential between Q1, Q2, Q3, Q4)
+- Automatically filter out unreliable data regions
+
+This provides a physically meaningful angle-tuning strategy.
+
