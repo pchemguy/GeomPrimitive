@@ -54,8 +54,14 @@ Preprocessing presently used: Fiji ImageJ ([https://fiji.sc](https://fiji.sc/)) 
 ## Grid Detection
 
 Presently, the project explores two independent and complementing approaches to grid detection:
-- Grid segment detection
+- Grid segment detection (LSD)
 - Grid node detection
+
+LSD segment detection when combined with width-based (line thickness) distribution analysis for major/minor separation lines separation and angle distribution analysis for independent separation of X/Y lines yielded reasonable data (although X/Y separation may, in fact, be less important). This workflow does not involve any hardcoded manual parameters.
+
+Sobel-based kernel edge detection following by intersection analysis yielded a comparable (LSD + width-based major/minor separation) quality data. However, present implementation involves one hardcoded tunable parameter. This manual parameter needs to be replaced with automatic selection/tuning algos.
+
+Generally, both approaches (together with a fix for the manual parameter) should probably be combined for optimal results.
 
 ### Segment Detection
 
@@ -148,4 +154,9 @@ Once segments are split into major/minor and X/Y, the major X/Y families are rep
 ![](./screenshots/major-vertical-centers.png )
 **Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation** (Note, this set has also been rotated using angle obtained from angle distribution analysis)
 
+### Node Detection
+
+The node detector routine implemented in `pet_grid_node_detector.py` relies on Sobel operator for detecting grid line families following by intersection analysis. The routine yielded reasonable results on the tested image (for now just one), but it presently hardcodes one manually set parameter `k_len`, which is usually set around 40-70% (according to ChatGPT) of the expected pitch value. This limitation needs to be fixed, of course, replacing the hardcoded number with automatic algorithms. See preliminary [notes](./GRID_NODES_DETECTION.md) on potential strategies for automatic selection.
+
+## Grid Data Analysis
 
