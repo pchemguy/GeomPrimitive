@@ -1,5 +1,4 @@
 """
-```
 pet_kde_interactive.py
 ----------------------
 
@@ -8,7 +7,7 @@ https://gemini.google.com/app/97e64fc85d4b0264
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, RadioButtons, Button
+from matplotlib.widgets import Slider, RadioButtons, Button, CheckButtons
 from matplotlib.gridspec import GridSpec
 from scipy.stats import norm
 
@@ -40,6 +39,7 @@ def plot_kde_interactive(data, bw=1):
         -   **Bandwidth Slider:** Adjusts the sigma (smoothing) of the Gaussian KDE.
         -   **View Selector:** Radio buttons to zoom the KDE view into specific sections 
             (FULL, Halves H1/H2, or Quartiles Q1-Q4).
+        -   **Autoscale Checkbox:** Toggles automatic vertical scaling of the KDE plot.
 
     Parameters
     ----------
@@ -169,6 +169,9 @@ def plot_kde_interactive(data, bw=1):
     # Bandwidth Slider (Right side)
     ax_slider_bw = plt.axes([0.65, 0.08, 0.25, 0.03])
     
+    # Autoscale Checkbox (Right side, above BW slider)
+    ax_check = plt.axes([0.65, 0.12, 0.15, 0.05])
+
     # Radio Buttons (Centered, moved to 0.50)
     ax_radio = plt.axes([0.50, 0.02, 0.08, 0.20]) 
 
@@ -193,6 +196,9 @@ def plot_kde_interactive(data, bw=1):
     sigma_max = max(2, int(np.ceil(n_points * 0.01)))
     slider_bw = Slider(ax_slider_bw, 'Sigma', 1.0, sigma_max, valinit=min(max(bw, 1.0), sigma_max))
     
+    # Checkbox for Autoscale
+    check = CheckButtons(ax_check, ['Autoscale KDE'], [True])
+
     # Radio Buttons with H1 and H2
     radio = RadioButtons(ax_radio, ('FULL', 'H1', 'H2', 'Q1', 'Q2', 'Q3', 'Q4'), active=0)
 
@@ -308,9 +314,10 @@ def plot_kde_interactive(data, bw=1):
         stats_text.set_text(f"STATS SUMMARY (Scaled x{scale_factor})\n{header}\n{'-'*56}\n{row_std}\n{row_avg}\n{row_max}")
 
         # F. Handle View Scaling
+        target_ylim = None
         if view_mode == 'FULL':
             ax_den.set_xlim(grid_new[0], grid_new[-1])
-            ax_den.set_ylim(0, np.max(den_new) * 1.1)
+            target_ylim = (0, np.max(den_new) * 1.1)
         else:
             if view_mode == 'H1':
                 s_i, e_i = 0, 2 
@@ -338,7 +345,11 @@ def plot_kde_interactive(data, bw=1):
                     local_max_y = np.max(den_new)
 
                 ax_den.set_xlim(view_min, view_max)
-                ax_den.set_ylim(0, local_max_y * 1.1)
+                target_ylim = (0, local_max_y * 1.1)
+
+        # Apply Autoscale if checked
+        if target_ylim is not None and check.get_status()[0]:
+            ax_den.set_ylim(target_ylim)
 
         fig.canvas.draw_idle()
 
@@ -348,6 +359,7 @@ def plot_kde_interactive(data, bw=1):
     slider_rot.on_changed(update)
     slider_rot_fine.on_changed(update)
     radio.on_clicked(update)
+    check.on_clicked(update)
 
     plt.show()
 
@@ -368,10 +380,6 @@ def main():
 
     plot_kde_interactive(points, bw=5)
 
+
 if __name__ == "__main__":
     main()
-
-
-"""
-```
-"""
