@@ -76,7 +76,17 @@ from pet_grid_solver_xy import GridHierarchicalXYSolver, GridPostProcessorXY
 # MODULE CONSTANTS
 # ======================================================================
 
-SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00_90.jpg"   # relative to script location
+# BUG: -----------------------------------------------------------------
+#      Note there is a bug in the current pipeline most likely related to angle normalization.
+#      If this image version, rotated by 90 deg, is used, the pipeline fails.
+#      With original image it appears to be working.
+#      The core difference is probably due to algorithm primarily focusing initially
+#      on subgrid family ("vertical" vs. "horizontal") with more detected segments.
+#      The orientation is selected as smallest magnitude angle that aligns the dominant
+#      family with either X or Y axis.
+# SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00_90.jpg"
+
+SAMPLE_IMAGE = "photo_2025-11-17_23-50-05_Normalize_Local_Contrast_40x40x5.00.jpg"   # relative to script location
 
 
 # ======================================================================

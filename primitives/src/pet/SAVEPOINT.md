@@ -59,3 +59,13 @@ Presently, the project explores two independent and complementing approaches to 
 
 ### Segment Detection
 
+Current implementation draft is invoked by executing `pet_allinone.py`. This script depends on several other `pet_*` scripts noted below. When executed, the script will show a number of debug Matplotlib chats, as well as saves debug images in the same directory (`debug_*` and `rotated*`).
+
+Presently, segment detection is based on OpenCV `cv2.createLineSegmentDetector` (`LSD`). Note, `Conda` and `pip` OpenCV builds do not include `opencv-contrib` features, meaning only basic LSD implementation is available (no detection refinement modes, only segment width metadata is collected). It appears that `pip` `opencv-contrib` builds are also "crippled", lacking optional more robust `LSD` variants. It might be necessary to build `opencv / opencv-contrib` from source to enable such features.
+
+Current workflow
+1. Runs `LSD`, returning a set of segment candidates ((x, y) array) and an array of associated segment width. 
+2. Splitting raw segment array into major/minor sub-grids and XY.
+    1. **Major and Minor Grids**
+       Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
+3. Initial attempts ignored the width data.
