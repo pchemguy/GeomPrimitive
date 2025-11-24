@@ -1,91 +1,127 @@
 # Pipeline Sketch and Present PET Status
 
-> [!NOTE]
+> [!NOTE]  
 > 
-> The focus of this project is on exploring pipelines / workflows based on classic computer vision and image and signal processing algorithms not involving machine learning.  
-> 
-> [Preliminary pipeline notes](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)
+> The goal of this project is to develop classical (non–machine-learning) workflows for detecting, analyzing, and rectifying millimeter graph paper grids in ordinary laboratory photographs. Solutions must rely exclusively on deterministic computer vision, geometry, and signal-processing methods, with no neural networks.
+>
+> For earlier brainstorming see: [Preliminary Pipeline Notes](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942).
 
-## Workflow
+## 1. High-Level Workflow
 
-1. Preprocessing
+1. **Preprocessing**
     - Image enhancement
-    - Uneven light compensation
-    - Grid-focused local contrast enhancement
-    - Noise management
-2. Grid detection
-    - Grid segment detection
-    - Grid node detection
-3. Raw grid data preprocessing / cleanup / filtering
-4. Statistical node data analysis (is the node set's appearance statistically comparable with square grid, [see](./STAT_ANALYSIS.md))
-5. Grid data analysis
-6. Downstream tasks
+    - Illumination correction
+    - Grid-targeted local contrast normalization
+    - Noise management / denoising
+2. **Grid Detection**
+    - Segment detection (line-based)
+    - Node detection (intersection-based)
+3. **Raw Grid Data Filtering**
+    - Cleanup, outlier removal
+    - Robust centering, rotation, and scale normalization
+4. **Statistical Node Set Validation**
+    - Determine whether node distribution is statistically consistent with a (possibly distorted) square grid
+    - See [notes](./STAT_ANALYSIS.md)
+5. **Grid Data Analysis**
+    - Orientation estimation
+    - Pitch estimation
+    - Grid-aligned bounding box detection
+    - Distortion analysis
+6. **Downstream Tasks**
+    - Metric scale extraction (px/mm)
+    - Distortion correction
+    - Sample length/area measurement
+    - Integration into further computational pipelines
 
-## Preprocessing
+## 2. Preprocessing
 
-### Technical Photo Enhancement
+Preprocessing addresses three major objectives critical for grid extraction:
+- **Illumination normalization** (remove global gradients, vignetting, shadows)
+- **Local contrast enhancement** (extract grid lines even under low SNR)
+- **Noise management** (prevent noise amplification during contrast boosting)
 
-An essential preprocessing objectives:
-- compensating for uneven lighting / gradients / shadows
-- increasing local grid contrast (managing sample contrast is a separate objective)
-- managing noise (noise tends to increase with aggressive local contrast enhancement)
+### 2.1 Illumination Correction
 
-#### Uneven Lighting Compensation
+The preliminary preferred tool is the Retinex family (Multi-Scale [Retinex](https://imagej.net/plugins/retinex), [DI-Retinex](https://arxiv.org/abs/2404.03327), and [Fiji ImageJ Retinex](https://github.com/fiji/Fiji_Plugins/blob/main/src/main/java/Retinex_.java)). Note, [Fiji ImageJ](https://fiji.sc) Retinex is distributed as JAVA source  code which needs to be compiled with JDK for use in Fiji ImageJ; [compilation script and instructions](https://github.com/pchemguy/GeomPrimitive/tree/dev/primitives/src/pet/Fiji%20Retinex) can be obtained from Gemini / ChatGPT.
 
-Suggested candidate tool - [Fiji ImageJ]([https://fiji.sc](https://fiji.sc)) Retinex ([DI-Retinex](https://arxiv.org/abs/2404.03327), [Retinex](https://imagej.net/plugins/retinex), [Fiji ImageJ Retinex](https://github.com/fiji/Fiji_Plugins/blob/main/src/main/java/Retinex_.java) - note: the latter is the source code which needs to be compiled with JDK for use in Fiji ImageJ; [compilation script and instructions](https://github.com/pchemguy/GeomPrimitive/tree/dev/primitives/src/pet/Fiji%20Retinex) can be obtained from Gemini / ChatGPT).
+Other methods also exist (rolling-ball, large-kernel homomorphic filtering, morphological background estimation), but Retinex remains the most robust candidate for technical (non-aesthetic) illumination normalization.
 
-There are other methods / algorithms / implementations designed for compensation of uneven lighting. Keep in mind that the specific downstream task - detection and analysis of millimeter graphs paper grids in non-professional ordinary lab photos with potential downstream automatic distortion compensation and/or sample area analysis with grid acting as internal scaling. For this reason, it is important to consider approaches to compensation of uneven lighting aimed for
-- generic photography
-- technical specialized application, where photo aesthetic quality is usually irrelevant for downstream processing tasks
+Because grid detection is the primary downstream target, we must prioritize methods designed for:
+- Scientific / technical imaging,
+- Robustness to uneven lighting,
+- Preservation of structural detail,
+- Tolerance to glare and partial occlusions.
 
-Note, if Retinex proves robust, it might be worth implementing (AI-assisted) associated algos in Python.
+If Retinex proves sufficiently robust, implementing a Python-native version may be worthwhile.
 
-#### Local Contrast Normalization
+### 2.2 Local Contrast Normalization (LCN)
 
-This processing is important. It also worth considering subsequent application of Photoshop AUTO- contrast/tone/curves/color/brightness/contrast analogs implemented in Python directly or, where available, library-based solutions. Core features of established algos / features / implementations not readily available in Python can probably be readily implemented via AI-assisted coding.
+Local contrast normalization is essential for improving gridline detectability when the grid is:
+- faint,
+- partially occluded,
+- affected by plastic glare or uneven illumination.
 
-##### OpenCV - CLAHE (Contrast Limited Adaptive Histogram Equalization)
+#### OpenCV CLAHE (Contrast Limited Adaptive Histogram Equalization)
 
-I have not carefully evaluated this feature, but it is a good candidate for integration in image enhancement pipeline (see [LCN](./Local Contrast Normalization) and [ref](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)).
+CLAHE is a strong candidate for inclusion in the enhancement pipeline. It is locally adaptive and can improve fine structures like grid lines. The parameter-space interaction with noise amplification, illumination gradients, and node-detection success needs careful evaluation. See additional notes ([LCN](./Local Contrast Normalization) and [ref](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)).
 
-##### Fiji ImageJ - Normalize Local Contrast
+#### Fiji ImageJ - Normalize Local Contrast
 
-Preprocessing presently used: Fiji ImageJ ([https://fiji.sc](https://fiji.sc/)) -> Plugins -> Integral Image Filters -> Normalize Local Contrast 40x40x5.00 / center / stretch.
+Currently used preprocessing:  
+**Fiji ImageJ → Plugins → Integral Image Filters → Normalize Local Contrast (40×40×5.00 / center / stretch)**
 
-## Grid Detection
+This approach produces clean grid visibility and is the current baseline.
 
-Presently, the project explores two independent and complementing approaches to grid detection:
-- Grid segment detection (LSD)
-- Grid node detection
+## 3. Grid Detection
 
-LSD segment detection when combined with width-based (line thickness) distribution analysis for major/minor separation lines separation and angle distribution analysis for independent separation of X/Y lines yielded reasonable data (although X/Y separation may, in fact, be less important). This workflow does not involve any hardcoded manual parameters.
+Two complementary strategies are under development:
+1. Segment-based detection (via LSD)
+2. Node-based detection (via Sobel + intersection analysis)
 
-Sobel-based kernel edge detection following by intersection analysis yielded a comparable (LSD + width-based major/minor separation) quality data. However, present implementation involves one hardcoded tunable parameter. This manual parameter needs to be replaced with automatic selection/tuning algos.
+These approaches can be fused for maximal robustness.
 
-Generally, both approaches (together with a fix for the manual parameter) should probably be combined for optimal results.
+### 3.1 Segment Detection
 
-### Segment Detection
+The current prototype is implemented in **`pet_allinone.py`**, supported by the `pet_*` module family. It displays multiple debug plots and saves intermediate results (`debug_*`, `rotated_*`).
 
-Current implementation draft is invoked by executing `pet_allinone.py`. This script depends on several other `pet_*` scripts noted below. When executed, the script will show a number of debug Matplotlib chats, as well as saves debug images in the same directory (`debug_*` and `rotated*`).
+#### LSD (Line Segment Detector)
 
-Presently, segment detection is based on OpenCV `cv2.createLineSegmentDetector` (`LSD`). Note, `Conda` and `pip` OpenCV builds do not include `opencv-contrib` features, meaning only basic LSD implementation is available (no detection refinement modes, only segment width metadata is collected). It appears that `pip` `opencv-contrib` builds are also "crippled", lacking optional more robust `LSD` variants. It might be necessary to build `opencv / opencv-contrib` from source to enable such features.
+The detector uses OpenCV’s `cv2.createLineSegmentDetector`.
 
-#### OpenCV LSD Segment Detection
+Important implementation notes:
+- Standard pip/Conda distributions do not include advanced LSD variants (no refinement modes; limited metadata).
+- Segment “width” metadata is available but less stable without opencv-contrib builds.
+- A custom build of OpenCV + opencv-contrib may be necessary.
 
-OpenCV `cv2.createLineSegmentDetector` (`LSD`) returns a set of segment candidates ((x, y) array) and an array of associated segment width.  
+LSD returns:
+- A list of detected segments
+- A corresponding array of segment widths
 
 ![](./screenshots/Raw-LSD-distribution.png)
-**Figure. Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as gridlines detection may very well yield long segments and generally broad length distribution depending on image quality and grid size and distortions.
+**Figure. Sample LSD Metadata Distribution**: Due to standard limited functionality, precision and NFA data is not collected. Conservative filtering may involve dropping excessively thick lines (say, top 1-5 %) and very short lines, say shorter than 2-4 pixels. Length filtering may also be attempted on bottom 1-5%, but the long tail must be kept as grid line detection may yield long segments and generally broad length distribution depending on image quality and grid size and distortions.
 
-#### Splitting LSD Segments into Major/Minor and X/Y
+##### Filtering Guidelines
 
-##### Major and Minor Grids 
+- Drop abnormally thick segments (top ~1-5%)
+- Drop very short segments (< 2-4 px)
+- Preserve broad length distribution, as real gridline detection may yield long segments.
 
-Assuming both major and minor sub-grids are sufficiently discernable, detected segment set will include both. While both minor and major sub-grids may be potentially useful for grid analysis, initial analysis aimed at gauging major spacing and grid distortion appears to be more robust when focusing on just major grids, as minor sub-grids are thinner resulting in a substantially more sparse and irregularly appearing pattern. (I have not tried applying statistical analysis to minor sub-grid data, which might yield useful information.)
+### 3.2 Major/Minor Grid Separation
 
-##### Width Distribution Analysis
+Millimeter graph paper contains:
+- Major gridlines (e.g., 5 mm spacing; thicker)
+- Minor gridlines (e.g., 1 mm spacing; thinner)
 
-Separating major/minor sub-grid segments is most naturally accomplished via statistical analysis of segment data. While minor segments due to potentially less reliable detection might be statistically shorter, a more direct approach is analysis of width (line thickness) metadata returned by LSD. Because major grids are conventionally thicker, sufficiently discernable grids with limited distortions should yield bimodal line thickness distribution (assuming grid segments dominate the returned data with moderate amount of noise) with two dominant peaks (major being about 1.5x to 3x thicker than minor). Core functionality related to width distribution analysis is placed in `pet_lsd_width_analysis.py`
+#### Width Distribution Analysis
+
+Line-thickness histogram should be bimodal under reasonable image quality.
+
+Implementation: `pet_lsd_width_analysis.py`
+
+Major lines are typically:
+- 1.5x to 3x thicker than minor lines
+- More reliably detected
+- Better suited as anchor geometry for early analysis
 
 ![](./screenshots/Width-Distribution-Analysis.png)
 **Figure. Sample LSD Metadata Width (Line Thickness) Distribution Analysis**
@@ -93,14 +129,26 @@ Separating major/minor sub-grid segments is most naturally accomplished via stat
 ![](./screenshots/Width-Splitting.png)
 **Figure. Sample LSD Metadata Width (Line Thickness) Distribution Separation**
 
-##### Gridlines Orientation Analysis
+#### Orientation Analysis
 
-For segment data set dominated by grid segments, segment orientation should also exhibit bimodal well-separated distribution with the two peaks roughly separated by 90 degrees (or whatever the apparent grid angle is). The core functionality related to segment orientation distribution analysis is in `pet_geom`.
+Orientation distribution should also be bimodal, separated by ~90° (plus distortion).
+
+Implementation: `pet_geom.py`
+
+Outputs include:
+- Peak detection
+- Circular mean
+- Circular variance
+- Resultant length
+- von Mises κ
+- Split angle and rotation angle
+
+This produces robust X/Y separation without any manual parameters.
 
 ![](./screenshots/Angle-KDE.png)
 **Figure. Sample LSD Segment Orientation Distribution**
 
-Sample angle orientation analysis report:
+**Sample angle orientation analysis report:**
 
 ```
 ====================================================================
@@ -144,6 +192,12 @@ FAMILY 2
 
 ====================================================================
 ```
+
+
+
+
+
+
 
 ##### Segment Centers
 
