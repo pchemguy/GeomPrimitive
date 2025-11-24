@@ -158,5 +158,21 @@ Once segments are split into major/minor and X/Y, the major X/Y families are rep
 
 The node detector routine implemented in `pet_grid_node_detector.py` relies on Sobel operator for detecting grid line families following by intersection analysis. The routine yielded reasonable results on the tested image (for now just one), but it presently hardcodes one manually set parameter `k_len`, which is usually set around 40-70% (according to ChatGPT) of the expected pitch value. This limitation needs to be fixed, of course, replacing the hardcoded number with automatic algorithms. See preliminary [notes](./GRID_NODES_DETECTION.md) on potential strategies for automatic selection.
 
+### Grid Bounding Box
+
+A separate module implements experimental process for grid bounding box detection `pet_grid_auto_crop.py`. Presently, functionality is not integrated into main processing pipelines.
+
 ## Grid Data Analysis
 
+### Brute-Force Black Box
+
+Initial promising approach to solving for grid spacing has been implemented essentially as sort of black boxes (that is as [implemented by AI](https://gemini.google.com/app/1cd765eae3be9bdb))
+
+```
+pet_period.py
+pet_grid_solver_extended.py
+pet_grid_postprocessor.py
+pet_grid_solver_xy.py
+```
+
+I am not going into further details here, as I consider an alternative approach much more promising.

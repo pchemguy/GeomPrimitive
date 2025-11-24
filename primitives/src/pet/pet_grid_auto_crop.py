@@ -1,6 +1,43 @@
 """
-```
 pet_grid_auto_crop.py
+---------------------
+
+Automatic Grid Area Detection via Macro-Texture Density
+=======================================================
+
+This module implements a coarse yet highly robust method for identifying
+the region of an image containing a printed or drawn grid (square or
+rectangular). Unlike feature-based detectors or line-fitting approaches,
+this method operates entirely in the "macro-texture" domain: it detects
+the grid region as the area containing the highest density of high-
+frequency structure.
+
+The algorithm is specifically optimized for:
+    - smartphone or compact-camera images of graph paper, calibration
+      grids, cross-hair overlays, or engineering drawing backgrounds,
+    - moderate variations in lighting and contrast,
+    - images containing distracting elements (hands, shadows, tools,
+      labels, digits, tables, stains, etc.).
+
+High-level workflow:
+    1) Sobel gradient magnitude -> amplify line structure
+    2) CLAHE -> normalize local contrast and suppress lighting gradients
+    3) Otsu threshold -> binary high-frequency mask
+    4) Large-kernel blur -> convert dense grid lines into a soft "cloud"
+    5) Otsu threshold (again) -> segment macro-density region
+    6) Extract contour -> bounding box of grid region
+    7) Expand and round the box to the nearest 100 px, with boundary
+       awareness and intelligent centering
+
+The output is a bounding rectangle `(x_min, y_min, x_max, y_max)` that
+defines the region most likely containing the grid.
+
+The module also generates a complete set of debug visualizations:
+    - Sobel magnitude
+    - CLAHE result
+    - Density cloud map
+    - Density mask
+    - Annotated bounding boxes (raw vs expanded)
 """
 import os
 import math
@@ -10,12 +47,93 @@ import numpy as np
 
 def detect_grid_area_density(source_image, output_dir="output"):
     """
-    1. Detects grid via Macro-Texture Density (Blur + Otsu).
-    2. Saves debug steps (Sobel, CLAHE, Density Cloud).
-    3. Rounds BBox UP to nearest 100px, centering the expansion 
-       and shifting if boundaries are hit.
-    """
-    if source_image is None: raise ValueError("Source image is None.")
+    Automatically locate the grid region in an image using a macro-texture
+    density analysis based on blurred binary gradients.
+
+    This method does not attempt to detect the grid lines themselves.
+    Instead, it identifies the contiguous region of highest structural
+    density by progressively simplifying the image:
+        - Sobel highlights line texture,
+        - CLAHE normalizes contrast,
+        - Otsu binarization extracts high-frequency content,
+        - large-kernel averaging collapses fine structure into a smooth
+          density cloud,
+        - a second Otsu stage isolates the dominant dense region.
+
+    The final bounding box is then expanded and rounded **up** to the
+    nearest 100 pixels in both dimensions. Expansion is centered unless
+    it would exceed image boundaries, in which case the box slides to
+    remain fully in frame. This yields a stable, aesthetically clean crop
+    that makes downstream algorithms more predictable.
+
+    Parameters
+    ----------
+    source_image : np.ndarray (H, W, 3), uint8 BGR
+        Input image loaded via OpenCV. Must not be None. Typical sources
+        include smartphone photos of graph paper or calibration targets.
+    output_dir : str, optional
+        Directory for debug visualizations (created if necessary).
+        The following files are written:
+            - step_1_sobel.jpg
+            - step_2_clahe.jpg
+            - step_3_otsu_raw.jpg
+            - step_4_density_cloud.jpg
+            - step_5_density_mask.jpg
+            - step_6_final_rounded_crop.jpg
+
+    Returns
+    -------
+    (x_min, y_min, x_max, y_max) : tuple of ints
+        Final expanded bounding box coordinates in OpenCV format.
+        These define an image region likely containing the entire grid,
+        padded and standardized to the nearest 100 px.
+
+    Algorithm Details
+    -----------------
+    1. **Edge Extraction (Sobel)**
+       Computes gradient magnitude to emphasize grid-like structure and
+       suppress low-frequency background.
+
+    2. **Local Contrast Normalization (CLAHE)**
+       Reduces effect of uneven lighting and enables stable thresholding.
+
+    3. **Initial Binary Mask (Otsu)**
+       Converts high-frequency features (lines, text, edges) into a white
+       mask.
+
+    4. **Macro-Density Blur ("Cloud Step")**
+       A large kernel (~5% of image width) averages local structure,
+       turning dense grid regions into bright blobs while noise becomes
+       dark. This yields a macro-scale density map.
+
+    5. **Second Otsu Threshold**
+       Extracts the dominant density region - usually the grid.
+
+    6. **Contour Extraction -> Raw Bounding Box**
+       Finds the largest connected region and computes a tight rectangle.
+
+    7. **Expansion & Rounding**
+       The box is expanded upward to the nearest 100 px in both width
+       and height. Expansion is centered but adjusted as needed to keep
+       the box inside the image.
+
+    Notes
+    -----
+    - This method purposely ignores line orientation, spacing, or
+      geometry. It is a purely statistical approach based on density of
+      structure.
+    - For extremely sparse grids or images where the grid occupies only a
+      small fraction of the frame, you may need to tune the blur
+      percentage (5%) or apply the crop recursively.
+
+    Examples
+    --------
+    >>> img = cv2.imread("grid_photo.jpg")
+    >>> x1, y1, x2, y2 = detect_grid_area_density(img)
+    >>> crop = img[y1:y2, x1:x2]
+    >>> cv2.imshow("Grid Area", crop)
+
+    """    if source_image is None: raise ValueError("Source image is None.")
     if not os.path.exists(output_dir): os.makedirs(output_dir)
 
     h_img, w_img = source_image.shape[:2]
