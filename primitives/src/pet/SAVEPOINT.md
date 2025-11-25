@@ -332,3 +332,7 @@ The following figures illustrate full 360 deg sweeps of these quantities. The fu
 
 For an ideal square grid, four dominant resonances should be observer every 90 deg corresponding, for example, to successive orientation of a particular side down (or any other direction). Because there are actually just two families of grid lines (X/Y) the two pairs of resonances spaced 180 deg apart correspond to the same family oriented vertically. For a distorted grid, however, each nominal orientation will have a range of "resonant" angles, as illustrated above. In such a case, nominally 180 deg apart positions may not necessarily correspond to optimally aligned state (for example, consider trapezoidal distortion). For real grids, all four nominal orientations should be analyzed, and this information then can be used for distortion characterization and, possibly, rectification.
 
+## 8. TODO
+
+- Consider feeding LSD output (perhaps pre-filtered / split) to KDE generator
+- [WEIGHTED_KDE](./WEIGHTED_KDE.md)
