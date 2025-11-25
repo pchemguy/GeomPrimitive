@@ -277,8 +277,8 @@ This produces a resonant signature of alignment.
 As the node cloud is rotated:
 - KDE transitions from flat -> peaked
 - Peaks correspond to true grid pitch
-- Only the "in-focus" regions resonate strongly
-- Opposite quadrants respond 90° apart
+
+
 ![](./screenshots/KDE-spectrum-aligned-H1-41.png)
 
 **Figure. Real Grid Node Cloud Representations - Misaligned.** Left panel shows a conventional XY scatter plot. A large portion of the grid node is missing due to sample occlusion and plastic-file-related glares. Right panel shows half of the KDE plot. The cloud node is slightly misaligned and the associated KDE spectrum is effectively noise floor.
@@ -298,7 +298,9 @@ For an ideal square grid:
 
 This appears to be robust with respect to moderate distortion and partial grids.
 
-This effect in fact has a resonant-like nature, so even moderate grid distortions can often be readily observed
+#### Characterizing Grid Distortions
+
+This method has a resonant-like nature and is quite sensitive to grid distortions to the point that when one side is aligned the other might be completely misaligned, revealing even moderate grid distortions.
 
 ![](./screenshots/KDE-spectrum-aligned-Q1.png)
 **Figure. Real Grid Node Cloud Representations - Aligned - Full.** Same visual as above, except showing the full KDE spectrum on the right. While the left part of the spectrum (and left part of the node cloud) is "in focus", the left part is not.
@@ -319,6 +321,8 @@ Promising quantities:
 - Gini coefficient (maximized at resonance)
 - Peak–valley contrast metrics
 
+The following figures illustrate full 360 deg sweeps of these quantities. The full range was split into four quartiles, and for each a sweep has been calculated.  
+
 ![](./screenshots/entropy-gini-sweep.png)
 **Figure. Entropy ang Gini Sweep Plots.** The four panels show how Shannon entropy and the Gini coefficient change for each of the four quartiles as the node cloud performs a full turn.
 
@@ -326,10 +330,5 @@ Promising quantities:
 
  **Figure. Entropy ang Gini Sweep Plots.** Same as above, except the Gini coefficient is replaced with standard deviation of KDE signal.
 
-Quartile-wise sweeps help:
-- Select the best local resonance angle
-- Characterize distortion (differential between Q1, Q2, Q3, Q4)
-- Automatically filter out unreliable data regions
-
-This provides a physically meaningful angle-tuning strategy.
+For an ideal square grid, four dominant resonances should be observer every 90 deg corresponding, for example, to successive orientation of a particular side down (or any other direction). Because there are actually just two families of grid lines (X/Y) the two pairs of resonances spaced 180 deg apart correspond to the same family oriented vertically. For a distorted grid, however, each nominal orientation will have a range of "resonant" angles, as illustrated above. In such a case, nominally 180 deg apart positions may not necessarily correspond to optimally aligned state (for example, consider trapezoidal distortion). For real grids, all four nominal orientations should be analyzed, and this information then can be used for distortion characterization and, possibly, rectification.
 
