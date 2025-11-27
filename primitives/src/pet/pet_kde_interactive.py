@@ -306,7 +306,7 @@ def plot_kde_interactive(data, bw=1):
             line.set_xdata([x_pos, x_pos])
 
         # Update Text Table
-        header = "Group    |    Q1    |    Q2    |    Q3    |    Q4    "
+        header  = f"Group    |    Q1    |    Q2    |    Q3    |    Q4    "
         row_std = f"Std Den  | {stats_std[0]:8.4f} | {stats_std[1]:8.4f} | {stats_std[2]:8.4f} | {stats_std[3]:8.4f}"
         row_avg = f"Avg PkDen| {stats_avg_den[0]:8.4f} | {stats_avg_den[1]:8.4f} | {stats_avg_den[2]:8.4f} | {stats_avg_den[3]:8.4f}"
         row_max = f"Max PkDen| {stats_max_den[0]:8.4f} | {stats_max_den[1]:8.4f} | {stats_max_den[2]:8.4f} | {stats_max_den[3]:8.4f}"

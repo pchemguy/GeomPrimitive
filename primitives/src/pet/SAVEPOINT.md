@@ -204,10 +204,10 @@ Once major segments are isolated and X/Y families split:
 - Use as primary input for gridline statistical analysis
 
 ![](./screenshots/raw-lsd-segments-centers.png)
-**Figure. Raw LSD Segment Centers**
+**Figure. Raw LSD Segment Centers.** "Landscape" orientation. Grid line patterns a clearly observable with slight CW rotation off the vertical position.
 
 ![](./screenshots/major-vertical-centers.png )
-**Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation** (Note, this set has also been rotated using angle obtained from angle distribution analysis)
+**Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation.** Note, this set has also been rotated using angle obtained from angle distribution analysis. This "Landscape" family clearly exhibits grid structure in vertical direction.
 
 
 ## 4. Node Detection
@@ -332,8 +332,10 @@ The following figures illustrate full 360 deg sweeps of these quantities. The fu
 
 For an ideal square grid, four dominant resonances should be observer every 90 deg corresponding, for example, to successive orientation of a particular side down (or any other direction). Because there are actually just two families of grid lines (X/Y) the two pairs of resonances spaced 180 deg apart correspond to the same family oriented vertically. For a distorted grid, however, each nominal orientation will have a range of "resonant" angles, as illustrated above. In such a case, nominally 180 deg apart positions may not necessarily correspond to optimally aligned state (for example, consider trapezoidal distortion). For real grids, all four nominal orientations should be analyzed, and this information then can be used for distortion characterization and, possibly, rectification.
 
-## 8. TODO
+## 8. TODO and Notes
 
-- Consider feeding LSD output (perhaps pre-filtered / split) to KDE generator
+- Note how LSD-based segment centers cloud exhibits clearly grid structure (stripes) in one direction, but not the other (at least much more pronounced). Direct fitting via `pet_grid_optimizer.py` and related modules also results in much better results in one direction. Interactive `pet_grid_node_detector.py` script detecting grid nodes based on Sobel operator followed by KDE-based marginal density representation also show strong asymmetry in resonance intensity. 
+- Consider generating KDE from horizontal slices, say top/mid/bottom one third of Y spread for each orientation.
 - [WEIGHTED_KDE](./WEIGHTED_KDE.md)
 - Preliminary comparison using the same workflow of LSD-based and Sobel-edge-detector-based (as implemented in `pet_grid_node_detector.py` and demonstrated via `pet_allinone_v2.py`) suggests that LSD-based analysis may yield broader lines resulting in considerable reduction in sensitivity to geometrical distortion of the grid. Due to this reduced sensitivity, average pitch detection might be more robust, but LSD-based detection might be less suitable to characterizing grid distortions. These conclusions are based on a single image analysis and proper evaluation of both approaches is essential. 
+- Minimum grid pitch estimation as `10 * (pw_major + 1.5 * pw_minor) / 2`, where `pw_major` and `pw_minor` KDE peak width for corresponding `widths` distributions.

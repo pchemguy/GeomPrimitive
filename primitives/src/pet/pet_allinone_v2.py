@@ -223,11 +223,11 @@ def main(image_path: Optional[str] = None) -> None:
     # ---------------------------------
     fam = split_segments_by_angle_circular(flt, angle_info, analysis)
 
-    fam1_centers = fam["family1"]["centers"]
-    fam2_centers = fam["family2"]["centers"]
+    landscape_centers = fam["family1"]["centers"]
+    portait_centers = fam["family2"]["centers"]
     
-    plot_kde_interactive(fam1_centers, bw=2)
-    plot_kde_interactive(fam2_centers, bw=2)
+    plot_kde_interactive(landscape_centers, bw=2)
+    plot_kde_interactive(portait_centers, bw=2)
 
 
 # ======================================================================
