@@ -63,6 +63,8 @@ Local contrast normalization is essential for improving gridline detectability w
 - partially occluded,
 - affected by plastic glare or uneven illumination.
 
+Note, `pet_imagej_lcn.py` use ImageJ to apply local contrast normalization.
+
 #### OpenCV CLAHE (Contrast Limited Adaptive Histogram Equalization)
 
 CLAHE is a strong candidate for inclusion in the enhancement pipeline. It is locally adaptive and can improve fine structures like grid lines. The parameter-space interaction with noise amplification, illumination gradients, and node-detection success needs careful evaluation. See additional notes ([LCN](./Local Contrast Normalization) and [ref](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942)).
