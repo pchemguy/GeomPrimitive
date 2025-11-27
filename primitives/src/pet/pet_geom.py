@@ -126,20 +126,10 @@ def normalize_missing_metas(raw_lsd: dict) -> dict:
     Required:
         raw_lsd["lines"] : array-like, shape (N, 4)
 
-    Optional (may be None or missing):
-        "widths"     -> float array (N,)
-        "precisions" -> float array (N,)
-        "nfa"        -> float array (N,)
-        "lengths"    -> float array (N,)        (optional; not backfilled)
-        "centers"    -> float array (N, 2)      (optional; not backfilled)
-
     Behavior:
         - lines is mandatory
-        - widths/precisions/nfa:
+        - precisions/nfa:
               None or missing -> replaced with zeros[N]
-              if provided -> validated and reshaped
-        - lengths/centers:
-              passed through if present, else None
 
     Returns normalized dict with float32 arrays.
     """
@@ -150,55 +140,19 @@ def normalize_missing_metas(raw_lsd: dict) -> dict:
     if "lines" not in raw_lsd or raw_lsd["lines"] is None:
         raise ValueError("normalize_raw_lsd: 'lines' is missing or None.")
 
-    lines = np.asarray(raw_lsd["lines"], np.float32).reshape(-1, 4)
-    N = lines.shape[0]
+    N = raw_lsd["lines"].shape[0]
 
-    # ------------------------------------------------------------
-    # 2. Helper for required metrics (width / prec / nfa)
-    # ------------------------------------------------------------
-    def _norm_or_stub(name):
-        """
-        Retrieve metric from raw_lsd:
-        - if key missing or value is None -> zeros of length N
-        - else -> float32 array of length N
-        """
-        x = raw_lsd.get(name, None)
-        if x is None:
-            return np.zeros(N, np.float32)
+    prec = raw_lsd["precisions"]
+    if prec is None or not isinstance(prec, (list, np.ndarray)) or len(prec) == 0:
+        prec = np.zeros(N, np.float32)
+    nfa = raw_lsd["nfa"]
+    if nfa is None or not isinstance(nfa, (list, np.ndarray)) or len(nfa) == 0:
+        nfa = np.zeros(N, np.float32)
 
-        arr = np.asarray(x, np.float32).reshape(-1)
-        if arr.size != N:
-            raise ValueError(
-                f"normalize_raw_lsd: metric '{name}' size {arr.size} "
-                f"does not match number of lines {N}."
-            )
-        return arr
-
-    widths     = _norm_or_stub("widths")
-    precisions = _norm_or_stub("precisions")
-    nfa        = _norm_or_stub("nfa")
-
-    # ------------------------------------------------------------
-    # 3. Optional fields (no stubbing)
-    # ------------------------------------------------------------
-    lengths = raw_lsd.get("lengths", None)
-    if lengths is not None:
-        lengths = np.asarray(lengths, np.float32).reshape(-1)
-
-    centers = raw_lsd.get("centers", None)
-    if centers is not None:
-        centers = np.asarray(centers, np.float32).reshape(-1, 2)
-
-    # ------------------------------------------------------------
-    # 4. Final normalized dict
-    # ------------------------------------------------------------
     return {
-        "lines": lines,           # (N, 4)
-        "widths": widths,         # (N,)
-        "precisions": precisions, # (N,)
-        "nfa": nfa,               # (N,)
-        "lengths": lengths,       # (N,) or None
-        "centers": centers,       # (N, 2) or None
+        **raw_lsd,
+        "precisions": prec,
+        "nfa"       : nfa,
     }
 
 
@@ -246,14 +200,14 @@ def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
     lines, widths, precisions, nfa = lsd.detect(gray)
 
     # LSD returns None if no segments detected
-    if lines is None:
+    if lines is None or widths is None:
         return {
-            "lines":      np.zeros((0,4), np.float32),
-            "widths":     np.zeros((0,),  np.float32),
-            "precisions": np.zeros((0,),  np.float32),
-            "nfa":        np.zeros((0,),  np.float32),
-            "lengths":    np.zeros((0,),  np.float32),
-            "centers":    np.zeros((0,2), np.float32),
+            "lines": None,
+            "widths": None,
+            "precisions": None,
+            "nfa": None,
+            "lengths": None,
+            "centers": None,
         }
 
     # -------------------------------------------------------
