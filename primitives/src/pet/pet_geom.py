@@ -243,6 +243,79 @@ def clamp_segment_length(
     }
 
 
+def clamp_segment_bbox(
+    raw_lsd: Dict[str, np.ndarray],
+    bbox: Union[Tuple[float, float, float, float], List[float]],
+) -> Dict[str, np.ndarray]:
+    """
+    Filter LSD output by keeping only segments whose CENTERS lie within
+    the specified bounding box.
+
+    Args
+    ----
+    raw_lsd : dict
+        Standard LSD dictionary containing "centers", "lines", etc.
+    bbox : tuple or list
+        (xmin, ymin, xmax, ymax) in image coordinates.
+
+    Returns
+    -------
+    dict
+        Filtered LSD dictionary.
+    """
+
+    required_keys = ["lines", "widths", "precisions", "nfa", "lengths", "centers"]
+    for k in required_keys:
+        if k not in raw_lsd:
+            raise KeyError(f"raw_lsd missing required key '{k}'")
+
+    lines      = raw_lsd["lines"]
+    widths     = raw_lsd["widths"]
+    precisions = raw_lsd["precisions"]
+    nfa        = raw_lsd["nfa"]
+    lengths    = raw_lsd["lengths"]
+    centers    = raw_lsd["centers"]
+
+    # ---- Handle empty input ----
+    if lines.size == 0:
+        return {
+            "lines":      np.zeros((0,4), np.float32),
+            "widths":     np.zeros((0,),  np.float32),
+            "precisions": np.zeros((0,),  np.float32),
+            "nfa":        np.zeros((0,),  np.float32),
+            "lengths":    np.zeros((0,),  np.float32),
+            "centers":    np.zeros((0,2), np.float32),
+        }
+
+    # ---- Validate BBox ----
+    if len(bbox) != 4:
+        raise ValueError(f"bbox must have 4 elements (xmin, ymin, xmax, ymax), got {len(bbox)}")
+
+    x_min, y_min, x_max, y_max = bbox
+
+    # ---- Create Mask (Based on Centers) ----
+    # cx, cy are the geometric centers of the segments
+    cx = centers[:, 0]
+    cy = centers[:, 1]
+
+    mask = (
+        (cx >= x_min) &
+        (cx <= x_max) &
+        (cy >= y_min) &
+        (cy <= y_max)
+    )
+
+    # ---- Return Filtered Structure ----
+    return {
+        "lines":      lines[mask].astype(np.float32),
+        "widths":     widths[mask].astype(np.float32),
+        "precisions": precisions[mask].astype(np.float32),
+        "nfa":        nfa[mask].astype(np.float32),
+        "lengths":    lengths[mask].astype(np.float32),
+        "centers":    centers[mask].astype(np.float32),
+    }
+
+
 # ============================================================================
 # 2) ANGLE UTILITIES
 # ============================================================================

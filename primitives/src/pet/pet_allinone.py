@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
-    detect_grid_segments, normalize_missing_metas, clamp_segment_length,
+    detect_grid_segments, normalize_missing_metas, clamp_segment_length, clamp_segment_bbox,
     compute_segment_angles, compute_angle_histogram,
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
@@ -185,6 +185,10 @@ def main(image_path: Optional[str] = None) -> None:
     flt_centers = flt["centers"]
     xy_scatter_from_centers(flt_centers, bbox=bbox, title="Pre-filtered LSD Segments Centers", size_scale=6)
     plot_lsd_distributions(flt, bins=lsd_dist_bins)
+
+    flt_bbox = clamp_segment_bbox(flt, bbox)
+    flt_bbox_centers = flt_bbox["centers"]
+    xy_scatter_from_centers(flt_bbox_centers, bbox=bbox, title="Pre-filtered LSD Segments Centers", size_scale=6)
     
     # Statistical analysis of segment width distribution - bimodal distribution.
     # --------------------------------------------------------------------------
