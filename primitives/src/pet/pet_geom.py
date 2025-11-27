@@ -3128,6 +3128,7 @@ def plot_gap_histograms(
 
 
 def xy_scatter_from_centers(centers: np.ndarray,
+                            bbox: np.ndarray = None,
                             title: str = "Centerline XY Scatter",
                             color: str = "blue",
                             size_scale: float = 1.0,
@@ -3142,6 +3143,9 @@ def xy_scatter_from_centers(centers: np.ndarray,
     ----------
     centers : (N,3) ndarray
         Result of np.column_stack((fam['centers'], fam['lengths'])).
+    bbox : tuple/list of 4 floats, optional
+        Axis-aligned bounding box: (x_min, y_min, x_max, y_max).
+        If provided, drawn as a thick green rectangle.
     title : str
         Plot title.
     color : str
@@ -3151,7 +3155,6 @@ def xy_scatter_from_centers(centers: np.ndarray,
     alpha : float
         Marker transparency.
     """
-
     if centers.size == 0:
         print("xy_scatter_from_centers: empty centers array")
         return
@@ -3164,6 +3167,21 @@ def xy_scatter_from_centers(centers: np.ndarray,
     plt.figure(figsize=(8, 6))
     plt.scatter(xc, yc, s=sizes, c=color, alpha=alpha, edgecolors="none")
 
+    # --- DRAW ALIGNED BBOX ---
+    if bbox is not None:
+        if len(bbox) == 4:
+            x_min, y_min, x_max, y_max = bbox
+            
+            # Define corner points (Counter-Clockwise)
+            # (x_min, y_min) -> (x_max, y_min) -> (x_max, y_max) -> (x_min, y_max) -> (x_min, y_min)
+            rect_x = [x_min, x_max, x_max, x_min, x_min]
+            rect_y = [y_min, y_min, y_max, y_max, y_min]
+            
+            plt.plot(rect_x, rect_y, color='green', linewidth=2.5, linestyle='-', label='Grid BBox')
+            plt.legend()
+        else:
+            print(f"Warning: bbox expected 4 values (xmin,ymin,xmax,ymax), got {len(bbox)}")
+
     plt.gca().invert_yaxis()  # because image coords grow downwards
     plt.xlabel("X coordinate (px)")
     plt.ylabel("Y coordinate (px)")
@@ -3171,4 +3189,3 @@ def xy_scatter_from_centers(centers: np.ndarray,
     plt.grid(True, linestyle=":", alpha=0.35)
     plt.tight_layout()
     plt.show()
-
