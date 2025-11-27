@@ -31,132 +31,7 @@ from pet_grid_align import get_optimal_rotation
 # ============================================================================
 # 1) RAW LSD SEGMENT EXTRACTION
 # ============================================================================
-
-def _create_lsd():
-    try:
-        # OpenCV 4.5+ signature
-        return cv2.createLineSegmentDetector(cv2.LSD_REFINE_STD)
-    except TypeError:
-        try:
-            # OpenCV 4.7+ signature
-            return cv2.createLineSegmentDetector(_refine=cv2.LSD_REFINE_STD)
-        except TypeError:
-            # Final fallback: manual refine removal
-            return cv2.createLineSegmentDetector()
-
-
-def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
-    """
-    Run LSD (Line Segment Detector) and return raw segments
-    with full per-segment information.
-
-    Returns
-    -------
-    dict with:
-        "lines"      : (N,4) float32 [x1,y1,x2,y2]
-        "widths"     : (N,)  float32
-        "precisions" : (N,)  float32
-        "nfa"        : (N,)  float32
-        "lengths"    : (N,)  float32
-        "centers"    : (N,2) float32 [xc,yc]
-    """
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    lsd = _create_lsd()
-    lines, widths, prec, nfa = lsd.detect(gray)
-
-    # ---------------------------------------
-    # Empty detector output
-    # ---------------------------------------
-    if lines is None or widths is None:
-        return {
-            "lines": None,
-            "widths": None,
-            "precisions": None,
-            "nfa": None,
-            "lengths": None,
-            "centers": None,
-        }
-
-    # ---------------------------------------
-    # Normalize shapes + dtypes
-    # ---------------------------------------
-    lines = lines.reshape(-1, 4).astype(np.float32)
-    N = lines.shape[0]
-
-    if widths is not None:
-        widths = widths.reshape(-1).astype(np.float32)
-    if prec is not None:
-        prec = prec.reshape(-1).astype(np.float32)
-    if nfa is not None:
-        nfa = nfa.reshape(-1).astype(np.float32)
-
-    # ---------------------------------------
-    # Geometric properties
-    # ---------------------------------------
-    x1 = lines[:, 0]
-    y1 = lines[:, 1]
-    x2 = lines[:, 2]
-    y2 = lines[:, 3]
-
-    dx = x2 - x1
-    dy = y2 - y1
-
-    lengths = np.hypot(dx, dy).astype(np.float32)
-
-    # midpoints
-    xc = (x1 + x2) * 0.5
-    yc = (y1 + y2) * 0.5
-    centers = np.stack([xc, yc], axis=1).astype(np.float32)
-
-    return {
-        "lines": lines,
-        "widths": widths,
-        "precisions": prec,
-        "nfa": nfa,
-        "lengths": lengths,
-        "centers": centers,
-    }
-
-
-def normalize_missing_metas(raw_lsd: dict) -> dict:
-    """
-    Normalize raw LSD output dictionary.
-
-    Required:
-        raw_lsd["lines"] : array-like, shape (N, 4)
-
-    Behavior:
-        - lines is mandatory
-        - precisions/nfa:
-              None or missing -> replaced with zeros[N]
-
-    Returns normalized dict with float32 arrays.
-    """
-
-    # ------------------------------------------------------------
-    # 1. Normalize / validate lines (mandatory)
-    # ------------------------------------------------------------
-    if "lines" not in raw_lsd or raw_lsd["lines"] is None:
-        raise ValueError("normalize_raw_lsd: 'lines' is missing or None.")
-
-    N = raw_lsd["lines"].shape[0]
-
-    prec = raw_lsd["precisions"]
-    if prec is None or not isinstance(prec, (list, np.ndarray)) or len(prec) == 0:
-        prec = np.zeros(N, np.float32)
-    nfa = raw_lsd["nfa"]
-    if nfa is None or not isinstance(nfa, (list, np.ndarray)) or len(nfa) == 0:
-        nfa = np.zeros(N, np.float32)
-
-    return {
-        **raw_lsd,
-        "precisions": prec,
-        "nfa"       : nfa,
-    }
-
-
-def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
+def detect_grid_segments(img: np.ndarray) -> dict[str, np.ndarray]:
     """
     Run LSD (Line Segment Detector) and return raw segments
     with full per-segment information.
@@ -216,19 +91,12 @@ def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
     lines = lines.reshape(-1, 4).astype(np.float32)
     N = lines.shape[0]
 
-    def _safe_vec(v):
-        """Normalize LSD side outputs which may be None."""
-        if v is None:
-            return np.zeros(N, np.float32)
-        v = np.asarray(v).reshape(-1)
-        if v.size != N:
-            # Some OpenCV builds return broken shapes
-            v = np.zeros(N, np.float32)
-        return v.astype(np.float32)
-
-    widths     = _safe_vec(widths)
-    precisions = _safe_vec(precisions)
-    nfa        = _safe_vec(nfa)
+    if widths is not None:
+        widths = widths.reshape(-1).astype(np.float32)
+    if precisions is not None:
+        precisions = precisions.reshape(-1).astype(np.float32)
+    if nfa is not None:
+        nfa = nfa.reshape(-1).astype(np.float32)
 
     # -------------------------------------------------------
     # 5) Compute geometric properties
@@ -242,8 +110,12 @@ def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
     dy = y2 - y1
 
     lengths = np.hypot(dx, dy).astype(np.float32)
-    centers = np.column_stack([(x1 + x2) * 0.5, (y1 + y2) * 0.5]).astype(np.float32)
 
+    # midpoints
+    xc = (x1 + x2) * 0.5
+    yc = (y1 + y2) * 0.5
+    centers = np.stack([xc, yc], axis=1).astype(np.float32)
+    
     # -------------------------------------------------------
     # 6) Return full dictionary
     # -------------------------------------------------------
@@ -254,6 +126,43 @@ def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
         "nfa":        nfa,
         "lengths":    lengths,
         "centers":    centers,
+    }
+
+
+def normalize_missing_metas(raw_lsd: dict) -> dict:
+    """
+    Normalize raw LSD output dictionary.
+
+    Required:
+        raw_lsd["lines"] : array-like, shape (N, 4)
+
+    Behavior:
+        - lines is mandatory
+        - precisions/nfa:
+              None or missing -> replaced with zeros[N]
+
+    Returns normalized dict with float32 arrays.
+    """
+
+    # ------------------------------------------------------------
+    # 1. Normalize / validate lines (mandatory)
+    # ------------------------------------------------------------
+    if "lines" not in raw_lsd or raw_lsd["lines"] is None:
+        raise ValueError("normalize_raw_lsd: 'lines' is missing or None.")
+
+    N = raw_lsd["lines"].shape[0]
+
+    prec = raw_lsd["precisions"]
+    if prec is None or not isinstance(prec, (list, np.ndarray)) or len(prec) == 0:
+        prec = np.zeros(N, np.float32)
+    nfa = raw_lsd["nfa"]
+    if nfa is None or not isinstance(nfa, (list, np.ndarray)) or len(nfa) == 0:
+        nfa = np.zeros(N, np.float32)
+
+    return {
+        **raw_lsd,
+        "precisions": prec,
+        "nfa"       : nfa,
     }
 
 
