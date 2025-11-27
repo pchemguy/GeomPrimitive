@@ -55,6 +55,7 @@ from pet_lsd_width_analysis import (
     cluster_line_thickness,
     merge_lsd_dicts,
     split_widths_hist,
+    print_thickness_summary,
 )
 
 from pet_period import (
@@ -196,6 +197,7 @@ def main(image_path: Optional[str] = None) -> None:
     lsd_major       = thickness_groups["major"]
     lsd_outliers_lo = thickness_groups["outliers_lo"]
     lsd_outliers_hi = thickness_groups["outliers_hi"]
+    print_thickness_summary(thickness_groups)
 
     # Debug display of LSD segment width distribution split.
     # ------------------------------------------------------

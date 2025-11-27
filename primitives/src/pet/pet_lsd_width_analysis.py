@@ -178,6 +178,7 @@ __all__ = [
     "cluster_line_thickness",
     "merge_lsd_dicts",
     "split_widths_hist",
+    "print_thickness_summary",
 ]
 
 import numpy as np
@@ -188,6 +189,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from sklearn.mixture import GaussianMixture
 from scipy.stats import norm
 from scipy import stats
+from scipy.stats import gaussian_kde
 
 
 def analyze_lsd_widths(
@@ -437,6 +439,21 @@ def _slice_lsd(lsd: Dict[str, np.ndarray], mask: np.ndarray) -> Dict[str, np.nda
     }
 
 
+def _get_kde_peak(data: np.ndarray, grid_points=200) -> float:
+    """Returns the width value at the peak of the KDE distribution."""
+    clean = data[np.isfinite(data)]
+    if clean.size < 2: 
+        return float(np.median(clean)) if clean.size > 0 else 0.0
+    
+    try:
+        kde = gaussian_kde(clean)
+        # Scan slightly beyond min/max to catch peaks at edges
+        x = np.linspace(clean.min()*0.9, clean.max()*1.1, grid_points)
+        return float(x[np.argmax(kde(x))])
+    except:
+        return float(np.median(clean))
+
+
 def cluster_line_thickness(
     lsd_output: Dict[str, np.ndarray],
     analysis: Optional[Dict[str, Any]] = None,
@@ -582,12 +599,18 @@ def cluster_line_thickness(
     # Note: We group all outliers (statistical + non-dominant clusters) together here, 
     # but you can split them if needed.
     outlier_mask = labels_final == 2
-    # Slice LSD structures
 
+    # Slice LSD structures
     minor_lsd = _slice_lsd(lsd_output, minor_mask)
     major_lsd = _slice_lsd(lsd_output, major_mask)
     outlier_lsd = _slice_lsd(lsd_output, outlier_mask)
 
+    peak_minor = round(_get_kde_peak(minor_lsd["widths"]), 2)
+    peak_major = round(_get_kde_peak(major_lsd["widths"]), 2)
+
+    # Heuristic: Average of (10 * major_width) and (15 * minor_width)
+    major_pitch_floor = round(10 * (peak_major + 1.5 * peak_minor) / 2.0, 1)
+    
     # --------------------------------------------------------
     # SPLIT OUTLIERS & PREPARE OUTPUT 
     # --------------------------------------------------------
@@ -616,6 +639,9 @@ def cluster_line_thickness(
         "major": major_lsd,
         "outliers_lo": outliers_lo_lsd,
         "outliers_hi": outliers_hi_lsd,
+        "minor_width": peak_minor,
+        "major_width": peak_major,
+        "major_pitch_floor": major_pitch_floor,
         "labels": labels_final,
         "probs": probs,
         "analysis": analysis,
@@ -758,9 +784,52 @@ def split_widths_hist(
             edgecolor="none",
         )
 
+    # We check if scalar peaks exist in the top-level dict
+    peak_keys = [("minor_width", "Minor Peak"), ("major_width", "Major Peak")]
+    
+    for key, label_text in peak_keys:
+        val = clusters.get(key)
+        # Ensure value exists and is a valid number (not None/NaN)
+        if val is not None and np.isfinite(val) and val > 0:
+            plt.axvline(
+                x=val, 
+                color="cyan", 
+                linestyle="--", 
+                linewidth=2.5, 
+                label=f"{label_text}: {val:.2f}px"
+            )
+
     plt.xlabel("LSD width (pixels)")
     plt.ylabel("Count")
     plt.grid(True, linestyle=":", alpha=0.35)
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
+def print_thickness_summary(clusters: dict):
+    """
+    Print a console summary of the width analysis metrics.
+    """
+    # Extract scalar metrics
+    w_min = clusters.get("minor_width", 0.0)
+    w_maj = clusters.get("major_width", 0.0)
+    pitch = clusters.get("major_pitch_floor", 0.0)
+
+    # Extract counts (safely)
+    n_min = len(clusters["minor"]["widths"]) if "minor" in clusters else 0
+    n_maj = len(clusters["major"]["widths"]) if "major" in clusters else 0
+    n_lo  = len(clusters["outliers_lo"]["widths"]) if "outliers_lo" in clusters else 0
+    n_hi  = len(clusters["outliers_hi"]["widths"]) if "outliers_hi" in clusters else 0
+
+    print("-" * 50)
+    print(" LSD WIDTH ANALYSIS SUMMARY")
+    print("-" * 50)
+    print(f" Minor Width (Peak)   : {w_min:6.2f} px  (Count: {n_min:5d})")
+    print(f" Major Width (Peak)   : {w_maj:6.2f} px  (Count: {n_maj:5d})")
+    print("-" * 50)
+    print(f" Major Pitch Floor    : {pitch:6.1f} px")
+    print(f" (Heuristic: 10x of Avg of (major and 1.5*minor)")
+    print("-" * 50)
+    print(f" Outliers (Low/High)  : {n_lo} / {n_hi}")
+    print("-" * 50)
