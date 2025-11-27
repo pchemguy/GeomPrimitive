@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 from pet_utils import image_loader, save_image, LOGGER_NAME
 
 from pet_geom import (
-    detect_grid_segments, clamp_segment_length,
+    detect_grid_segments, normalize_missing_metas, clamp_segment_length,
     compute_segment_angles, compute_angle_histogram,
     plot_angle_histogram, plot_angle_histogram_with_kde, apply_rotation_correction,
     compute_angle_histogram_circular_weighted, compute_segment_lengths,
@@ -171,7 +171,11 @@ def main(image_path: Optional[str] = None) -> None:
     # thinner minor and thicker major lines
     # -------------------------------------------------------------------
     lsd_dist_bins = 50
-    plot_lsd_distributions(raw, bins=lsd_dist_bins)                       
+    plot_lsd_distributions(raw, bins=lsd_dist_bins)
+
+    # Replace missig metas with dummies.
+    #-----------------------------------
+    raw = normalize_missing_metas(raw)
 
     # Drop extremely short segments and excessively thick (top 5%)
     # -------------------------------------------------------------

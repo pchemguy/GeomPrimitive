@@ -68,14 +68,14 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     # ---------------------------------------
     # Empty detector output
     # ---------------------------------------
-    if lines is None:
+    if lines is None or widths is None:
         return {
-            "lines": np.zeros((0, 4), np.float32),
-            "widths": np.zeros((0,), np.float32),
-            "precisions": np.zeros((0,), np.float32),
-            "nfa": np.zeros((0,), np.float32),
-            "lengths": np.zeros((0,), np.float32),
-            "centers": np.zeros((0,2), np.float32),
+            "lines": None,
+            "widths": None,
+            "precisions": None,
+            "nfa": None,
+            "lengths": None,
+            "centers": None,
         }
 
     # ---------------------------------------
@@ -84,18 +84,12 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     lines = lines.reshape(-1, 4).astype(np.float32)
     N = lines.shape[0]
 
-    widths = (
-        widths.reshape(-1).astype(np.float32)
-        if widths is not None else np.zeros(N, np.float32)
-    )
-    prec = (
-        prec.reshape(-1).astype(np.float32)
-        if prec is not None else np.zeros(N, np.float32)
-    )
-    nfa = (
-        nfa.reshape(-1).astype(np.float32)
-        if nfa is not None else np.zeros(N, np.float32)
-    )
+    if widths is not None:
+        widths = widths.reshape(-1).astype(np.float32)
+    if prec is not None:
+        prec = prec.reshape(-1).astype(np.float32)
+    if nfa is not None:
+        nfa = nfa.reshape(-1).astype(np.float32)
 
     # ---------------------------------------
     # Geometric properties
@@ -125,28 +119,104 @@ def detect_grid_segments(img: np.ndarray) -> Dict[str, np.ndarray]:
     }
 
 
+def normalize_missing_metas(raw_lsd: dict) -> dict:
+    """
+    Normalize raw LSD output dictionary.
+
+    Required:
+        raw_lsd["lines"] : array-like, shape (N, 4)
+
+    Optional (may be None or missing):
+        "widths"     -> float array (N,)
+        "precisions" -> float array (N,)
+        "nfa"        -> float array (N,)
+        "lengths"    -> float array (N,)        (optional; not backfilled)
+        "centers"    -> float array (N, 2)      (optional; not backfilled)
+
+    Behavior:
+        - lines is mandatory
+        - widths/precisions/nfa:
+              None or missing -> replaced with zeros[N]
+              if provided -> validated and reshaped
+        - lengths/centers:
+              passed through if present, else None
+
+    Returns normalized dict with float32 arrays.
+    """
+
+    # ------------------------------------------------------------
+    # 1. Normalize / validate lines (mandatory)
+    # ------------------------------------------------------------
+    if "lines" not in raw_lsd or raw_lsd["lines"] is None:
+        raise ValueError("normalize_raw_lsd: 'lines' is missing or None.")
+
+    lines = np.asarray(raw_lsd["lines"], np.float32).reshape(-1, 4)
+    N = lines.shape[0]
+
+    # ------------------------------------------------------------
+    # 2. Helper for required metrics (width / prec / nfa)
+    # ------------------------------------------------------------
+    def _norm_or_stub(name):
+        """
+        Retrieve metric from raw_lsd:
+        - if key missing or value is None -> zeros of length N
+        - else -> float32 array of length N
+        """
+        x = raw_lsd.get(name, None)
+        if x is None:
+            return np.zeros(N, np.float32)
+
+        arr = np.asarray(x, np.float32).reshape(-1)
+        if arr.size != N:
+            raise ValueError(
+                f"normalize_raw_lsd: metric '{name}' size {arr.size} "
+                f"does not match number of lines {N}."
+            )
+        return arr
+
+    widths     = _norm_or_stub("widths")
+    precisions = _norm_or_stub("precisions")
+    nfa        = _norm_or_stub("nfa")
+
+    # ------------------------------------------------------------
+    # 3. Optional fields (no stubbing)
+    # ------------------------------------------------------------
+    lengths = raw_lsd.get("lengths", None)
+    if lengths is not None:
+        lengths = np.asarray(lengths, np.float32).reshape(-1)
+
+    centers = raw_lsd.get("centers", None)
+    if centers is not None:
+        centers = np.asarray(centers, np.float32).reshape(-1, 2)
+
+    # ------------------------------------------------------------
+    # 4. Final normalized dict
+    # ------------------------------------------------------------
+    return {
+        "lines": lines,           # (N, 4)
+        "widths": widths,         # (N,)
+        "precisions": precisions, # (N,)
+        "nfa": nfa,               # (N,)
+        "lengths": lengths,       # (N,) or None
+        "centers": centers,       # (N, 2) or None
+    }
+
+
 def detect_grid_segments_full(img: np.ndarray) -> Dict[str, np.ndarray]:
     """
-    Full LSD extraction wrapper.
-    Safely extracts:
-        - line segments
-        - widths
-        - precisions
-        - nfa
-        - lengths
-        - centers
+    Run LSD (Line Segment Detector) and return raw segments
+    with full per-segment information.
 
-    Returns a dictionary with guaranteed shape consistency:
-        {
-            "lines":      (N,4) float32  [x1,y1,x2,y2]
-            "widths":     (N,)  float32
-            "precisions": (N,)  float32
-            "nfa":        (N,)  float32
-            "lengths":    (N,)  float32
-            "centers":    (N,2) float32
-        }
+    Returns
+    -------
+    dict with:
+        "lines"      : (N,4) float32 [x1,y1,x2,y2]
+        "widths"     : (N,)  float32
+        "precisions" : (N,)  float32
+        "nfa"        : (N,)  float32
+        "lengths"    : (N,)  float32
+        "centers"    : (N,2) float32 [xc,yc]
     """
-
     # -------------------------------------------------------
     # 1) Convert to grayscale
     # -------------------------------------------------------
@@ -244,8 +314,6 @@ def clamp_segment_length(
         1. Segment length limits: min_len <= length <= max_len
         2. Width percentile: remove widths above percentile(widths, width_percentile)
 
-    Percentile filter applies to **widths only**, not lengths.
-
     Input/output fields:
         "lines", "widths", "precisions", "nfa",
         "lengths", "centers"
@@ -256,12 +324,12 @@ def clamp_segment_length(
         if k not in raw_lsd:
             raise KeyError(f"raw_lsd missing required key '{k}'")
 
-    lines      = np.asarray(raw_lsd["lines"])
-    widths     = np.asarray(raw_lsd["widths"])
-    precisions = np.asarray(raw_lsd["precisions"])
-    nfa        = np.asarray(raw_lsd["nfa"])
-    lengths    = np.asarray(raw_lsd["lengths"])
-    centers    = np.asarray(raw_lsd["centers"])
+    lines      = raw_lsd["lines"]
+    widths     = raw_lsd["widths"]
+    precisions = raw_lsd["precisions"]
+    nfa        = raw_lsd["nfa"]
+    lengths    = raw_lsd["lengths"]
+    centers    = raw_lsd["centers"]
 
     if lines.size == 0:
         return {
@@ -3009,24 +3077,24 @@ def plot_lsd_distributions(
     Also prints to console:
         min / max / mean / median / std for width, precision, and NFA.
     """
+    widths, precisions, nfa = lsd["widths"], lsd["precisions"], lsd["nfa"]
+    if widths is None or len(widths) == 0:
+        print("plot_lsd_distributions: EMPTY LSD OUTPUT.")
+        return
 
-    widths = np.asarray(lsd.get("widths", []), float)
     # Add percentile summary ONLY for width
     p95  = np.percentile(widths, 95)
     p99  = np.percentile(widths, 99)
     p997 = np.percentile(widths, 99.7)  # ~3sigma
 
-    precisions = np.asarray(lsd.get("precisions", []), float)
-    nfa = np.asarray(lsd.get("nfa", []), float)
-
-    if widths.size == 0:
-        print("plot_lsd_distributions: EMPTY LSD OUTPUT.")
-        return
-
     # -------------------------------------------------------
     # Print statistics helper
     # -------------------------------------------------------
     def _print_stats(name: str, arr: np.ndarray):
+        if arr is None or len(arr) == 0:
+            print(f"\n{name} statistics: NO DATA")
+            return
+        
         print(f"\n{name} statistics:")
         print(f"    count   = {arr.size}")
         print(f"    min     = {np.min(arr):.6g}")
@@ -3040,23 +3108,12 @@ def plot_lsd_distributions(
     # -------------------------------------------------------
     _print_stats("Width", widths)
 
-    print("    p95     = {:.6g}".format(p95))
-    print("    p99     = {:.6g}".format(p99))
-    print("    p99.7   = {:.6g}".format(p997))
+    print(f"    p95     = {p95:.6g}")
+    print(f"    p99     = {p99:.6g}")
+    print(f"    p99.7   = {p997:.6g}")
 
     _print_stats("Precision", precisions)
     _print_stats("NFA (raw)", nfa)
-
-    # -------------------------------------------------------
-    # Prepare NFA display array
-    # -------------------------------------------------------
-    if log_nfa:
-        eps = 1e-12
-        nfa_disp = np.log10(nfa + eps)
-        nfa_label = "log10(NFA)"
-    else:
-        nfa_disp = nfa
-        nfa_label = "NFA"
 
     # -------------------------------------------------------
     # Create figure with 3 vertical subplots
@@ -3064,30 +3121,63 @@ def plot_lsd_distributions(
     fig, ax = plt.subplots(3, 1, figsize=fig_size)
     fig.suptitle(title, fontsize=16, weight="bold")
 
+    # -----------------------------
+    # Helper, handling missing data
+    # -----------------------------
+    def _plot_or_msg(ax, arr, bins, color, title, ylabel=None):
+        if arr is None or not isinstance(arr, (list, np.ndarray)) or len(arr) == 0:
+            ax.set_title(title)
+            ax.text(
+                0.5, 0.5, "NO DATA\n POSSIBLY REPLACED WITH DUMMIES DOWNSTREAM",
+                fontsize=16, ha="center", va="center",
+                transform=ax.transAxes,
+                color="red", weight="bold",
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if ylabel:
+                ax.set_ylabel(ylabel)
+            ax.grid(False)
+            return
+    
+        # Plot real data
+        ax.hist(arr, bins=bins, color=color, alpha=0.75)
+        ax.set_title(title)
+        if ylabel:
+            ax.set_ylabel(ylabel)
+        ax.grid(True, ls=":", alpha=0.35)
+
     # ----------------------
     # 1) WIDTH DISTRIBUTION
     # ----------------------
-    ax[0].hist(widths, bins=bins, color=color_width, alpha=0.75)
-    ax[0].set_title("Width Distribution")
-    ax[0].set_ylabel("Count")
-    ax[0].grid(True, ls=":", alpha=0.35)
+    _plot_or_msg(
+        ax[0], widths, bins, color_width, title="Width Distribution", ylabel="Count")
 
     # ------------------------
     # 2) PRECISION DISTRIBUTION
     # ------------------------
-    ax[1].hist(precisions, bins=bins, color=color_precision, alpha=0.75)
-    ax[1].set_title("Precision Distribution")
-    ax[1].set_ylabel("Count")
-    ax[1].grid(True, ls=":", alpha=0.35)
+    _plot_or_msg(
+        ax[1], precisions, bins, color_precision, title="Precision Distribution",
+        ylabel="Count")
 
     # -------------------
     # 3) NFA DISTRIBUTION
     # -------------------
-    ax[2].hist(nfa_disp, bins=bins, color=color_nfa, alpha=0.75)
-    ax[2].set_title(f"NFA Distribution ({nfa_label})")
-    ax[2].set_xlabel("Value")
-    ax[2].set_ylabel("Count")
-    ax[2].grid(True, ls=":", alpha=0.35)
+    if isinstance(nfa, np.ndarray):
+        if log_nfa:
+            eps = 1e-12
+            nfa_disp = np.log10(nfa + eps)
+            nfa_label = "log10(NFA)"
+        else:
+            nfa_disp = nfa
+            nfa_label = "NFA"
+    else:
+        nfa_disp = None
+        nfa_label = ""
+
+    _plot_or_msg(
+        ax[2], nfa_disp, bins, color_nfa, title=f"NFA Distribution ({nfa_label})",
+        ylabel="Count")    
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
