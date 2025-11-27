@@ -182,6 +182,8 @@ def main(image_path: Optional[str] = None) -> None:
     # -------------------------------------------------------------
     flt = clamp_segment_length(raw, min_len=5, max_len=1000, width_percentile=95)
     flt_lines = flt["lines"]
+    flt_centers = flt["centers"]
+    xy_scatter_from_centers(flt_centers, title="Pre-filtered LSD Segments Centers", size_scale=6)
     plot_lsd_distributions(flt, bins=lsd_dist_bins)
     
     # Statistical analysis of segment width distribution - bimodal distribution.
