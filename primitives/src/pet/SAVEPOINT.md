@@ -348,9 +348,12 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 
 - Plugins -> Integral Image Filters -> Normalize Local Contrast
   Defaults: 40x40x3.00 center/stretch
+- Image -> Color -> Retinex
 - Plugins -> Retinex
   Defaults: Uniform/240/3/1.2
 - Process -> Find Edges
+- Process -> Image Calculator
+- Process -> Calculator Plus
 - Process -> Enhance Local Contrast {CLAHE}
   Defaults: 127/256/3.00/None
 - Plugins -> Process -> Find Connected Regions
