@@ -360,7 +360,7 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 - Plugins -> Ridge Detection
 - Plugins -> Segmentation
 - Plugins -> Segmentation -> Color Clustering
-  Color Clustering on the Brightness Channel appears to be very efficient at splitting the image based on lighting levels. Basically, created split might be then useful as a mask for correction of uneven lighting,
+  Color Clustering on the Brightness Channel appears to be very efficient at splitting the image based on lighting levels. Basically, created split might be then useful as a mask for correction of uneven lighting (check out how this can be done in ImageJ).
 - Plugins -> Transform
 
  
