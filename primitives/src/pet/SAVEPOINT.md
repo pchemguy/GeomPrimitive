@@ -336,8 +336,26 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 
 ## 8. TODO and Notes
 
+### 8.1 General
+
 - Note how LSD-based segment centers cloud exhibits clearly grid structure (stripes) in one direction, but not the other (at least much more pronounced). Direct fitting via `pet_grid_optimizer.py` and related modules also results in much better results in one direction. Interactive `pet_grid_node_detector.py` script detecting grid nodes based on Sobel operator followed by KDE-based marginal density representation also show strong asymmetry in resonance intensity. 
 - Consider generating KDE from horizontal slices, say top/mid/bottom one third of Y spread for each orientation.
 - [WEIGHTED_KDE](./WEIGHTED_KDE.md)
 - Preliminary comparison using the same workflow of LSD-based and Sobel-edge-detector-based (as implemented in `pet_grid_node_detector.py` and demonstrated via `pet_allinone_v2.py`) suggests that LSD-based analysis may yield broader lines resulting in considerable reduction in sensitivity to geometrical distortion of the grid. Due to this reduced sensitivity, average pitch detection might be more robust, but LSD-based detection might be less suitable to characterizing grid distortions. These conclusions are based on a single image analysis and proper evaluation of both approaches is essential. 
 - Minimum grid pitch estimation as `10 * (pw_major + 1.5 * pw_minor) / 2`, where `pw_major` and `pw_minor` KDE peak width for corresponding `widths` distributions.
+
+### 8.2 Important Fiji ImageJ Features
+
+- Plugins -> Integral Image Filters -> Normalize Local Contrast
+  Defaults: 40x40x3.00 center/stretch
+- Plugins -> Retinex
+  Defaults: Uniform/240/3/1.2
+- Process -> Find Edges
+- Process -> Enhance Local Contrast {CLAHE}
+  Defaults: 127/256/3.00/None
+- Plugins -> Process -> Find Connected Regions
+- Plugins -> Ridge Detection
+- Plugins -> Segmentation
+- Plugins -> Transform
+
+ 
