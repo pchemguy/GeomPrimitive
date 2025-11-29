@@ -33,12 +33,12 @@ CENTER = True
 # =================================================
 
 
-def imagej_init(fiji_path: str = None):
+def imagej_init(fiji_path: str = None, mode="headless"):
     """Initializes pyImageJ"""
     # --- STEP 0: INIT IMAGEJ ---
     print(f"Initializing ImageJ (Headless) from: {fiji_path}...")
     try:
-        ij = imagej.init(fiji_path, mode='headless')
+        ij = imagej.init(fiji_path, mode)
     except Exception as e:
         print(f"CRITICAL ERROR: Could not start ImageJ.\n{e}")
         return None, None
@@ -237,29 +237,17 @@ def get_ridge_params_from_L(l_channel, detect_dark_lines=True):
     return round(est_width, 2), int(high_c), int(low_c)
 
 
-def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_threshold=2.0, show_histogram=False):
+def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, spread_threshold=0.5, show_histogram=False):
     """
-    Analyzes L-channel to determine if Single-Scale or Multi-Scale detection is needed.
-
-    Prints stats, and optionally plots the width distribution.
-
-    Args:
-        l_channel: Numpy array (L from Lab).
-        detect_dark_lines: Boolean.
-        variability_threshold: If the std deviation of widths > this (in pixels), 
-                               we trigger multi-scale.
+    Decides between Single vs Multi-Scale based on P90 and Relative Spread.
     
-    Returns:
-        A LIST of parameter dictionaries. 
-        Length 1 = Single Scale. Length 2 = Multi Scale.
+    Args:
+        spread_threshold (0.5): The ratio (P90-P10)/Median. 
+                                If > 0.5, the width varies by more than 50% of the median size -> MultiScale.
     """
     # 1. Pre-processing
     img_float = l_channel.astype(float)
-    if detect_dark_lines:
-        work_img = 255.0 - img_float
-    else:
-        work_img = img_float
-
+    work_img = (255.0 - img_float) if detect_dark_lines else img_float
     img_smooth = gaussian(work_img, sigma=1.0)
 
     # 2. Binary Mask & Skeleton
@@ -267,32 +255,39 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
         thresh = threshold_otsu(img_smooth)
         binary_mask = img_smooth > thresh
     except ValueError:
-        print(">> STATISTICS: Image appears empty/uniform. Using Defaults.")
         return [{"line_width": 3.5, "high_contrast": 200, "low_contrast": 80, "darkline": detect_dark_lines, "name": "Default"}]
 
     # 3. Measure Widths
     dist_map = distance_transform_edt(binary_mask)
     skel = skeletonize(binary_mask)
     
-    # Extract widths at skeleton (filter out tiny noise < 1px)
+    # Filter valid widths (> 0.5px)
     raw_widths = dist_map[skel] * 2.0
-    raw_widths = raw_widths[raw_widths > 0.5] 
+    raw_widths = raw_widths[raw_widths > 0.5]
 
     if len(raw_widths) == 0:
-        print(">> STATISTICS: No structure detected. Using Defaults.")
         return [{"line_width": 3.5, "high_contrast": 200, "low_contrast": 80, "darkline": detect_dark_lines}]
 
-    # 4. Statistical Analysis
+    # 4. ROBUST STATISTICS
     width_median = np.median(raw_widths)
     width_mean = np.mean(raw_widths)
     width_std = np.std(raw_widths)
+    median = np.median(raw_widths)
+    p10 = np.percentile(raw_widths, 10)
+    p25 = np.percentile(raw_widths, 25)
+    p90 = np.percentile(raw_widths, 90)
     
+    # "Adjusted Variance" (Relative Inter-Percentile Spread)
+    # How wide is the valid data range compared to the object size?
+    spread_abs = p90 - p10
+    spread_rel = spread_abs / width_median if width_median > 0 else 0
+
     # Calculate Contrast
     foreground_vals = work_img[binary_mask]
     background_vals = work_img[~binary_mask]
     bg_level = np.median(background_vals) if len(background_vals) > 0 else 0
-    p90 = np.percentile(foreground_vals, 90) if len(foreground_vals) > 0 else 200
-    high_c = max(p90 - bg_level, 10)
+    p90_contrast = np.percentile(foreground_vals, 90) if len(foreground_vals) > 0 else 200
+    high_c = max(p90_contrast - bg_level, 10)
     low_c = max(high_c * 0.4, 5)
 
     # --- PRINT STATISTICS (Always runs) ---
@@ -306,80 +301,215 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
     print(f"  - Mean:   {width_mean:.2f} px")
     print(f"  - StdDev: {width_std:.2f} px")
     print("-" * 40)
-    
-    # --- HISTOGRAM VISUALIZATION ---
-    if show_histogram:
-        # Calculate Percentiles
-        p90 = np.percentile(raw_widths, 90)
-        p95 = np.percentile(raw_widths, 95)
-        p99 = np.percentile(raw_widths, 99)
 
-        # Create explicit bins of size 0.5
-        max_val = np.max(raw_widths)
-        bins_list = np.arange(0, math.ceil(max_val) + 1, 0.5)
-        
-        plt.figure(figsize=(12, 6))
-        
-        # Plot Histogram
-        plt.hist(raw_widths, bins=bins_list, color='skyblue', edgecolor='black', alpha=0.6, label='Width Counts')
-        
-        # Plot Key Metrics
-        plt.axvline(width_median, color='black', linestyle='-', linewidth=2, label=f'Median ({width_median:.1f})')
-        
-        # Plot Upper Percentiles (The "Tail")
-        plt.axvline(p90, color='orange', linestyle='--', linewidth=1.5, label=f'90% ({p90:.1f})')
-        plt.axvline(p95, color='red', linestyle='--', linewidth=1.5, label=f'95% ({p95:.1f})')
-        plt.axvline(p99, color='darkred', linestyle='--', linewidth=1.5, label=f'99% ({p99:.1f})')
-
-        # Plot Decision Lines (if multi-scale is triggered)
-        if width_std >= variability_threshold:
-            p25 = np.percentile(raw_widths, 25)
-            p85 = np.percentile(raw_widths, 85)
-            # Use background shading or distinct markers for the "Action" items
-            plt.axvline(p25, color='green', linestyle=':', linewidth=3, label=f'Thin Pass ({p25:.1f})')
-            plt.axvline(p85, color='blue', linestyle=':', linewidth=3, label=f'Thick Pass ({p85:.1f})')
-            
-        plt.title(f'Line Width Distribution (StdDev: {width_std:.2f}px)', fontsize=14)
-        plt.xlabel('Width (pixels)', fontsize=12)
-        plt.ylabel('Count', fontsize=12)
-        plt.legend(loc='upper right')
-        plt.grid(axis='y', alpha=0.3)
-        plt.tight_layout()
-        plt.show()
-
-    # 5. Decision Logic
+    # 5. DECISION LOGIC
     configs = []
+    is_multiscale = spread_rel > spread_threshold
 
-    if width_std < variability_threshold:
-        print(f">> DECISION: Uniform Widths (Std < {variability_threshold}). Running Single Pass.")
+    if is_multiscale:
+        decision_str = f"Multi-Scale (Spread Ratio {spread_rel:.2f} > {spread_threshold})"
+        # Run 1: Thin (P25)
         configs.append({
-            "line_width": round(width_median, 2),
+            "line_width": round(float(p25), 2),
+            "high_contrast": int(high_c),
+            "low_contrast": int(low_c * 0.8),
+            "darkline": detect_dark_lines,
+            "name": "Scale_Thin"
+        })
+        # Run 2: Thick (Targeting the P90 tail)
+        configs.append({
+            "line_width": round(float(p90), 2),
+            "high_contrast": int(high_c),
+            "low_contrast": int(low_c),
+            "darkline": detect_dark_lines,
+            "name": "Scale_Thick_P90"
+        })
+    else:
+        decision_str = f"Single-Scale (Spread Ratio {spread_rel:.2f} <= {spread_threshold})"
+        configs.append({
+            "line_width": round(float(width_median), 2),
             "high_contrast": int(high_c),
             "low_contrast": int(low_c),
             "darkline": detect_dark_lines,
             "name": "Single_Pass"
         })
-    else:
-        print(f">> DECISION: Variable Widths (Std >= {variability_threshold}). Running Multi-Scale.")
-        width_thin = np.percentile(raw_widths, 25)
-        width_thick = np.percentile(raw_widths, 85)
+
+    print(f">> STATS: Median={width_median:.2f}, P10={p10:.2f}, P90={p90:.2f}")
+    print(f">> DECISION: {decision_str}")
+
+    # 6. VISUALIZATION
+    if show_histogram:
+        max_val = np.max(raw_widths)
+        bins_list = np.arange(0, math.ceil(max_val) + 1, 1)
         
-        configs.append({
-            "line_width": round(width_thin, 2),
-            "high_contrast": int(high_c),
-            "low_contrast": int(low_c * 0.8), 
-            "darkline": detect_dark_lines,
-            "name": "Scale_Thin"
-        })
-        configs.append({
-            "line_width": round(width_thick, 2),
-            "high_contrast": int(high_c),
-            "low_contrast": int(low_c),
-            "darkline": detect_dark_lines,
-            "name": "Scale_Thick"
-        })
+        plt.figure(figsize=(12, 5))
+        plt.hist(raw_widths, bins=bins_list, color='gray', alpha=0.4, label='All Widths')
+        
+        # Highlight the "Core" range (P10 to P90)
+        plt.axvspan(p10, p90, color='yellow', alpha=0.2, label='Robust Range (P10-P90)')
+        plt.axvline(width_median, color='black', linewidth=2, label=f'Median ({width_median:.1f})')
+        plt.axvline(p90, color='red', linestyle='--', linewidth=2, label=f'P90 ({p90:.1f})')
+
+        if is_multiscale:
+            plt.scatter([p25], [0], color='green', s=100, zorder=10, label='Run 1: Thin')
+            plt.scatter([p90], [0], color='blue', s=100, zorder=10, label='Run 2: Thick')
+        else:
+            plt.scatter([width_median], [0], color='green', s=100, zorder=10, label='Run: Single')
+
+        plt.title(f'Width Distribution - Decision: {decision_str}')
+        plt.legend()
+        plt.show()
 
     return configs
+
+
+def fiji_ridge_detector(ij,
+                        l_channel, 
+                        line_width, 
+                        high_contrast, 
+                        low_contrast, 
+                        darkline=True, 
+                        correct_position=True, 
+                        estimate_width=True, 
+                        add_to_manager=True, 
+                        overlap_resolution="SLOPE"):
+    """
+    Runs Ridge Detection and returns a structured list of segments with their metadata.
+    
+    Args:
+        ij: The initialized ImageJ/Fiji gateway.
+        l_channel (numpy.ndarray): The 2D L-channel array.
+        line_width, high_contrast, low_contrast: Detection parameters.
+        darkline, correct_position, estimate_width, add_to_manager: Boolean flags.
+        overlap_resolution: "NONE" or "SLOPE".
+        cleanup (bool): If True, closes the temp image after processing.
+
+    Returns:
+        List[dict]: A list of segment dictionaries in the format:
+        [
+            {
+                "nodes": [(x1, y1), (x2, y2), ...], 
+                "meta":  {"Line Width": 3.5, "Length": 10.2, "Mean": 150.0, ...}
+            },
+            ...
+        ]
+    """
+    # --- 1. JAVA IMPORTS & SETUP ---
+    # We import these dynamically to ensure the gateway 'ij' is active
+    RoiManager = imagej.sj.jimport('ij.plugin.frame.RoiManager')
+    ResultsTable = imagej.sj.jimport('ij.measure.ResultsTable')
+    WindowManager = imagej.sj.jimport('ij.WindowManager')
+
+    # Get Instances
+    rm = RoiManager.getRoiManager()
+    rt = ResultsTable.getResultsTable()
+
+    # CRITICAL: Reset ROI Manager and Results Table before running.
+    # If we don't, we mix data from previous runs.
+    if rm: rm.reset()
+    if rt: rt.reset()
+
+    # --- 2. PREPARE IMAGE ---
+    # Convert Numpy to ImageJ (ImagePlus)
+    ij_image = ij.py.to_java(l_channel)
+    
+    # Set this as the "Active" image without opening a window
+    WindowManager.setTempCurrentImage(ij_image)
+
+    # --- 3. CONSTRUCT PARAMETERS ---
+    valid_methods = ["NONE", "SLOPE"]
+    if overlap_resolution not in valid_methods:
+        raise ValueError(f"overlap_resolution must be one of {valid_methods}")
+
+    # Note: 'estimate_width' must be True to get width data in "meta"
+    parameters = {
+        "line_width": float(line_width),
+        "high_contrast": int(high_contrast),
+        "low_contrast": int(low_contrast),
+        "correct_position": correct_position,
+        "estimate_width": estimate_width,
+        "add_to_manager": add_to_manager,
+        "method_for_overlap_resolution": overlap_resolution,
+        "darkline": darkline,
+        "extend_line": True,
+        "displayresults": True, # Required to populate 'rt'
+        "show_junction_points": False,
+        "show_ids": False,
+        "verbose_mode": False,
+        "make_binary": False
+    }
+
+    # Format for ImageJ Macro string
+    param_list = []
+    for k, v in parameters.items():
+        if isinstance(v, bool):
+            param_list.append(f"{k}={'true' if v else 'false'}")
+        else:
+            param_list.append(f"{k}={v}")
+    param_str = " ".join(param_list)
+
+    # --- 4. RUN PLUGIN ---
+    try:
+        ij.py.run_plugin("Ridge Detection", param_str)
+    except Exception as e:
+        print(f"Error running Ridge Detection: {e}")
+        return []
+
+    # --- 5. EXTRACT & SYNC DATA ---
+    output_segments = []
+    
+    # Get updated references
+    rois = rm.getRoisAsArray()
+    rt = ResultsTable.getResultsTable()
+    
+    if rois is None:
+        if cleanup: ij_image.close()
+        return []
+
+    # Check for consistency
+    count_rois = len(rois)
+    count_rt = rt.getCounter() if rt else 0
+    
+    if count_rois != count_rt:
+        print(f"Warning: ROI Manager ({count_rois}) and Results Table ({count_rt}) sync mismatch.")
+
+    # Get available column headers from Results Table (e.g. "Length", "Line Width", "Mean")
+    # rt.getHeadings() returns a Java array of Strings
+    headings = list(rt.getHeadings()) if rt else []
+
+    for i, roi in enumerate(rois):
+        # A. Extract Geometry ("nodes")
+        # Use getFloatPolygon for sub-pixel precision
+        poly = roi.getFloatPolygon()
+        
+        # poly.xpoints is a Java buffer that may be larger than npoints.
+        # We strictly slice by npoints.
+        nodes = [(poly.xpoints[k], poly.ypoints[k]) for k in range(poly.npoints)]
+
+        # B. Extract Statistics ("meta")
+        meta = {}
+        if i < count_rt:
+            for col_name in headings:
+                # getValue(column, row)
+                try:
+                    val = rt.getValue(col_name, i)
+                    meta[col_name] = val
+                except:
+                    pass
+        
+        # C. Build Structure
+        output_segments.append({
+            "nodes": nodes,
+            "meta": meta
+        })
+
+    # --- 6. CLEANUP ---
+    ij_image.close()
+    # Optional: Hide the ROI Manager and Results Table again if they popped up
+    # rm.close() 
+    # rt.close()
+
+    return output_segments
 
 
 def main():
@@ -409,8 +539,16 @@ def main():
         f"Parameters for Ridge Detection:\n"
         f"line_width: {line_width}, high_contrast: {high_contrast}, low_contrast: {low_contrast}."
     )
-    ridge_config = get_multiscale_ridge_params(l_channel=l_processed, detect_dark_lines=True, show_histogram=True)
+    ridge_config = get_multiscale_ridge_params(l_channel=l_processed, detect_dark_lines=True, spread_threshold=3, show_histogram=True)
     print(ridge_config)
+
+    line_width = ridge_config[0]["line_width"]
+    high_contrast = ridge_config[0]["high_contrast"]
+    low_contrast = ridge_config[0]["low_contrast"]
+    darkline = ridge_config[0]["darkline"]
+
+    results = fiji_ridge_detector(ij, l_processed, line_width, high_contrast, low_contrast, darkline)
+
 
 
 if __name__ == "__main__":
