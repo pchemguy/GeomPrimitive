@@ -268,16 +268,16 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
         binary_mask = img_smooth > thresh
     except ValueError:
         print(">> STATISTICS: Image appears empty/uniform. Using Defaults.")
-        return [{
-            "line_width": 3.5, "high_contrast": 200, "low_contrast": 80, 
-            "darkline": detect_dark_lines, "name": "Default"
-        }]
+        return [{"line_width": 3.5, "high_contrast": 200, "low_contrast": 80, "darkline": detect_dark_lines, "name": "Default"}]
 
     # 3. Measure Widths
     dist_map = distance_transform_edt(binary_mask)
     skel = skeletonize(binary_mask)
-    raw_widths = dist_map[skel] * 2.0
     
+    # Extract widths at skeleton (filter out tiny noise < 1px)
+    raw_widths = dist_map[skel] * 2.0
+    raw_widths = raw_widths[raw_widths > 0.5] 
+
     if len(raw_widths) == 0:
         print(">> STATISTICS: No structure detected. Using Defaults.")
         return [{"line_width": 3.5, "high_contrast": 200, "low_contrast": 80, "darkline": detect_dark_lines}]
@@ -291,7 +291,6 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
     foreground_vals = work_img[binary_mask]
     background_vals = work_img[~binary_mask]
     bg_level = np.median(background_vals) if len(background_vals) > 0 else 0
-    
     p90 = np.percentile(foreground_vals, 90) if len(foreground_vals) > 0 else 200
     high_c = max(p90 - bg_level, 10)
     low_c = max(high_c * 0.4, 5)
@@ -307,11 +306,38 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
     print(f"  - Mean:   {width_mean:.2f} px")
     print(f"  - StdDev: {width_std:.2f} px")
     print("-" * 40)
+    
+    # --- HISTOGRAM VISUALIZATION ---
+    if show_histogram:
+        # Define explicit bins: Range from 0 to Max+1 with 0.5 step
+        max_val = np.max(raw_widths)
+        # Create bins like [0.0, 0.5, 1.0, 1.5, ... max]
+        bins_list = np.arange(0, math.ceil(max_val) + 1, 0.5)
+        
+        plt.figure(figsize=(10, 5))
+        
+        # Use the explicit bins
+        counts, _, _ = plt.hist(raw_widths, bins=bins_list, color='skyblue', edgecolor='black', alpha=0.7)
+        
+        plt.axvline(width_median, color='red', linestyle='dashed', linewidth=1.5, label=f'Median: {width_median:.1f}')
+        plt.title(f'Line Width Distribution (Bin Size: 0.5px)')
+        plt.xlabel('Width (pixels)')
+        plt.ylabel('Count (pixels on skeleton)')
+        
+        # Add visual markers for the cutoffs
+        if width_std >= variability_threshold:
+            p25 = np.percentile(raw_widths, 25)
+            p85 = np.percentile(raw_widths, 85)
+            plt.axvline(p25, color='green', linestyle=':', linewidth=2, label=f'Thin Pass (~{p25:.1f})')
+            plt.axvline(p85, color='blue', linestyle=':', linewidth=2, label=f'Thick Pass (~{p85:.1f})')
+            
+        plt.legend()
+        plt.grid(axis='y', alpha=0.3)
+        plt.show()
 
     # 5. Decision Logic
     configs = []
 
-    # Case A: Low Variance -> Single Scale
     if width_std < variability_threshold:
         print(f">> DECISION: Uniform Widths (Std < {variability_threshold}). Running Single Pass.")
         configs.append({
@@ -321,15 +347,11 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
             "darkline": detect_dark_lines,
             "name": "Single_Pass"
         })
-        
-    # Case B: High Variance -> Multi Scale
     else:
         print(f">> DECISION: Variable Widths (Std >= {variability_threshold}). Running Multi-Scale.")
-        
         width_thin = np.percentile(raw_widths, 25)
         width_thick = np.percentile(raw_widths, 85)
         
-        # Thin Config
         configs.append({
             "line_width": round(width_thin, 2),
             "high_contrast": int(high_c),
@@ -337,8 +359,6 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
             "darkline": detect_dark_lines,
             "name": "Scale_Thin"
         })
-        
-        # Thick Config
         configs.append({
             "line_width": round(width_thick, 2),
             "high_contrast": int(high_c),
@@ -377,7 +397,7 @@ def main():
         f"Parameters for Ridge Detection:\n"
         f"line_width: {line_width}, high_contrast: {high_contrast}, low_contrast: {low_contrast}."
     )
-    ridge_config = get_multiscale_ridge_params(l_channel=l_processed, detect_dark_lines=True)
+    ridge_config = get_multiscale_ridge_params(l_channel=l_processed, detect_dark_lines=True, show_histogram=True)
     print(ridge_config)
 
 
