@@ -1,9 +1,10 @@
 import os
 import sys
+from pathlib import Path
 import cv2
 import numpy as np
+import pandas as pd
 import scyjava
-from pathlib import Path
 
 # ================= CONFIGURATION =================
 # 1. SETUP MEMORY & HEADLESS MODE
