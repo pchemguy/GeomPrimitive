@@ -309,30 +309,42 @@ def get_multiscale_ridge_params(l_channel, detect_dark_lines=True, variability_t
     
     # --- HISTOGRAM VISUALIZATION ---
     if show_histogram:
-        # Define explicit bins: Range from 0 to Max+1 with 0.5 step
+        # Calculate Percentiles
+        p90 = np.percentile(raw_widths, 90)
+        p95 = np.percentile(raw_widths, 95)
+        p99 = np.percentile(raw_widths, 99)
+
+        # Create explicit bins of size 0.5
         max_val = np.max(raw_widths)
-        # Create bins like [0.0, 0.5, 1.0, 1.5, ... max]
         bins_list = np.arange(0, math.ceil(max_val) + 1, 0.5)
         
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(12, 6))
         
-        # Use the explicit bins
-        counts, _, _ = plt.hist(raw_widths, bins=bins_list, color='skyblue', edgecolor='black', alpha=0.7)
+        # Plot Histogram
+        plt.hist(raw_widths, bins=bins_list, color='skyblue', edgecolor='black', alpha=0.6, label='Width Counts')
         
-        plt.axvline(width_median, color='red', linestyle='dashed', linewidth=1.5, label=f'Median: {width_median:.1f}')
-        plt.title(f'Line Width Distribution (Bin Size: 0.5px)')
-        plt.xlabel('Width (pixels)')
-        plt.ylabel('Count (pixels on skeleton)')
+        # Plot Key Metrics
+        plt.axvline(width_median, color='black', linestyle='-', linewidth=2, label=f'Median ({width_median:.1f})')
         
-        # Add visual markers for the cutoffs
+        # Plot Upper Percentiles (The "Tail")
+        plt.axvline(p90, color='orange', linestyle='--', linewidth=1.5, label=f'90% ({p90:.1f})')
+        plt.axvline(p95, color='red', linestyle='--', linewidth=1.5, label=f'95% ({p95:.1f})')
+        plt.axvline(p99, color='darkred', linestyle='--', linewidth=1.5, label=f'99% ({p99:.1f})')
+
+        # Plot Decision Lines (if multi-scale is triggered)
         if width_std >= variability_threshold:
             p25 = np.percentile(raw_widths, 25)
             p85 = np.percentile(raw_widths, 85)
-            plt.axvline(p25, color='green', linestyle=':', linewidth=2, label=f'Thin Pass (~{p25:.1f})')
-            plt.axvline(p85, color='blue', linestyle=':', linewidth=2, label=f'Thick Pass (~{p85:.1f})')
+            # Use background shading or distinct markers for the "Action" items
+            plt.axvline(p25, color='green', linestyle=':', linewidth=3, label=f'Thin Pass ({p25:.1f})')
+            plt.axvline(p85, color='blue', linestyle=':', linewidth=3, label=f'Thick Pass ({p85:.1f})')
             
-        plt.legend()
+        plt.title(f'Line Width Distribution (StdDev: {width_std:.2f}px)', fontsize=14)
+        plt.xlabel('Width (pixels)', fontsize=12)
+        plt.ylabel('Count', fontsize=12)
+        plt.legend(loc='upper right')
         plt.grid(axis='y', alpha=0.3)
+        plt.tight_layout()
         plt.show()
 
     # 5. Decision Logic
