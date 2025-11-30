@@ -84,6 +84,10 @@ Two complementary strategies are under development:
 
 These approaches can be fused for maximal robustness.
 
+> [!WARNING]
+> 
+> ImageJ Ridge Detector is way better, though I could not fin a way to get metadata (ResultsTable with per node metas.) via Pyton.
+
 ### 3.1 Segment Detection
 
 The current prototype is implemented in **`pet_allinone.py`**, supported by the `pet_*` module family. It displays multiple debug plots and saves intermediate results (`debug_*`, `rotated_*`).
