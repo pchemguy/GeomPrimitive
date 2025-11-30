@@ -86,8 +86,11 @@ These approaches can be fused for maximal robustness.
 
 > [!WARNING]
 > 
-> ImageJ Ridge Detector is way better, though I could not fin a way to get metadata (ResultsTable with per node metas.) via Pyton.  
-> See https://github.com/lxfhfut/ridge-detector
+> ImageJ Ridge Detector is way better than OpenCV LSD, though I could not find a way to get metadata (ResultsTable with per node metas) via Pyton.  
+> See also  
+> - https://github.com/thorstenwagner/ij-ridgedetection
+> - https://github.com/lxfhfut/ridge-detector
+> - https://scikit-image.org/docs/0.25.x/auto_examples/edges/plot_ridge_filter.html
 
 ### 3.1 Segment Detection
 
