@@ -7,11 +7,10 @@ import pandas as pd
 import scyjava
 
 # ================= CONFIGURATION =================
-# 1. SETUP MEMORY & HEADLESS MODE
 scyjava.config.add_option('-Xmx4g')
 
 import imagej
-import imagej.doctor
+
 
 FIJI_PATH = r"G:\ProgramsMisc\Fiji"
 INPUT_IMAGE = r"photo_2025-11-17_23-50-05.jpg"
@@ -22,20 +21,98 @@ HIGH_CONTRAST = 200
 LOW_CONTRAST = 80
 # =================================================
 
-def run_ridge():
-    # --- STEP 0: INIT ---
-    print(f"Initializing ImageJ...")
-    ij = imagej.init(FIJI_PATH, mode='interactive')
-    print(f"ImageJ version: {ij.getVersion()}")
-    
-    imagej.doctor.debug_to_stderr()
-    imagej.doctor.checkup()
+def use_fiji_jvm(fiji_dir):
+    """
+    Finds the JVM bundled within Fiji and forces scyjava to use it.
+    Must be called BEFORE the JVM is initialized.
+    """
+    if scyjava.jvm_started():
+        print("CRITICAL WARNING: JVM is already running! Cannot switch versions now.")
+        return
 
+    fiji_path = Path(fiji_dir)
+    java_dir = Path(os.path.join(fiji_dir, "java"))
+
+    # 1. Hunt for the bundled JRE/JDK
+    # Fiji (Windows) usually has structure: Fiji/java/win64/jdk1.8.0_172/jre...
+    target_java_home = None
+    
+    if java_dir.exists():
+        # Look recursively for a 'bin' folder containing 'server/jvm.dll' (Windows)
+        # or 'lib/server/libjvm.so' (Linux)
+        for root, dirs, files in os.walk(java_dir):
+            if "jvm.dll" in files:
+                # Found the DLL. Now we need the 'Home' (usually 2 levels up from bin/server)
+                # Standard layout: HOME/bin/server/jvm.dll
+                # We want HOME.
+                potential_bin = Path(root).parent
+                if potential_bin.name == "bin":
+                    target_java_home = potential_bin.parent
+                    if target_java_home.name == "jre":
+                        target_java_home = target_java_home.parent
+                    break
+                # Handle simplified JRE layouts
+                elif Path(root).name == "server": 
+                     target_java_home = Path(root).parent.parent
+                     break
+    
+    # 2. Apply the Switch
+    if target_java_home:
+        print(f"--> Found Fiji Bundled Java: {target_java_home}")
+        # Force the environment variable for this process ONLY
+        os.environ["JAVA_HOME"] = str(target_java_home)
+    else:
+        print(f"--> WARNING: Could not find bundled Java in {fiji_dir}")
+
+
+def java_env():
+    print("-" * 40)
+    # 1. Check what Windows/Linux thinks JAVA_HOME is
+    print(f"OS Environment JAVA_HOME: {os.environ.get('JAVA_HOME')}")
+    
+    # 2. Check what ScyJava/ImageJ is ACTUALLY using
+    # (This is often different if scyjava found its own bundled Java)
+    try:
+        System = scyjava.jimport('java.lang.System')
+        print(f"Active JVM java.home:     {System.getProperty('java.home')}")
+        print(f"Active JVM Version:       {System.getProperty('java.version')}")
+    except Exception as e:
+        print(f"Could not get JVM info: {e}")
+    print("-" * 40)
+
+    
+def imagej_init(fiji_path: str = None, mode="interactive"):
+    """Initializes pyImageJ"""
+    # --- STEP 0: INIT IMAGEJ ---
+    print(f"Initializing ImageJ from: {fiji_path}...")
+    try:
+        ij = imagej.init(fiji_path, mode)
+    except Exception as e:
+        print(f"CRITICAL ERROR: Could not start ImageJ.\n{e}")
+        return None, None
+
+    print(f"ImageJ version: {ij.getVersion()}")
+
+    # Import IJ class
+    IJ = scyjava.jimport('ij.IJ')
+
+    return ij
+
+
+def run_ridge():
+    # 1. SWAP JVM (Must be first)
+    # use_fiji_jvm(FIJI_PATH)
+    
+    # 2. CHECK ENV (Triggers JVM Start)
+    print("Starting JVM...")
+    java_env()
+    
     # Import necessary classes
+    ij = imagej_init(FIJI_PATH)
+    return
     IJ = ij.IJ
     WindowManager = ij.WindowManager
     ResultsTable = ij.ResultsTable
-    # Note: We do NOT import RoiManager anymore
 
     # --- STEP 1: LOAD IMAGE ---
     print(f"Loading image: {INPUT_IMAGE}")
@@ -55,7 +132,7 @@ def run_ridge():
     WindowManager.setTempCurrentImage(imp)
 
     # Clean ResultsTable if it exists
-    rt = ResultsTable.getResultsTable()
+    rt = ResultsTable.getResultsTable("Results")
     if rt: rt.reset()
 
     # --- STEP 3: RUN PLUGIN (Safe Mode) ---
@@ -68,7 +145,7 @@ def run_ridge():
         f"low_contrast={LOW_CONTRAST} "
         "correct_position=true "
         "estimate_width=true "
-        "add_to_manager=true "
+        "add_to_manager=false "  # <--- CRITICAL FIX
         "displayresults=true " 
         "method_for_overlap_resolution=NONE "
         "darkline=true" 
@@ -99,9 +176,7 @@ def run_ridge():
 
     # --- STEP 5: SYNC WITH RESULTS TABLE ---
     rt = ResultsTable.getResultsTable()
-    print(rt)
-    print(rt.getHeadings())
-
+    
     # Robust Width Retrieval
     widths = []
     if rt and rt.getCounter() > 0:
@@ -132,6 +207,9 @@ def run_ridge():
     print(f"Successfully extracted {len(results)} segments.")
     if len(results) > 0:
         print(f"Sample Segment 0: Width={results[0]['est_width']:.2f}, Points={len(results[0]['points'])}")
+
+
+    print(rt)
 
     # --- CLEANUP ---
     WindowManager.setTempCurrentImage(None)

@@ -86,7 +86,8 @@ These approaches can be fused for maximal robustness.
 
 > [!WARNING]
 > 
-> ImageJ Ridge Detector is way better, though I could not fin a way to get metadata (ResultsTable with per node metas.) via Pyton.
+> ImageJ Ridge Detector is way better, though I could not fin a way to get metadata (ResultsTable with per node metas.) via Pyton.  
+> See https://github.com/lxfhfut/ridge-detector
 
 ### 3.1 Segment Detection
 
