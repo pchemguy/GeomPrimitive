@@ -93,6 +93,29 @@ These approaches can be fused for maximal robustness.
 > - https://scikit-image.org/docs/0.25.x/auto_examples/edges/plot_ridge_filter.html
 > - https://github.com/clEsperanto/pyclesperanto
 
+### **Deep Research Prompt for Reviewing Grid Detection Libraries** 
+
+https://chatgpt.com/c/692de722-b510-8332-bfce-4be61696fea3  
+https://gemini.google.com/app/95029513ccf58826  
+
+I need a comprehensive review and detailed technical analysis of various prominent open source Python libraries or tools accessible from Python that expose functionality suitable for analysis/detection/extraction of grids due two background millimeter graph paper in lab photographs. I am specifically interested in this grid-related functionality and analysis/review shall specifically focus on it.
+
+#### Preliminary thoughts
+
+Perhaps, the first candidate tool is OpenCV LSD. It is readily available and after appropriate pre/post processing yields usable information. However, its readily available crippled implementation, though useful, appears to perform considerably worse compared to Fiji ImageJ's Ridge Detector. Then again, ImageJ Ridge Detector is Java library with a lousy Python interface. The general task of detecting curves, not necessarily straight lines, is an important task for biomedical applications, so other prominent libraries targeting either general scientific or more specific biomed apps provide similar functionality, be it called "Ridge Detector" or something else. I am specifically interested in algorithmic (non-ML) solutions, but I am interested in both CPU and GPU-accelerated libraries.  
+
+I am less concerned about speed now, but accuracy, noise and limited contrast robustness, and integrated multiscale abilities with robust auto tuning are important. Also important is returned metadata for assessing individual lines/curves (width, contrast, etc.), integrated ability to handle line crossing, tendency to generate longer polylines, integrated refinement abilities.
+
+#### Gemini Plan
+
+1) Research Python implementations and wrappers of Steger's curvilinear structure detection algorithm (the basis of ImageJ's Ridge Detector) to find native Python alternatives or efficient bindings.
+2) Analyze the technical specifications and limitations of OpenCV's Line Segment Detector (LSD) and Fast Line Detector (FLD) modules, specifically looking for recent updates, forks, or non-mainstream bindings that address known implementation limitations regarding grid extraction reliability.
+3) Investigate Scikit-image's ridge operators (Frangi, Sato, Meijering, Hessian) and skeletonization algorithms, evaluating their ability to extract vector topology from low-contrast millimeter graph paper grids compared to direct vector extraction methods.
+4) Explore biomedical image analysis libraries accessible in Python (e.g., SimpleITK, Mahotas, CellProfiler) for 'tube', 'vessel', or 'neurite' detection algorithms that operate non-ML and can be repurposed for robust grid line extraction.
+5) Search for GPU-accelerated Python image processing libraries (such as cuCIM, CuPy, or Kornia) that offer algorithmic line or ridge detection functions suitable for high-throughput grid analysis.
+6) For each identified library, evaluate the availability of specific metadata extraction features: line width estimation, local contrast measurement, handling of line crossings (junctions), and robust connectivity analysis (polylines vs. segments).
+7) Compare the multiscale processing capabilities and auto-tuning robustness of the identified tools, focusing on their performance with noisy backgrounds and varying lighting conditions typical of lab photographs. 
+8) Synthesize the findings into a technical review, categorizing tools by their underlying algorithmic approach (gradient-based vs. Hessian-based vs. morphological) and ranking them based on accuracy, metadata richness, and ease of Python integration.
 ### 3.1 Segment Detection
 
 The current prototype is implemented in **`pet_allinone.py`**, supported by the `pet_*` module family. It displays multiple debug plots and saves intermediate results (`debug_*`, `rotated_*`).
