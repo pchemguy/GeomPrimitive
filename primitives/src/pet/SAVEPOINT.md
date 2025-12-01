@@ -91,6 +91,7 @@ These approaches can be fused for maximal robustness.
 > - https://github.com/thorstenwagner/ij-ridgedetection
 > - https://github.com/lxfhfut/ridge-detector
 > - https://scikit-image.org/docs/0.25.x/auto_examples/edges/plot_ridge_filter.html
+> - https://github.com/clEsperanto/pyclesperanto
 
 ### 3.1 Segment Detection
 
