@@ -32,6 +32,7 @@ https://chatgpt.com/c/6924bd28-807c-832b-9443-d63d29b7d3b3
 6. **Downstream Tasks**
     - Metric scale extraction (px/mm)
     - Distortion correction
+    - [Segmentation](./SEGMENTATION.md) + sample extraction (possibly performed before distortion correction)
     - Sample length/area measurement
     - Integration into further computational pipelines
 
