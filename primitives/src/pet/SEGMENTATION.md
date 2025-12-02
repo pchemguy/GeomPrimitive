@@ -2,7 +2,9 @@ https://gemini.google.com/app/1005d073e1f7b62d
 
 > [!NOTE]
 > 
-> **For best results, consider combining Chroma + Saturation (possibly with Hue) + a masks, following by morphological modifications.**
+> The best result so far - start with Lab-a mask. Refine with grabCut. It yields tight borders, but fails to separate blood region. Watershed attempts failed as well. Fiji's Enhance Contrast followed by Find Edges appear to be promising, though attempts to replicate it in Python failed so far. Perhaps, it might be necessary to expand refined region so that Find Edges could properly identify strong outer edge (after contrast enhancement) following by tracing the strong outer edge? Perhaps should use the Red channel? Either way, separation of the region in question appears to be pretty articulated, it should be possible to improve the pipeline.
+>  
+> For best results, consider combining Chroma + Saturation (possibly with Hue) + a masks, following by morphological modifications.
 
 The technical term for "distance from gray" is **Saturation** (or sometimes **Chroma**).
 
