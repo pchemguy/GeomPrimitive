@@ -18,10 +18,14 @@ s_p25, l_p10, l_p85
 
 I need a detailed README section, describing this pipeline.
 
-Include consideration that SxL mask attempts to isolate glare points, low information points (low S AND L), and, importantly, blood splashes where lower saturation with higher L is expected. Generally, glares + blood splash areas are expected to result in bimodal S and L distribution with the final Mask.
+Include consideration that SxL mask attempts to isolate glare points, low information points (low S AND L), and, importantly, blood splashes where lower saturation with higher L is expected. Generally, glares + blood splash areas are expected to result in bimodal S and L distribution with the final Mask. Also include crafted todo:
 
-TODO: Consider performing statistical analysis, identifying and separating the two distribution and setting thresholds accordingly. The current manual threshold settings in pet_segmentation_composite3.py show close to optimal separation with thresholds on low S and high L roughly matching corresponding separation thresholds. The resulting mask would need morphological enhancement and identification of smaller inner spots (not bordering with mask outer border). The inner clusters may need to be inpainted.
+### TODO 
+
+Consider performing statistical analysis, identifying and separating the two distribution and setting thresholds accordingly. The current manual threshold settings in pet_segmentation_composite3.py show close to optimal separation with thresholds on low S and high L roughly matching corresponding separation thresholds. The resulting mask would need morphological enhancement and identification of smaller inner spots (not bordering with mask outer border). The inner clusters may need to be inpainted.
 
 Classification of inner clusters as glares might be something as follows:
-- Identify minimum area bounding box, calculate mu1 and stddev1 (perhaps, both S and L) for masked pixels only. Double bbox sizes and calculate mu2 and stddev2 for non-masked pixels.
+- Identify cluster size (95% percentile distance between any two points)
+- Identify minimum distance from cluster center to area outer border. It should be at least twice the size of the cluster.
+- Identify minimum area bounding box, calculate mu1 and stddev1 (perhaps, both S and L) for masked pixels only. Double bbox sizes and calculate mu2 and stddev2 for non-masked pixels. If abs(mu2-mu1) > 2*(stdev1+stddev2), consider marking for inpainting.
   
