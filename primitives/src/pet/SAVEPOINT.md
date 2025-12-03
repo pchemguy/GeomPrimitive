@@ -5,7 +5,25 @@ https://chatgpt.com/c/6924bd28-807c-832b-9443-d63d29b7d3b3
 > [!NOTE]  
 > 
 > The goal of this project is to develop classical (non–machine-learning) workflows for detecting, analyzing, and rectifying millimeter graph paper grids in ordinary laboratory photographs. Solutions must rely exclusively on deterministic computer vision, geometry, and signal-processing methods, with no neural networks.
->
+> 
+> **Key Modules**
+> 
+> - `pet_allinone.py`
+> - `pet_allinone_v2.py`
+> - `pet_glare.py`
+> - `pet_grid_node_detector.py`
+> - `pet_grid_node_detector_ikde.py` 
+> - `pet_imagej_lcn.py`
+> - `pet_imagej_ridge_detector.py` (defective draft)
+> - `pet_kde_interactive.py`
+> - `pet_kde_interactive_v2.py` 
+> - `pet_preprocess.py`
+> - `pet_segmentation_composite.py`
+> - `pet_segmentation_composite3.py`
+> - `pet_segmentation_grabcut.py`
+> - `pet_segmentation_hsv_s_mask.py`
+> - `pet_segmentation_lab_a_mask.py`
+> 
 > For earlier brainstorming see: [Preliminary Pipeline Notes](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942).
 
 ## 1. High-Level Workflow
@@ -13,11 +31,12 @@ https://chatgpt.com/c/6924bd28-807c-832b-9443-d63d29b7d3b3
 1. **Preprocessing**
     - Image enhancement
     - Illumination correction
-    - Grid-targeted local contrast normalization
+    - ==Grid-targeted local contrast normalization==
     - Noise management / denoising
 2. **Grid Detection**
     - Segment detection (line-based)
     - Node detection (intersection-based)
+    - Ridge detection
 3. **Raw Grid Data Filtering**
     - Cleanup, outlier removal
     - Robust centering, rotation, and scale normalization
