@@ -1,3 +1,10 @@
+"""
+pet_segmentation_composite.py
+-----------------------------
+
+https://gemini.google.com/app/2021246f4a867b0d
+"""
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
