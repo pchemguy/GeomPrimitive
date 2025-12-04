@@ -25,6 +25,8 @@ https://chatgpt.com/c/6924bd28-807c-832b-9443-d63d29b7d3b3
 > - `pet_segmentation_lab_a_mask.py`
 > 
 > For earlier brainstorming see: [Preliminary Pipeline Notes](https://chatgpt.com/c/6915c9bb-ec70-832a-94a1-560ec524b942).
+> 
+> See [Review/README.md]
 
 ## 1. High-Level Workflow
 
