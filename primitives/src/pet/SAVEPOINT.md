@@ -179,7 +179,7 @@ Implementation:
     - **Key Methodology:**
         - `GaussianMixture` from `sklearn.mixture` 
         - `gaussian_kde` from `scipy.stats`
-        - Custom clustering routine (==TODO:== should a library function be used instead?)
+        - Clustering is based on metadata returned by `GaussianMixture` analysis.
 
 Major lines are typically:
 - 1.5x to 3x thicker than minor lines
@@ -196,7 +196,10 @@ Major lines are typically:
 
 Orientation distribution should also be bimodal, separated by ~90° (plus distortion).
 
-Implementation: `pet_geom.py`
+Implementation:
+    - **Module**:`pet_geom.py`
+    - **Key Methodology:**
+        - Uses custom AI generated algorithm. ==TODO==: revisit code, analyze algorithm, add clear explanation.
 
 Outputs include:
 - Peak detection
@@ -400,7 +403,7 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 - [WEIGHTED_KDE](./WEIGHTED_KDE.md)
 - Preliminary comparison using the same workflow of LSD-based and Sobel-edge-detector-based (as implemented in `pet_grid_node_detector.py` and demonstrated via `pet_allinone_v2.py`) suggests that LSD-based analysis may yield broader lines resulting in considerable reduction in sensitivity to geometrical distortion of the grid. Due to this reduced sensitivity, average pitch detection might be more robust, but LSD-based detection might be less suitable to characterizing grid distortions. These conclusions are based on a single image analysis and proper evaluation of both approaches is essential. 
 - Minimum grid pitch estimation as `10 * (pw_major + 1.5 * pw_minor) / 2`, where `pw_major` and `pw_minor` KDE peak width for corresponding `widths` distributions.
-- Width/orientation distribution analysis: should clustering employ standard library functions?
+- Revisit code of orientation/angle distribution analysis in `pet_geom.py`, analyze algorithm, add clear explanation.
 
 ### 8.2 Important Fiji ImageJ Features
 
