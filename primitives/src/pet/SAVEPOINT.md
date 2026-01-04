@@ -174,7 +174,12 @@ Millimeter graph paper contains:
 
 Line-thickness histogram should be bimodal under reasonable image quality.
 
-Implementation: `pet_lsd_width_analysis.py`
+Implementation:
+    - **Module**:`pet_lsd_width_analysis.py`
+    - **Key Methodology:**
+        - `GaussianMixture` from `sklearn.mixture` 
+        - `gaussian_kde` from `scipy.stats`
+        - Custom clustering routine (==TODO:== should a library function be used instead?)
 
 Major lines are typically:
 - 1.5x to 3x thicker than minor lines
@@ -265,7 +270,6 @@ Once major segments are isolated and X/Y families split:
 ![](./screenshots/major-vertical-centers.png )
 **Figure. Representative LSD Segment Centers Family After Thickness and Orientation Separation.** Note, this set has also been rotated using angle obtained from angle distribution analysis. This "Landscape" family clearly exhibits grid structure in vertical direction.
 
-
 ## 4. Node Detection
 
 Node detection (`pet_grid_node_detector.py`) uses:
@@ -283,7 +287,6 @@ See [notes](./GRID_NODES_DETECTION.md).
 
 ![](./screenshots/grid-node-detection.png)
 **Figure. Grid Node Detection** (Note, the shown image also include identified grid-aligned bounding box.)
-
 
 ## 5. Grid-Aligned Bounding Box
 
@@ -397,6 +400,7 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 - [WEIGHTED_KDE](./WEIGHTED_KDE.md)
 - Preliminary comparison using the same workflow of LSD-based and Sobel-edge-detector-based (as implemented in `pet_grid_node_detector.py` and demonstrated via `pet_allinone_v2.py`) suggests that LSD-based analysis may yield broader lines resulting in considerable reduction in sensitivity to geometrical distortion of the grid. Due to this reduced sensitivity, average pitch detection might be more robust, but LSD-based detection might be less suitable to characterizing grid distortions. These conclusions are based on a single image analysis and proper evaluation of both approaches is essential. 
 - Minimum grid pitch estimation as `10 * (pw_major + 1.5 * pw_minor) / 2`, where `pw_major` and `pw_minor` KDE peak width for corresponding `widths` distributions.
+- Width/orientation distribution analysis: should clustering employ standard library functions?
 
 ### 8.2 Important Fiji ImageJ Features
 
