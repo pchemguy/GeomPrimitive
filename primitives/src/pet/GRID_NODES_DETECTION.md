@@ -32,7 +32,7 @@ This works extremely well for printed grids, even under mild perspective.
 
 ---
 
-# **3. Autotune by scanning `k_len` and scoring response**
+## **3. Autotune by scanning `k_len` and scoring response**
 
 Try `k_len` values in range e.g. `[10, 15, 20, 25, 30, 35, 40]`.
 
@@ -51,7 +51,7 @@ This is reliable and fast.
 
 ---
 
-# **4. Use Hough or LSD just to estimate spacing (hybrid method)**
+## **4. Use Hough or LSD just to estimate spacing (hybrid method)**
 
 You can use a **minimal run of LSD** or a **constrained Hough**:
 
@@ -69,7 +69,7 @@ This gives excellent results and is resilient even when binarization is noisy.
 
 ---
 
-# **5. Learn `k_len` from grid density (robust image-statistics method)**
+## **5. Learn `k_len` from grid density (robust image-statistics method)**
 
 Define:
 
@@ -88,7 +88,7 @@ This is similar to choosing a threshold using the elbow method.
 
 ---
 
-# **6. Use scale-space morphology (advanced)**
+## **6. Use scale-space morphology (advanced)**
 
 Perform opening at several scales simultaneously (e.g., 10, 20, 30, 40).
 
@@ -100,7 +100,7 @@ This is analogous to SIFT scale-space interest point detection, but for line str
 
 ---
 
-# **7. Full probabilistic model (overkill, but ideal)**
+## **7. Full probabilistic model (overkill, but ideal)**
 
 Model grid likelihood as:
 
@@ -116,7 +116,7 @@ This requires calibration but is extremely accurate.
 
 ---
 
-# 📌 **Recommendation**
+## 📌 **Recommendation**
 
 The best tradeoff between speed, robustness, and implementation complexity:
 
