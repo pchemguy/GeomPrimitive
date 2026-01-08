@@ -394,9 +394,13 @@ The following figures illustrate full 360 deg sweeps of these quantities. The fu
 
 For an ideal square grid, four dominant resonances should be observer every 90 deg corresponding, for example, to successive orientation of a particular side down (or any other direction). Because there are actually just two families of grid lines (X/Y) the two pairs of resonances spaced 180 deg apart correspond to the same family oriented vertically. For a distorted grid, however, each nominal orientation will have a range of "resonant" angles, as illustrated above. In such a case, nominally 180 deg apart positions may not necessarily correspond to optimally aligned state (for example, consider trapezoidal distortion). For real grids, all four nominal orientations should be analyzed, and this information then can be used for distortion characterization and, possibly, rectification.
 
-## 8. TODO and Notes
+## 8. Image Segmentation
 
-### 8.1 General
+See [Segmentation](./SEGMENTATION.md) and [Segmentation Save Point](./SEGMENTATION_SAVEPOINT.md).
+
+## 9. TODO and Notes
+
+### 9.1 General
 
 - Note how LSD-based segment centers cloud exhibits clearly grid structure (stripes) in one direction, but not the other (at least much more pronounced). Direct fitting via `pet_grid_optimizer.py` and related modules also results in much better results in one direction. Interactive `pet_grid_node_detector.py` script detecting grid nodes based on Sobel operator followed by KDE-based marginal density representation also show strong asymmetry in resonance intensity. 
 - Consider generating KDE from horizontal slices, say top/mid/bottom one third of Y spread for each orientation.
@@ -405,7 +409,7 @@ For an ideal square grid, four dominant resonances should be observer every 90 d
 - Minimum grid pitch estimation as `10 * (pw_major + 1.5 * pw_minor) / 2`, where `pw_major` and `pw_minor` KDE peak width for corresponding `widths` distributions.
 - Revisit code of orientation/angle distribution analysis in `pet_geom.py`, analyze algorithm, add clear explanation.
 
-### 8.2 Important Fiji ImageJ Features
+### 9.2 Important Fiji ImageJ Features
 
 - Plugins -> Integral Image Filters -> Normalize Local Contrast
   Defaults: 40x40x3.00 center/stretch
